@@ -91,22 +91,71 @@ npx supabase gen types typescript --local > src/types/database.ts
 
 프로덕션에서는 시크릿을 `wrangler secret put <NAME>`으로 등록합니다 (Phase 6).
 
+## 인증 (Auth)
+
+로그인은 Google OAuth와 이메일 매직링크(OTP) 두 가지입니다. 비밀번호를 아예 다루지 않는
+방식이라 비밀번호 재설정/유출 걱정이 없고, 신뢰된 소규모 동아리 사이트에는 충분합니다.
+
+### Supabase 대시보드 설정 (최초 1회)
+
+- **Authentication → URL Configuration**: Site URL과 Redirect URLs에
+  `http://localhost:3000/auth/callback`, `https://khuac.com/auth/callback` 등록
+- **Authentication → Providers → Google**: [Google Cloud Console](https://console.cloud.google.com/apis/credentials)에서
+  OAuth 2.0 클라이언트 ID 발급 후 Client ID/Secret 등록. 승인된 리디렉션 URI는 Supabase가
+  알려주는 `https://<project-ref>.supabase.co/auth/v1/callback` 값 사용
+
+### 가입 승인 흐름
+
+새 유저가 로그인하면 `handle_new_user` 트리거(마이그레이션
+[20260907231501_auth_pending_approval.sql](supabase/migrations/20260907231501_auth_pending_approval.sql))가
+`members` 테이블에 `role='pending'` 행을 자동 생성합니다. Auth Webhook 대신 DB 트리거를 쓴
+이유: `auth.users` insert와 같은 트랜잭션에서 동기 실행되어, 인증은 됐는데 `members` 행이
+없는 상태(웹훅 실패/타임아웃)가 아예 발생하지 않습니다.
+
+| 역할 | 접근 가능 범위 |
+| --- | --- |
+| 비로그인 | `/login`만 접근 가능, 그 외는 `/login`으로 리다이렉트 |
+| `pending` | `/pending-approval`만 접근 가능 |
+| `member` | 일반 페이지 접근 가능, `/admin/*` 차단 |
+| `admin` | 전체 접근 가능, `/admin/members`에서 승인/거절 |
+
+승인은 `role`을 `member`로 변경하고, 거절은 Admin API로 `auth.users` 행 자체를 삭제합니다
+(members 행은 `ON DELETE CASCADE`로 함께 삭제 — 거절된 사람은 재가입하려면 처음부터 다시
+가입해야 합니다).
+
+### 테스트 시나리오
+
+1. `/login`에서 이메일로 로그인 → 메일의 링크 클릭 → `/auth/callback` → `/pending-approval`로 리다이렉트
+2. 같은 계정으로 `/`나 `/admin/members`에 직접 접근 시도 → `/pending-approval`로 다시 리다이렉트되는지 확인
+3. Supabase Studio(또는 다른 admin 계정)에서 해당 멤버를 `role='admin'`으로 수동 승격
+4. admin 계정으로 로그인 → `/admin/members`에서 대기 중인 신규 가입자에게 "승인" 클릭
+5. 승인된 계정으로 다시 로그인 → `/`에 정상 접근되는지, `/admin/members`는 차단되는지 확인
+6. 다른 pending 계정에 "거절" 클릭 → 해당 계정으로 로그인 시도 시 Supabase Auth 단계에서부터 실패하는지 확인 (auth.users 행 자체가 삭제됨)
+
 ## 폴더 구조
 
 ```
 src/
-  app/                 # 라우트 (App Router)
+  middleware.ts        # 인증/승인 상태에 따른 라우트 접근 제어
+  app/
+    login/              # Google OAuth + 이메일 매직링크
+    auth/callback/       # OAuth/매직링크 콜백 (code 교환)
+    pending-approval/    # role='pending' 유저 전용 대기 페이지
+    admin/members/       # 가입 승인/거절 (admin 전용)
   components/
+    sign-out-button.tsx
   lib/
     env.ts             # 필수 환경변수 조회 헬퍼
     supabase/
       client.ts        # 브라우저용 (createBrowserClient)
       server.ts        # 서버 컴포넌트/라우트용 (createServerClient, 쿠키 기반 세션)
       admin.ts         # service role 전용, RLS 우회
+      middleware.ts    # 미들웨어 전용 클라이언트 (쿠키 갱신)
     r2/                # R2 클라이언트 / presigned URL      (Phase 3)
     images/            # 리사이징 URL 빌더                   (Phase 3)
     gps/               # EXIF 파싱, Haversine 거리 계산      (Phase 3)
-  types/               # DB 타입                            (Phase 1)
+  types/
+    database.ts        # 수기 작성 DB 타입 (Docker 생기면 생성 타입으로 교체)
 ```
 
 ## 배포 전 준비 (Phase 6에서 진행)
