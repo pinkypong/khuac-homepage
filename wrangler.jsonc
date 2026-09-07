@@ -1,0 +1,33 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": ".open-next/worker.js",
+	"name": "khuac-homepage",
+	"compatibility_date": "2026-09-03",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"services": [
+		{
+			// Self-reference used by OpenNext's cache revalidation; must match "name" above.
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "khuac-homepage"
+		}
+	],
+	"r2_buckets": [
+		{
+			// Bucket must exist before the first deploy: `wrangler r2 bucket create khuac-homepage-opennext-cache`
+			"binding": "NEXT_INC_CACHE_R2_BUCKET",
+			"bucket_name": "khuac-homepage-opennext-cache"
+		}
+		// Phase 3: photo bucket binding goes here, e.g.
+		// { "binding": "PHOTOS_BUCKET", "bucket_name": "khuac-photos" }
+	],
+	"images": {
+		// Powers on-the-fly resizing (thumbnail/preview) instead of sharp - see Phase 3.
+		"binding": "IMAGES"
+	}
+	// Secrets (SUPABASE_SERVICE_ROLE_KEY, R2_SECRET_ACCESS_KEY, ...) are set with
+	// `wrangler secret put <NAME>`, not committed here. Non-secret vars go in "vars".
+}
