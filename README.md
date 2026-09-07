@@ -50,6 +50,39 @@ npm run cf:deploy   # 빌드 + wrangler deploy (Phase 6에서 사용)
 `wrangler.jsonc`의 바인딩을 바꾸면 `npm run cf:typegen`을 다시 돌려 `cloudflare-env.d.ts`를
 갱신하세요.
 
+## 데이터베이스 마이그레이션
+
+스키마는 `supabase/migrations/`에 타임스탬프 파일명으로 관리합니다 (Supabase CLI 표준 방식).
+
+```bash
+npx supabase login                 # 최초 1회, Supabase 계정 인증
+npx supabase link --project-ref <project-ref>   # 이 저장소를 Supabase 프로젝트에 연결
+
+# 로컬(Docker)에서 테스트
+npx supabase start                 # 로컬 Postgres + Studio 기동 (Docker 필요)
+npx supabase db reset              # 마이그레이션 + supabase/seed.sql 적용
+
+# 새 마이그레이션 추가
+npx supabase migration new <설명>   # supabase/migrations/<timestamp>_<설명>.sql 생성
+
+# 원격(프로덕션) Supabase 프로젝트에 반영
+npx supabase db push
+```
+
+`supabase/seed.sql`은 `db reset` 시 자동 실행되며, 테스트용 location 3개 + hike 1개를 넣습니다
+(멤버 승인 플로우는 실제 로그인이 있어야 생기는 `auth.users` 행이 필요해 시드에는 포함하지
+않았습니다 — `locations.created_by` / `hikes.created_by`가 nullable인 이유이기도 합니다).
+
+TypeScript 타입(`src/types/`)은 로컬 Supabase가 떠 있을 때 다음으로 생성합니다:
+
+```bash
+npx supabase gen types typescript --local > src/types/database.ts
+```
+
+이 환경에는 Docker가 없어 이번 Phase에서는 마이그레이션 SQL을 `libpg-query`로 문법만
+정적 검증했습니다 (44개 statement 파싱 성공). Docker가 있는 환경에서 `supabase db reset`으로
+실제 실행 검증을 한 번 거치는 것을 권장합니다.
+
 ## 환경변수
 
 전체 목록과 설명은 [.env.local.example](.env.local.example)을 참고하세요.
