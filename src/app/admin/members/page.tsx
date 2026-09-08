@@ -5,7 +5,7 @@ export default async function AdminMembersPage() {
   const supabase = await createClient();
   const { data: pendingMembers, error } = await supabase
     .from("members")
-    .select("id, auth_user_id, name, email, joined_at")
+    .select("id, auth_user_id, name, email, joined_at, invite:invites!invited_via(label)")
     .eq("role", "pending")
     .order("joined_at", { ascending: true });
 
@@ -35,6 +35,11 @@ export default async function AdminMembersPage() {
                 <p className="text-xs text-neutral-400">
                   신청일: {new Date(member.joined_at).toLocaleDateString("ko-KR")}
                 </p>
+                {member.invite?.[0]?.label && (
+                  <p className="text-xs text-neutral-400">
+                    초대 경로: {member.invite[0].label}
+                  </p>
+                )}
               </div>
               <div className="flex gap-2">
                 <form action={approveMember.bind(null, member.id)}>

@@ -132,6 +132,23 @@ npx supabase gen types typescript --local > src/types/database.ts
 5. 승인된 계정으로 다시 로그인 → `/`에 정상 접근되는지, `/admin/members`는 차단되는지 확인
 6. 다른 pending 계정에 "거절" 클릭 → 해당 계정으로 로그인 시도 시 Supabase Auth 단계에서부터 실패하는지 확인 (auth.users 행 자체가 삭제됨)
 
+### 초대 링크 (카카오톡/밴드 공유용)
+
+Google/이메일 로그인 자체는 그대로고, 여기에 "어떤 경로로 들어왔는지" 추적하는 토큰을 얹은
+것입니다 — 초대 링크로 가입해도 승인 절차는 그대로 필요합니다 (마이그레이션
+[20260908125418_invites.sql](supabase/migrations/20260908125418_invites.sql)).
+
+1. admin 계정으로 `/admin/invites`에서 메모/최대 사용 횟수/만료일(모두 선택)을 입력해 링크 생성
+2. "링크 복사"로 `https://.../join/<token>` 형태의 URL을 받아 카카오톡/밴드에 공유
+3. 받은 사람이 그 링크를 열면 `/join/<token>`에서 초대 유효성을 확인한 뒤 기존과 동일한
+   Google/이메일 로그인 버튼을 보여줌
+4. 로그인 완료 후 `/auth/callback`이 `consume_invite` RPC로 토큰을 소비하고
+   `members.invited_via`에 기록 → 이후는 일반 가입과 동일하게 `/pending-approval`로 이동
+5. admin 계정으로 `/admin/members`를 보면 해당 사람 이름 아래 "초대 경로: <메모>"가 표시되는지 확인
+6. `/admin/invites`에서 만료일을 지난 링크나 "취소"를 누른 링크로 다시 `/join/<token>`에
+   접근하면 "유효하지 않은 초대 링크입니다"가 뜨는지, 그리고 그 상태에서도 로그인 자체는
+   `/login`으로 정상적으로 계속할 수 있는지 확인 (초대 소비 실패가 로그인을 막지 않아야 함)
+
 ## 폴더 구조
 
 ```
@@ -139,11 +156,16 @@ src/
   middleware.ts        # 인증/승인 상태에 따른 라우트 접근 제어
   app/
     login/              # Google OAuth + 이메일 매직링크
-    auth/callback/       # OAuth/매직링크 콜백 (code 교환)
+    join/[token]/        # 초대 링크 랜딩 (카카오톡/밴드 공유용)
+    auth/callback/       # OAuth/매직링크 콜백 (code 교환 + 초대 소비)
     pending-approval/    # role='pending' 유저 전용 대기 페이지
-    admin/members/       # 가입 승인/거절 (admin 전용)
+    admin/
+      members/            # 가입 승인/거절 (admin 전용)
+      invites/            # 초대 링크 발급/취소 (admin 전용)
   components/
     sign-out-button.tsx
+    auth-buttons.tsx    # 로그인 버튼 (login/join 페이지 공용)
+    copy-link-button.tsx
   lib/
     env.ts             # 필수 환경변수 조회 헬퍼
     supabase/
@@ -151,6 +173,7 @@ src/
       server.ts        # 서버 컴포넌트/라우트용 (createServerClient, 쿠키 기반 세션)
       admin.ts         # service role 전용, RLS 우회
       middleware.ts    # 미들웨어 전용 클라이언트 (쿠키 갱신)
+      require-admin.ts # 서버 액션용 admin 세션 체크 (members/invites actions 공용)
     r2/                # R2 클라이언트 / presigned URL      (Phase 3)
     images/            # 리사이징 URL 빌더                   (Phase 3)
     gps/               # EXIF 파싱, Haversine 거리 계산      (Phase 3)
