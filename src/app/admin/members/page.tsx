@@ -1,20 +1,31 @@
 import { createClient } from "@/lib/supabase/server";
 import { approveMember, rejectMember } from "./actions";
 
+interface PendingMemberRow {
+  id: string;
+  auth_user_id: string;
+  name: string;
+  email: string | null;
+  joined_at: string;
+  // members.invited_via -> invites.id is many-to-one from members' side, so
+  // PostgREST embeds it as a single object (or null), not an array.
+  invite: { label: string | null } | null;
+}
+
 export default async function AdminMembersPage() {
   const supabase = await createClient();
-  const { data: pendingMembers, error } = await supabase
+  const { data, error } = await supabase
     .from("members")
     .select("id, auth_user_id, name, email, joined_at, invite:invites!invited_via(label)")
     .eq("role", "pending")
     .order("joined_at", { ascending: true });
-
   if (error) {
     // requireAdminSession also runs inside the actions, but middleware already
     // keeps non-admins out of /admin/*; a query error here means something
     // else broke, not a permissions issue.
     throw error;
   }
+  const pendingMembers = data as unknown as PendingMemberRow[];
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10">
@@ -35,9 +46,9 @@ export default async function AdminMembersPage() {
                 <p className="text-xs text-neutral-400">
                   신청일: {new Date(member.joined_at).toLocaleDateString("ko-KR")}
                 </p>
-                {member.invite?.[0]?.label && (
+                {member.invite?.label && (
                   <p className="text-xs text-neutral-400">
-                    초대 경로: {member.invite[0].label}
+                    초대 경로: {member.invite.label}
                   </p>
                 )}
               </div>

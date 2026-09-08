@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminSession } from "@/lib/supabase/require-admin";
+import { requireAdminSession } from "@/lib/supabase/require-role";
 
 export async function approveMember(memberId: string) {
   const { supabase } = await requireAdminSession();

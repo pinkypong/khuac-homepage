@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdminSession } from "@/lib/supabase/require-admin";
+import { requireAdminSession } from "@/lib/supabase/require-role";
 
 export async function createInvite(formData: FormData) {
   const { supabase, adminId } = await requireAdminSession();

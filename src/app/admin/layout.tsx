@@ -10,6 +10,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <Link href="/admin/invites" className="hover:underline">
           초대 링크
         </Link>
+        <Link href="/admin/photos/unmatched" className="hover:underline">
+          위치 매칭 대기
+        </Link>
       </nav>
       {children}
     </div>

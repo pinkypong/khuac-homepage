@@ -159,9 +159,12 @@ src/
     join/[token]/        # 초대 링크 랜딩 (카카오톡/밴드 공유용)
     auth/callback/       # OAuth/매직링크 콜백 (code 교환 + 초대 소비)
     pending-approval/    # role='pending' 유저 전용 대기 페이지
+    photos/upload/        # 사진 업로드 (presign → R2 직접 업로드 → EXIF/위치 매칭)
+    api/images/[...key]/  # Cloudflare Images 바인딩으로 즉석 리사이징
     admin/
       members/            # 가입 승인/거절 (admin 전용)
       invites/            # 초대 링크 발급/취소 (admin 전용)
+      photos/unmatched/   # 위치 매칭 대기 사진 처리 (admin 전용)
   components/
     sign-out-button.tsx
     auth-buttons.tsx    # 로그인 버튼 (login/join 페이지 공용)
@@ -173,18 +176,70 @@ src/
       server.ts        # 서버 컴포넌트/라우트용 (createServerClient, 쿠키 기반 세션)
       admin.ts         # service role 전용, RLS 우회
       middleware.ts    # 미들웨어 전용 클라이언트 (쿠키 갱신)
-      require-admin.ts # 서버 액션용 admin 세션 체크 (members/invites actions 공용)
-    r2/                # R2 클라이언트 / presigned URL      (Phase 3)
-    images/            # 리사이징 URL 빌더                   (Phase 3)
-    gps/               # EXIF 파싱, Haversine 거리 계산      (Phase 3)
+      require-role.ts  # 서버 액션/라우트용 승인멤버·admin 세션 체크
+    r2/
+      presign.ts        # aws4fetch 기반 presigned PUT URL, storage key 생성
+    images/
+      url.ts             # 썸네일/프리뷰 URL 빌더 (/api/images/... 링크)
+    gps/
+      haversine.ts        # 순수 거리 계산 함수 (유닛테스트 있음)
+      validate.ts          # EXIF GPS 유효성 검사 (0,0 등 무효값 처리)
+      exif.ts               # exifr로 GPS/촬영일/크기 파싱, 실패해도 안 죽음
+      match-photo-location.ts # 4+1가지 매칭 케이스 판정 (순수 함수, 유닛테스트 있음)
   types/
     database.ts        # 수기 작성 DB 타입 (Docker 생기면 생성 타입으로 교체)
 ```
+
+## 사진 업로드 파이프라인 (Phase 3)
+
+1. `/photos/upload`에서 산행(선택)과 파일을 고르면 `presignPhotoUpload` 서버 액션이
+   R2 presigned PUT URL을 발급 (`src/lib/r2/presign.ts`, `aws4fetch` 사용 — 전체 AWS SDK
+   대신 Workers 런타임에 맞는 5KB짜리 경량 SigV4 서명 라이브러리를 씀)
+2. 브라우저가 그 URL로 원본을 R2에 직접 PUT (서버 경유 없음)
+3. `processUploadedPhoto` 서버 액션이 R2 바인딩으로 방금 올라온 원본을 읽어 `exifr`로 EXIF
+   파싱 → `matchPhotoLocation`(`src/lib/gps/match-photo-location.ts`)으로 위치 매칭 →
+   `photos` 테이블에 insert
+4. 썸네일/프리뷰는 저장하지 않고 `/api/images/<storage_key>?w=400&q=75` 같은 URL을 요청할
+   때마다 `env.IMAGES` 바인딩이 즉석 변환 (`src/app/api/images/[...key]/route.ts`) — 이
+   라우트는 그 자체로 `requireApprovedMember()`를 체크함. `middleware.ts`의 정적 파일
+   확장자 제외 규칙(`.jpg`, `.png` 등으로 끝나는 경로는 미들웨어를 건너뜀) 때문에
+   storage key가 확장자를 포함하면 미들웨어가 이 라우트를 아예 안 거치므로, 라우트 자체의
+   인증 체크가 유일한 방어선입니다.
+
+### 위치 매칭 로직 (핵심)
+
+`matchPhotoLocation`이 판정하는 경우의 수 — 처음 4개는 스펙에서 요구한 테스트 케이스,
+5번째는 스펙 산문에는 명시적으로 없지만 `no_gps` enum 값이 실제로 쓰이려면 필요한 경우라
+같이 추가함(직접 실행하며 이렇게 해석했다는 점 참고):
+
+| # | EXIF GPS | 산행(hike) 선택 | 산행에 위치 있음 | 결과 status |
+| - | - | - | - | - |
+| 1 | 있음, 반경 500m 내 등록 장소 있음 | - | - | `auto_matched` |
+| 2 | 있음, 반경 내 등록 장소 없음 | - | - | `manual_pending` |
+| 3 | 없음 | 선택함 | 있음 | `manual_matched` |
+| 4 | 없음 | 선택함 | 없음 | `manual_pending` |
+| 5 | 없음 | 선택 안 함 | - | `no_gps` |
+
+각 케이스는 `src/lib/gps/match-photo-location.test.ts`에 유닛테스트로 있습니다
+(`npm run test`). Haversine 거리 계산 자체도 `src/lib/gps/haversine.test.ts`에서 별도
+검증(반경 경계값 포함).
+
+### 필요한 R2 버킷
+
+```bash
+wrangler r2 bucket create khuac-photos
+```
+
+`.env.local`에는 `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET_NAME`
+(=`khuac-photos`)가 있어야 presign이 동작합니다 (Cloudflare 대시보드 → R2 → Manage API
+Tokens에서 발급). `wrangler.jsonc`의 `PHOTOS_BUCKET` 바인딩은 서버 코드(R2 읽기, 이미지
+리사이징)에서만 쓰이고, 브라우저의 직접 업로드는 이 S3 호환 자격증명으로 별도 인증합니다.
 
 ## 배포 전 준비 (Phase 6에서 진행)
 
 - OpenNext 증분 캐시용 R2 버킷 생성:
   `wrangler r2 bucket create khuac-homepage-opennext-cache`
+- 사진용 R2 버킷 생성: `wrangler r2 bucket create khuac-photos`
 - khuac.com을 Worker의 Custom Domain으로 연결
 - 시크릿 등록 (`wrangler secret put ...`)
 
@@ -192,4 +247,8 @@ src/
 
 - `npm audit`이 `postcss` 취약점 2건을 보고합니다. Next 15.5.25가 내부적으로 물고 있는
   버전이라 Next 16으로 올려야만 해소되며, 빌드 타임 도구 의존성이라 런타임 노출은 없습니다.
+- `esbuild`를 `package.json`에 직접 devDependency로 박아뒀습니다(`^0.28.0`). `@opennextjs/cloudflare`가
+  `npm run cf:build` 실행 시 `esbuild`를 bare import로 불러오는데 정작 자기 `package.json`에는
+  devDependency로만 적어놔서, 우리 쪽에서 하나 hoist되게 안 해주면 `ERR_MODULE_NOT_FOUND`가 남
+  (vitest가 끌고 오는 `vite`의 esbuild peer 범위 `^0.27.0 || ^0.28.0`과도 맞춰야 해서 이 버전대로 고정).
   Next 16 + 어댑터 조합이 충분히 안정화되면 그때 올리는 것을 권장합니다.
