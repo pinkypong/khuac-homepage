@@ -159,6 +159,7 @@ src/
     join/[token]/        # 초대 링크 랜딩 (카카오톡/밴드 공유용)
     auth/callback/       # OAuth/매직링크 콜백 (code 교환 + 초대 소비)
     pending-approval/    # role='pending' 유저 전용 대기 페이지
+    map/                  # Google Maps 지도 (page → map-loader → map-view)
     photos/upload/        # 사진 업로드 (presign → R2 직접 업로드 → EXIF/위치 매칭)
     api/images/[...key]/  # Cloudflare Images 바인딩으로 즉석 리사이징
     admin/
@@ -234,6 +235,38 @@ wrangler r2 bucket create khuac-photos
 (=`khuac-photos`)가 있어야 presign이 동작합니다 (Cloudflare 대시보드 → R2 → Manage API
 Tokens에서 발급). `wrangler.jsonc`의 `PHOTOS_BUCKET` 바인딩은 서버 코드(R2 읽기, 이미지
 리사이징)에서만 쓰이고, 브라우저의 직접 업로드는 이 S3 호환 자격증명으로 별도 인증합니다.
+
+## 지도 (Phase 4)
+
+`/map`에서 좌표가 등록된 모든 장소를 마커로 보여줍니다. 마커에는 그 장소에 매칭된 사진 수가
+배지로 붙고(Phase 3의 `photos.matched_location_id` 기준), 마커를 누르면 InfoWindow에 그
+장소의 산행 목록이 뜨며 각 산행은 `/hikes/<id>` 갤러리로 연결됩니다 (갤러리 페이지 자체는
+Phase 5에서 만듭니다).
+
+국내/해외 장소가 섞여 있어도 초기 화면이 맞도록, 마커들의 bounding box로 `fitBounds`를
+겁니다(`src/app/map/map-view.tsx`의 `FitBounds`). 장소가 하나뿐이면 `fitBounds`가 최대
+줌까지 당겨버려서 대신 적당한 줌 레벨로 고정합니다.
+
+Maps SDK는 `next/dynamic`의 `ssr: false`로 클라이언트에서만 로드합니다. App Router에서
+`ssr: false`는 서버 컴포넌트에서 못 쓰기 때문에, 페이지(서버) → `map-loader.tsx`(클라이언트,
+동적 import + API 키 검사) → `map-view.tsx`(실제 지도) 3단 구조입니다.
+
+### Google Cloud Console 설정 체크리스트
+
+카드 등록이 필수이고 사용량 기반 과금이라, 키를 만들고 **반드시** 아래 제한을 걸어주세요.
+
+- [ ] 프로젝트 생성 후 **Maps JavaScript API** 활성화
+- [ ] 결제 계정 연결 (Maps Platform은 카드 등록 필수)
+- [ ] API 키 발급 후 **애플리케이션 제한 → HTTP 리퍼러**:
+      `https://khuac.com/*`, `http://localhost:3000/*`
+- [ ] **API 제한 → Maps JavaScript API** 하나만 선택
+- [ ] **할당량(Quotas)**에서 일일 요청 상한 설정 (실수/유출 시 과금 폭탄 방지)
+- [ ] 결제 **예산 및 알림**에서 임계값 알림 설정
+- [ ] 발급한 키를 `.env.local`의 `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`에 넣기
+
+`NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID`는 선택입니다. 비워두면 Google의 `DEMO_MAP_ID`로 동작하며
+(Advanced Marker에는 Map ID가 필요합니다), Cloud 기반 지도 스타일을 쓰고 싶을 때만 실제
+Map ID를 발급해 넣으면 됩니다. 키가 아예 없으면 지도 대신 설정 안내 문구가 표시됩니다.
 
 ## 배포 전 준비 (Phase 6에서 진행)
 

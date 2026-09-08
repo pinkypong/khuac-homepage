@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 
@@ -19,9 +20,22 @@ export default async function Home() {
           {member.name}님, 환영합니다. ({member.role})
         </p>
       )}
-      <p className="text-sm text-neutral-400">
-        산행 지도, 사진 갤러리는 이후 Phase에서 추가됩니다.
-      </p>
+
+      <nav className="flex flex-wrap justify-center gap-4 text-sm">
+        <Link href="/map" className="underline">
+          산행 지도
+        </Link>
+        <Link href="/photos/upload" className="underline">
+          사진 업로드
+        </Link>
+        {member?.role === "admin" && (
+          <Link href="/admin/members" className="underline">
+            관리자
+          </Link>
+        )}
+      </nav>
+
+      <p className="text-sm text-neutral-400">사진 갤러리는 이후 Phase에서 추가됩니다.</p>
       <SignOutButton />
     </main>
   );
