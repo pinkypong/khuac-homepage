@@ -10,6 +10,7 @@ import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
 import { ACTIVITY_LABEL } from "./activity";
 import { deleteLocation } from "./admin-actions";
+import { renameLocation } from "./actions";
 
 export const TYPE_LABEL: Record<LocationType, string> = {
   mountain: "산",
@@ -129,6 +130,34 @@ export function SidePanel({
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [deleting, setDeleting] = useState(false);
+  // Holds the id of the folder being renamed, not a boolean: leaving the folder
+  // and opening another one must not carry a stale draft over to it.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [savingName, setSavingName] = useState(false);
+
+  async function saveName(location: MapLocation) {
+    const name = draftName.trim();
+    if (!name) {
+      window.alert("장소 이름을 입력해주세요.");
+      return;
+    }
+    if (name === location.name) {
+      setRenamingId(null);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await renameLocation(location.id, name);
+      setRenamingId(null);
+      router.refresh();
+    } catch (err) {
+      // The input stays open with the typed name so a failed save is retryable.
+      window.alert(err instanceof Error ? err.message : "장소 이름 변경에 실패했습니다.");
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function removeLocation(location: MapLocation) {
     const message = `'${location.name}' 장소와 그 안의 모든 활동·사진이 함께 삭제됩니다. 계속할까요?`;
@@ -138,34 +167,53 @@ export function SidePanel({
       await deleteLocation(location.id);
       // The open folder no longer exists, so fall back to the album list.
       onBackToRoot();
-      router.refresh();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "장소 삭제에 실패했습니다.");
     } finally {
       setDeleting(false);
+      // Refetched even when the action reports a failure: it drops the rows
+      // before its storage cleanup, so a late error still leaves a folder
+      // that is gone from the database but alive on the map.
+      router.refresh();
     }
   }
 
-  const albums = useMemo(() => {
-    const entries = locations.flatMap((location) =>
-      location.hikes.map((hike) => ({ location, hike })),
-    );
+  // The panel lists folders, not activities: a folder with no activity yet
+  // still has to show up (it exists on the map), and one with several has to
+  // open its own list rather than jumping into whichever activity came first.
+  const folders = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q
-      ? entries.filter(({ location, hike }) =>
-          [
-            location.name,
-            location.region ?? "",
+    return locations
+      .filter((location) => {
+        if (!q) return true;
+        // A folder matches on its own fields or on any activity inside it.
+        return [
+          location.name,
+          location.region ?? "",
+          ...location.hikes.flatMap((hike) => [
             hike.title,
             hike.date,
             ...hike.photos.map((p) => p.uploaderName),
-          ]
-            .join(" ")
-            .toLowerCase()
-            .includes(q),
-        )
-      : entries;
-    return filtered.sort((a, b) => b.hike.date.localeCompare(a.hike.date));
+          ]),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+      })
+      .map((location) => {
+        // page.tsx hands hikes over newest-first.
+        const latestHike: MapHike | null = location.hikes[0] ?? null;
+        return {
+          location,
+          latestHike,
+          sortKey: latestHike?.date ?? location.createdAt.slice(0, 10),
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.sortKey.localeCompare(a.sortKey) ||
+          a.location.name.localeCompare(b.location.name, "ko"),
+      );
   }, [locations, query]);
 
   const activeHike = activeLocation?.hikes.find((h) => h.id === activeHikeId) ?? null;
@@ -193,17 +241,66 @@ export function SidePanel({
             ← 전체 지도
           </button>
           <div className="mt-2 flex items-center gap-2">
-            <h1 className="text-lg font-semibold">{activeLocation.name}</h1>
-            <TypeTag type={activeLocation.type} />
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => removeLocation(activeLocation)}
-                disabled={deleting}
-                className="ml-auto rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
-              >
-                장소 삭제
-              </button>
+            {renamingId === activeLocation.id ? (
+              <>
+                <input
+                  autoFocus
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void saveName(activeLocation);
+                    } else if (e.key === "Escape") {
+                      setRenamingId(null);
+                    }
+                  }}
+                  disabled={savingName}
+                  aria-label="장소 이름"
+                  className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base font-semibold disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => saveName(activeLocation)}
+                  disabled={savingName}
+                  className="shrink-0 rounded bg-neutral-800 px-2 py-1 text-[11px] text-white hover:bg-neutral-700 disabled:opacity-50"
+                >
+                  저장
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRenamingId(null)}
+                  disabled={savingName}
+                  className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  취소
+                </button>
+              </>
+            ) : (
+              <>
+                <h1 className="min-w-0 truncate text-lg font-semibold">{activeLocation.name}</h1>
+                <TypeTag type={activeLocation.type} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftName(activeLocation.name);
+                    setRenamingId(activeLocation.id);
+                  }}
+                  className="ml-auto shrink-0 rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50"
+                >
+                  이름 수정
+                </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => removeLocation(activeLocation)}
+                    disabled={deleting}
+                    className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  >
+                    장소 삭제
+                  </button>
+                )}
+              </>
             )}
           </div>
           <p className="mt-0.5 text-xs text-neutral-500">
@@ -290,34 +387,50 @@ export function SidePanel({
         </div>
 
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold">활동 앨범</h2>
-          <span className="text-xs text-neutral-500">{albums.length}건</span>
+          <h2 className="text-sm font-semibold">장소 앨범</h2>
+          <span className="text-xs text-neutral-500">{folders.length}곳</span>
         </div>
 
-        {albums.length === 0 ? (
+        {folders.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-500">
-            {query ? "검색 결과가 없습니다." : "아직 등록된 활동이 없습니다."}
+            {query ? "검색 결과가 없습니다." : "아직 등록된 장소가 없습니다."}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {albums.map(({ location, hike }) => (
-              <li key={hike.id}>
+            {folders.map(({ location, latestHike }) => (
+              <li key={location.id}>
                 <button
-                  onClick={() => onOpenHike(hike)}
+                  onClick={() => onOpenLocation(location.id)}
                   className="w-full rounded-lg border border-neutral-200 p-3 text-left transition-colors hover:border-neutral-400"
                 >
                   <span className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{location.name}</span>
+                    <span className="min-w-0 truncate text-sm font-semibold">{location.name}</span>
                     <TypeTag type={location.type} />
                   </span>
-                  <span className="mt-1 flex items-center gap-1.5">
-                    <span className="min-w-0 truncate text-sm text-neutral-700">{hike.title}</span>
-                    <ActivityTag type={hike.activityType} />
-                  </span>
                   <span className="mt-1 block text-[11px] text-neutral-500">
-                    {new Date(hike.date).toLocaleDateString("ko-KR")} · 사진{" "}
-                    {hike.photos.length}장
+                    {[
+                      location.region,
+                      "활동 " + location.hikes.length + "건",
+                      "사진 " + location.photoCount + "장",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
+                  {latestHike ? (
+                    <span className="mt-1 flex items-center gap-1.5">
+                      <span className="min-w-0 truncate text-xs text-neutral-700">
+                        최근 · {latestHike.title}
+                      </span>
+                      <ActivityTag type={latestHike.activityType} />
+                      <span className="shrink-0 text-[11px] text-neutral-500">
+                        {new Date(latestHike.date).toLocaleDateString("ko-KR")}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="mt-1 block text-xs text-neutral-400">
+                      아직 활동이 없습니다 · 눌러서 첫 활동을 등록하세요
+                    </span>
+                  )}
                 </button>
               </li>
             ))}

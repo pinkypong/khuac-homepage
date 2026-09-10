@@ -42,6 +42,9 @@ export interface MapLocation {
   elevation: number | null;
   lat: number;
   lng: number;
+  // Stands in for "last activity" when a folder has no activity yet, so a
+  // freshly created one still sorts near the top of the panel's list.
+  createdAt: string;
   hikes: MapHike[];
   photoCount: number;
 }

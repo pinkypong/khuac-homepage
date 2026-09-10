@@ -11,6 +11,7 @@ interface LocationRow {
   elevation: number | null;
   lat: number;
   lng: number;
+  created_at: string;
   hikes: {
     id: string;
     title: string;
@@ -44,7 +45,7 @@ export default async function MapPage() {
   const { data, error } = await supabase
     .from("locations")
     .select(
-      "id, name, type, region, elevation, lat, lng, " +
+      "id, name, type, region, elevation, lat, lng, created_at, " +
         "hikes(id, title, date, description, activity_type, lat, lng, track, " +
         "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader:members!uploader_id(name)))",
     )
@@ -95,6 +96,7 @@ export default async function MapPage() {
       elevation: row.elevation,
       lat: row.lat,
       lng: row.lng,
+      createdAt: row.created_at,
       hikes,
       photoCount: hikes.reduce((sum, h) => sum + h.photos.length, 0),
     };
