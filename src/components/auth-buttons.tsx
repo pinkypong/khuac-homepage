@@ -9,8 +9,19 @@ interface AuthButtonsProps {
   inviteToken?: string;
 }
 
-function callbackUrl(inviteToken?: string) {
+// OAuth completes in the same browser it started in, so it can use the PKCE
+// code exchange at /auth/callback.
+function oauthCallbackUrl(inviteToken?: string) {
   const url = new URL("/auth/callback", window.location.origin);
+  if (inviteToken) url.searchParams.set("invite", inviteToken);
+  return url.toString();
+}
+
+// Email links land on the same route. "next" is always present so a custom
+// mail template can append "&token_hash=...&type=..." safely later on.
+function emailConfirmUrl(inviteToken?: string) {
+  const url = new URL("/auth/callback", window.location.origin);
+  url.searchParams.set("next", "/");
   if (inviteToken) url.searchParams.set("invite", inviteToken);
   return url.toString();
 }
@@ -26,7 +37,7 @@ export function AuthButtons({ inviteToken }: AuthButtonsProps) {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: callbackUrl(inviteToken) },
+      options: { redirectTo: oauthCallbackUrl(inviteToken) },
     });
     if (error) setError(error.message);
   }
@@ -38,7 +49,7 @@ export function AuthButtons({ inviteToken }: AuthButtonsProps) {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: callbackUrl(inviteToken) },
+      options: { emailRedirectTo: emailConfirmUrl(inviteToken) },
     });
     setPending(false);
     if (error) setError(error.message);

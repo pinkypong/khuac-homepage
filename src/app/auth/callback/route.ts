@@ -1,26 +1,47 @@
+import { type EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-// Handles both Google OAuth and email magic-link sign-in: @supabase/ssr uses
-// the PKCE flow for both, so they land here with the same ?code= param.
+// Handles both shapes Supabase can send here:
+//
+//  - ?code=...        PKCE. Used by Google OAuth, and by email links while the
+//                     project is on Supabase's default mail templates. Requires
+//                     the code verifier cookie, so the link only works in the
+//                     browser that started the flow.
+//  - ?token_hash=...  verifyOtp. Needs no verifier, so an email link opened on
+//                     another device still works. Only reachable once the mail
+//                     template is customised, which needs custom SMTP on the
+//                     free plan.
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  const tokenHash = searchParams.get("token_hash");
+  const type = searchParams.get("type") as EmailOtpType | null;
   const invite = searchParams.get("invite");
   const next = searchParams.get("next") ?? "/";
 
-  if (code) {
-    const supabase = await createClient();
+  const supabase = await createClient();
+  let failed: string | null = null;
+
+  if (tokenHash && type) {
+    const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+    failed = error ? `verifyOtp ${error.status}: ${error.message}` : null;
+  } else if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      if (invite) {
-        // Best-effort: an invalid/expired/exhausted token must not block sign-in,
-        // it just means this signup won't be attributed to that invite.
-        await supabase.rpc("consume_invite", { p_token: invite });
-      }
-      return NextResponse.redirect(`${origin}${next}`);
-    }
+    failed = error ? `exchangeCodeForSession ${error.status}: ${error.message}` : null;
+  } else {
+    failed = "no code or token_hash in callback";
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+  if (failed) {
+    console.error("[auth/callback]", failed);
+    return NextResponse.redirect(`${origin}/login?error=auth`);
+  }
+
+  if (invite) {
+    // Best-effort: a bad/expired invite must not block sign-in, it just means
+    // this signup won't be attributed to that invite.
+    await supabase.rpc("consume_invite", { p_token: invite });
+  }
+  return NextResponse.redirect(`${origin}${next}`);
 }
