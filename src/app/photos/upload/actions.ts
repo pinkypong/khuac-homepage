@@ -1,14 +1,17 @@
 "use server";
 
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
-import { buildStorageKey, presignPutUrl } from "@/lib/r2/presign";
+import { buildStorageKey, deleteObject, getObject, presignPutUrl } from "@/lib/r2/client";
+import { MAX_PHOTO_BYTES, PHOTO_LIMITS_HINT, isAllowedPhotoType } from "@/lib/photos/limits";
 import { parseExif } from "@/lib/gps/exif";
 import { matchPhotoLocation, type LocationCandidate } from "@/lib/gps/match-photo-location";
 import type { PhotoLocationMatchStatus } from "@/types/database";
 
 export async function presignPhotoUpload(input: { filename: string; contentType: string }) {
   await requireApprovedMember();
+  if (!isAllowedPhotoType(input.contentType)) {
+    throw new Error(PHOTO_LIMITS_HINT);
+  }
   const storageKey = buildStorageKey(input.filename);
   const uploadUrl = await presignPutUrl(storageKey);
   return { storageKey, uploadUrl, contentType: input.contentType };
@@ -29,12 +32,18 @@ export async function processUploadedPhoto(input: {
 }): Promise<ProcessPhotoResult> {
   const { supabase, memberId } = await requireApprovedMember();
 
-  const { env } = getCloudflareContext();
-  const object = await env.PHOTOS_BUCKET.get(input.storageKey);
+  const object = await getObject(input.storageKey);
   if (!object) throw new Error("Uploaded object not found in R2");
 
-  const bytes = await object.arrayBuffer();
-  const exif = await parseExif(bytes);
+  // A presigned PUT can't constrain what the client actually sends, so the
+  // real check happens here - and anything rejected is removed rather than
+  // left paying for storage.
+  if (!isAllowedPhotoType(object.contentType) || object.bytes.byteLength > MAX_PHOTO_BYTES) {
+    await deleteObject(input.storageKey);
+    throw new Error(PHOTO_LIMITS_HINT);
+  }
+
+  const exif = await parseExif(object.bytes);
 
   let hikeLocation: LocationCandidate | null = null;
   if (input.hikeId) {

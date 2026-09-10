@@ -1,7 +1,7 @@
 "use server";
 
 import { requireApprovedMember } from "@/lib/supabase/require-role";
-import { presignGetUrl } from "@/lib/r2/presign";
+import { presignGetUrl } from "@/lib/r2/client";
 
 // The original stays private in R2; members get a short-lived signed URL
 // rather than the bucket being made public.

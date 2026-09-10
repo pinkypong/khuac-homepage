@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import Link from "next/link";
 import { getThumbnailUrl } from "@/lib/images/url";
 import {
   downsampleTrack,
@@ -13,23 +12,30 @@ import {
 import { PhotoLightbox, type LightboxPhoto } from "@/components/photo-lightbox";
 import type { MapHike, MapLocation } from "./map-shell";
 import { saveHikeTrack } from "./actions";
+import { deleteActivity, deletePhoto } from "./admin-actions";
+import { ACTIVITY_LABEL } from "./activity";
+import { HikePhotoUpload } from "./hike-photo-upload";
 
 export function HikeDetail({
   location,
   hike,
   onBackToRoot,
   onBackToLocation,
+  isAdmin,
 }: {
   location: MapLocation;
   hike: MapHike;
   onBackToRoot: () => void;
   onBackToLocation: () => void;
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [gpxError, setGpxError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const photos: LightboxPhoto[] = hike.photos.map((p) => ({
     id: p.id,
@@ -57,22 +63,67 @@ export function HikeDetail({
     }
   }
 
+  async function removeActivity() {
+    if (!window.confirm(`'${hike.title}' 활동과 그 사진이 모두 삭제됩니다. 계속할까요?`)) return;
+    setDeleting(true);
+    try {
+      await deleteActivity(hike.id);
+      // This detail view now points at nothing, so step back to the folder.
+      onBackToLocation();
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "활동 삭제에 실패했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function removePhoto(photoId: string) {
+    if (!window.confirm("이 사진을 삭제할까요?")) return;
+    setDeleting(true);
+    try {
+      await deletePhoto(photoId);
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "사진 삭제에 실패했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   const distance =
     hike.track && hike.track.length >= 2 ? formatDistance(trackDistanceMeters(hike.track)) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-neutral-200 px-4 py-3">
-        <nav className="flex items-center gap-1.5 text-xs text-neutral-500">
-          <button onClick={onBackToRoot} className="hover:underline">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={onBackToLocation}
+            className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
+          >
+            ← {location.name}
+          </button>
+          <button onClick={onBackToRoot} className="text-xs text-neutral-500 hover:underline">
             전체 지도
           </button>
-          <span>›</span>
-          <button onClick={onBackToLocation} className="hover:underline">
-            {location.name}
-          </button>
-        </nav>
-        <h1 className="mt-2 text-lg font-semibold">{hike.title}</h1>
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <h1 className="min-w-0 truncate text-lg font-semibold">{hike.title}</h1>
+          <span className="shrink-0 rounded border border-neutral-300 px-1 py-px text-[10px] text-neutral-600">
+            {ACTIVITY_LABEL[hike.activityType]}
+          </span>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={removeActivity}
+              disabled={deleting}
+              className="ml-auto shrink-0 rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              활동 삭제
+            </button>
+          )}
+        </div>
         <p className="mt-0.5 text-xs text-neutral-500">
           {new Date(hike.date).toLocaleDateString("ko-KR")}
           {distance ? " · " + distance : ""}
@@ -85,6 +136,14 @@ export function HikeDetail({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setUploadOpen(true)}
+          className="mb-4 w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs text-neutral-600 hover:border-neutral-500"
+        >
+          + 이 활동에 사진 올리기
+        </button>
+
         {location.type !== "climbing_gym" && (
           <div className="mb-4 rounded-lg border border-dashed border-neutral-300 p-3">
             <p className="text-xs font-medium">
@@ -109,16 +168,11 @@ export function HikeDetail({
         )}
 
         {photos.length === 0 ? (
-          <p className="py-8 text-center text-sm text-neutral-500">
-            아직 올라온 사진이 없습니다.{" "}
-            <Link href="/photos/upload" className="underline">
-              사진 업로드
-            </Link>
-          </p>
+          <p className="py-8 text-center text-sm text-neutral-500">아직 올라온 사진이 없습니다.</p>
         ) : (
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo, index) => (
-              <li key={photo.id}>
+              <li key={photo.id} className="relative">
                 <button
                   type="button"
                   onClick={() => setOpenIndex(index)}
@@ -137,11 +191,26 @@ export function HikeDetail({
                     {photo.uploaderName}
                   </span>
                 </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(photo.id)}
+                    disabled={deleting}
+                    aria-label="사진 삭제"
+                    className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] leading-none text-white hover:bg-red-600 disabled:opacity-50"
+                  >
+                    삭제
+                  </button>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {uploadOpen && (
+        <HikePhotoUpload hikeId={hike.id} onClose={() => setUploadOpen(false)} />
+      )}
 
       <PhotoLightbox photos={photos} openIndex={openIndex} onChangeIndex={setOpenIndex} />
     </div>

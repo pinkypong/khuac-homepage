@@ -7,6 +7,8 @@ export type MemberRole = "admin" | "member" | "pending";
 
 export type LocationType = "mountain" | "climbing_gym" | "crag";
 
+export type ActivityType = "hiking" | "indoor_climbing" | "outdoor_wall" | "climbing";
+
 export type PhotoLocationMatchStatus =
   | "auto_matched"
   | "manual_pending"

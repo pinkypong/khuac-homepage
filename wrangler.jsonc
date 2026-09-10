@@ -20,15 +20,10 @@
 			// Bucket must exist before the first deploy: `wrangler r2 bucket create khuac-homepage-opennext-cache`
 			"binding": "NEXT_INC_CACHE_R2_BUCKET",
 			"bucket_name": "khuac-homepage-opennext-cache"
-		},
-		{
-			// Bucket must exist before the first deploy: `wrangler r2 bucket create khuac-photos`
-			// Also needs S3 API credentials (R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)
-			// for the browser's direct presigned PUT upload - the binding below is only reachable
-			// from Worker code (reads, and the /api/images resizing route).
-			"binding": "PHOTOS_BUCKET",
-			"bucket_name": "khuac-photos"
 		}
+		// The photo bucket has no binding on purpose: server-side reads go through
+		// R2's S3 API (src/lib/r2/client.ts) so `next dev` and Workers use one path.
+		// It needs R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY instead.
 	],
 	"images": {
 		// Powers on-the-fly resizing (thumbnail/preview) instead of sharp - see Phase 3.

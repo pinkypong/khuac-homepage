@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { presignPhotoUpload, processUploadedPhoto } from "./actions";
+import {
+  MAX_PHOTO_BYTES,
+  PHOTO_ACCEPT_ATTR,
+  PHOTO_LIMITS_HINT,
+  resolvePhotoType,
+} from "@/lib/photos/limits";
 import type { PhotoLocationMatchStatus } from "@/types/database";
 
 interface Hike {
@@ -28,19 +34,34 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
   const [hikeId, setHikeId] = useState("");
   const [files, setFiles] = useState<{ file: File; status: FileStatus }[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [rejectedCount, setRejectedCount] = useState(0);
 
   function onFilesSelected(selected: FileList | null) {
     if (!selected) return;
-    setFiles(Array.from(selected).map((file) => ({ file, status: { state: "pending" } })));
+    const picked = Array.from(selected);
+    const usable = picked.filter(
+      (file) => resolvePhotoType(file.name, file.type) !== null && file.size <= MAX_PHOTO_BYTES,
+    );
+    setRejectedCount(picked.length - usable.length);
+    setFiles(usable.map((file) => ({ file, status: { state: "pending" } })));
   }
 
   async function uploadOne(file: File): Promise<FileStatus> {
+    // Resolved rather than taken from file.type directly: an empty type would
+    // land in R2 as application/octet-stream and fail the server-side check.
+    const contentType = resolvePhotoType(file.name, file.type);
+    if (!contentType) return { state: "error", message: PHOTO_LIMITS_HINT };
+
     const { storageKey, uploadUrl } = await presignPhotoUpload({
       filename: file.name,
-      contentType: file.type || "application/octet-stream",
+      contentType,
     });
 
-    const putResponse = await fetch(uploadUrl, { method: "PUT", body: file });
+    const putResponse = await fetch(uploadUrl, {
+      method: "PUT",
+      body: file,
+      headers: { "content-type": contentType },
+    });
     if (!putResponse.ok) {
       return { state: "error", message: `업로드 실패 (${putResponse.status})` };
     }
@@ -97,11 +118,17 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
         사진 파일
         <input
           type="file"
-          accept="image/*"
+          accept={PHOTO_ACCEPT_ATTR}
           multiple
           onChange={(e) => onFilesSelected(e.target.files)}
           className="rounded border border-neutral-300 px-3 py-2"
         />
+        <span className="text-xs text-neutral-500">{PHOTO_LIMITS_HINT}</span>
+        {rejectedCount > 0 && (
+          <span className="text-xs text-red-600">
+            {rejectedCount}개 파일은 지원하지 않는 형식이거나 용량이 커서 제외했습니다.
+          </span>
+        )}
       </label>
 
       <button

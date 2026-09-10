@@ -2,8 +2,11 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LocationType } from "@/types/database";
+import type { ActivityType, LocationType } from "@/types/database";
 import type { TrackPoint } from "@/lib/gps/track";
+import Link from "next/link";
+import { APIProvider } from "@vis.gl/react-google-maps";
+import { SignOutButton } from "@/components/sign-out-button";
 import { SidePanel } from "./side-panel";
 
 export interface MapPhoto {
@@ -21,6 +24,11 @@ export interface MapHike {
   title: string;
   date: string;
   description: string | null;
+  activityType: ActivityType;
+  // The specific peak/route inside the location, e.g. 대청봉 within 설악산.
+  // Null until someone pins one; the location's own point stands in.
+  lat: number | null;
+  lng: number | null;
   track: TrackPoint[] | null;
   trackSource: "gpx" | "photos" | null;
   photos: MapPhoto[];
@@ -53,7 +61,20 @@ const MIN_MAP_WIDTH = 320;
 const MIN_PANEL_WIDTH = 340;
 const DEFAULT_MAP_WIDTH = 0.55;
 
-export function MapShell({ locations }: { locations: MapLocation[] }) {
+export interface PickedPoint {
+  lat: number;
+  lng: number;
+}
+
+export function MapShell({
+  locations,
+  viewerName,
+  isAdmin,
+}: {
+  locations: MapLocation[];
+  viewerName: string;
+  isAdmin: boolean;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState<number | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
@@ -63,6 +84,10 @@ export function MapShell({ locations }: { locations: MapLocation[] }) {
   const [activeHikeId, setActiveHikeId] = useState<string | null>(null);
   const [pinnedHikeId, setPinnedHikeId] = useState<string | null>(null);
   const [hoveredHikeId, setHoveredHikeId] = useState<string | null>(null);
+  // When the "new location" form is open the map turns into a coordinate
+  // picker - far easier than asking anyone to type lat/lng.
+  const [picking, setPicking] = useState(false);
+  const [pickedPoint, setPickedPoint] = useState<PickedPoint | null>(null);
 
   useEffect(() => {
     if (mapWidth !== null) return;
@@ -115,20 +140,38 @@ export function MapShell({ locations }: { locations: MapLocation[] }) {
     setHoveredHikeId(null);
   }
 
-  return (
-    <div ref={containerRef} className="flex h-[calc(100vh-0px)] w-full overflow-hidden">
+  const shell = (
+    <div className="flex h-screen w-full flex-col overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-4 py-2">
+        <span className="text-sm font-semibold">산악부 지도</span>
+        <nav className="flex items-center gap-4 text-xs text-neutral-600">
+          {viewerName && <span className="text-neutral-500">{viewerName}</span>}
+          {isAdmin && (
+            <Link href="/admin/members" className="hover:underline">
+              관리자
+            </Link>
+          )}
+          <SignOutButton />
+        </nav>
+      </header>
+
+    <div ref={containerRef} className="flex min-h-0 w-full flex-1 overflow-hidden">
       {mapOpen && (
         <>
           <div className="relative shrink-0" style={{ width: mapWidth ?? undefined }}>
             {apiKey ? (
               <MapView
-                apiKey={apiKey}
                 mapId={mapId}
                 locations={locations}
                 activeLocationId={activeLocationId}
                 pinnedHike={pinnedHike}
                 hoveredHike={hoveredHike}
                 onSelectLocation={openLocation}
+                onSelectHike={openHike}
+                onCollapseMap={() => setMapOpen(false)}
+                picking={picking}
+                pickedPoint={pickedPoint}
+                onPickPoint={setPickedPoint}
               />
             ) : (
               <div className="p-4">
@@ -138,13 +181,6 @@ export function MapShell({ locations }: { locations: MapLocation[] }) {
                 </p>
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setMapOpen(false)}
-              className="absolute left-3 top-3 z-10 rounded border border-neutral-300 bg-white/95 px-2.5 py-1 text-xs text-neutral-700 shadow-sm hover:bg-white"
-            >
-              지도 접기
-            </button>
           </div>
 
           <div
@@ -173,13 +209,34 @@ export function MapShell({ locations }: { locations: MapLocation[] }) {
           locations={locations}
           activeLocation={activeLocation}
           activeHikeId={activeHikeId}
+          isAdmin={isAdmin}
           pinnedHikeId={pinnedHikeId}
           onOpenLocation={openLocation}
           onOpenHike={openHike}
           onHoverHike={setHoveredHikeId}
           onBackToRoot={goToRoot}
+          picking={picking}
+          pickedPoint={pickedPoint}
+          onPickPoint={setPickedPoint}
+          onPickingChange={(next) => {
+            setPicking(next);
+            if (!next) setPickedPoint(null);
+            if (next && !mapOpen) setMapOpen(true);
+          }}
         />
       </div>
+      </div>
     </div>
+  );
+
+  // APIProvider wraps both columns, not just the map: the "new location"
+  // search box in the panel needs the Places library too.
+  // language/region make Places return Korean names (관악산, not "Gwanaksan").
+  return apiKey ? (
+    <APIProvider apiKey={apiKey} language="ko" region="KR">
+      {shell}
+    </APIProvider>
+  ) : (
+    shell
   );
 }

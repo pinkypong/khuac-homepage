@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { photoPointsToTrack, type TrackPoint } from "@/lib/gps/track";
-import type { LocationType } from "@/types/database";
+import type { ActivityType, LocationType } from "@/types/database";
 import { MapShell, type MapLocation, type MapHike } from "./map-shell";
 
 interface LocationRow {
@@ -16,6 +16,9 @@ interface LocationRow {
     title: string;
     date: string;
     description: string | null;
+    activity_type: ActivityType;
+    lat: number | null;
+    lng: number | null;
     track: TrackPoint[] | null;
     photos: {
       id: string;
@@ -30,11 +33,19 @@ interface LocationRow {
 
 export default async function MapPage() {
   const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: member } = user
+    ? await supabase.from("members").select("name, role").eq("auth_user_id", user.id).single()
+    : { data: null };
+  const viewer = (member as { name: string; role: string } | null) ?? null;
   const { data, error } = await supabase
     .from("locations")
     .select(
       "id, name, type, region, elevation, lat, lng, " +
-        "hikes(id, title, date, description, track, " +
+        "hikes(id, title, date, description, activity_type, lat, lng, track, " +
         "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader:members!uploader_id(name)))",
     )
     .not("lat", "is", null)
@@ -67,6 +78,9 @@ export default async function MapPage() {
           title: hike.title,
           date: hike.date,
           description: hike.description,
+          activityType: hike.activity_type,
+          lat: hike.lat,
+          lng: hike.lng,
           track: hike.track ?? fallback,
           trackSource: hike.track ? "gpx" : fallback ? "photos" : null,
           photos,
@@ -86,5 +100,11 @@ export default async function MapPage() {
     };
   });
 
-  return <MapShell locations={locations} />;
+  return (
+    <MapShell
+      locations={locations}
+      viewerName={viewer?.name ?? ""}
+      isAdmin={viewer?.role === "admin"}
+    />
+  );
 }

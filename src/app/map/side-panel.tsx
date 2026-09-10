@@ -1,10 +1,15 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import type { LocationType } from "@/types/database";
+import type { ActivityType, LocationType } from "@/types/database";
 import { formatDistance, trackDistanceMeters, type TrackPoint } from "@/lib/gps/track";
-import type { MapHike, MapLocation } from "./map-shell";
+import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import { HikeDetail } from "./hike-detail";
+import { NewLocationForm } from "./new-location-form";
+import { NewHikeForm } from "./new-hike-form";
+import { ACTIVITY_LABEL } from "./activity";
+import { deleteLocation } from "./admin-actions";
 
 export const TYPE_LABEL: Record<LocationType, string> = {
   mountain: "산",
@@ -25,6 +30,14 @@ function TypeTag({ type }: { type: LocationType }) {
       style={{ backgroundColor: TYPE_COLOR[type] }}
     >
       {TYPE_LABEL[type]}
+    </span>
+  );
+}
+
+function ActivityTag({ type }: { type: ActivityType }) {
+  return (
+    <span className="shrink-0 rounded border border-neutral-300 px-1 py-px text-[10px] text-neutral-600">
+      {ACTIVITY_LABEL[type]}
     </span>
   );
 }
@@ -93,6 +106,11 @@ export function SidePanel({
   onOpenHike,
   onHoverHike,
   onBackToRoot,
+  isAdmin,
+  picking,
+  pickedPoint,
+  onPickingChange,
+  onPickPoint,
 }: {
   locations: MapLocation[];
   activeLocation: MapLocation | null;
@@ -102,8 +120,31 @@ export function SidePanel({
   onOpenHike: (hike: MapHike) => void;
   onHoverHike: (hikeId: string | null) => void;
   onBackToRoot: () => void;
+  isAdmin: boolean;
+  picking: boolean;
+  pickedPoint: PickedPoint | null;
+  onPickingChange: (picking: boolean) => void;
+  onPickPoint: (point: PickedPoint) => void;
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  async function removeLocation(location: MapLocation) {
+    const message = `'${location.name}' 장소와 그 안의 모든 활동·사진이 함께 삭제됩니다. 계속할까요?`;
+    if (!window.confirm(message)) return;
+    setDeleting(true);
+    try {
+      await deleteLocation(location.id);
+      // The open folder no longer exists, so fall back to the album list.
+      onBackToRoot();
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "장소 삭제에 실패했습니다.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const albums = useMemo(() => {
     const entries = locations.flatMap((location) =>
@@ -136,6 +177,7 @@ export function SidePanel({
         hike={activeHike}
         onBackToRoot={onBackToRoot}
         onBackToLocation={() => onOpenLocation(activeLocation.id)}
+        isAdmin={isAdmin}
       />
     );
   }
@@ -144,12 +186,25 @@ export function SidePanel({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-neutral-200 px-4 py-3">
-          <button onClick={onBackToRoot} className="text-xs text-neutral-500 hover:underline">
+          <button
+            onClick={onBackToRoot}
+            className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
+          >
             ← 전체 지도
           </button>
           <div className="mt-2 flex items-center gap-2">
             <h1 className="text-lg font-semibold">{activeLocation.name}</h1>
             <TypeTag type={activeLocation.type} />
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => removeLocation(activeLocation)}
+                disabled={deleting}
+                className="ml-auto rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                장소 삭제
+              </button>
+            )}
           </div>
           <p className="mt-0.5 text-xs text-neutral-500">
             {[
@@ -163,11 +218,14 @@ export function SidePanel({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <p className="mb-2 text-xs text-neutral-500">
-            산행 기록 {activeLocation.hikes.length}건
+            활동 기록 {activeLocation.hikes.length}건
           </p>
+          <div className="mb-3">
+            <NewHikeForm locationId={activeLocation.id} />
+          </div>
           {activeLocation.hikes.length === 0 ? (
             <p className="py-8 text-center text-sm text-neutral-500">
-              아직 등록된 산행이 없습니다.
+              아직 등록된 활동이 없습니다.
             </p>
           ) : (
             <ul className="flex flex-col gap-2">
@@ -186,7 +244,10 @@ export function SidePanel({
                   >
                     <TrackThumb track={hike.track} pinned={pinnedHikeId === hike.id} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">{hike.title}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="min-w-0 truncate text-sm font-semibold">{hike.title}</span>
+                        <ActivityTag type={hike.activityType} />
+                      </span>
                       <span className="mt-0.5 block text-[11px] text-neutral-500">
                         {hikeMeta(hike).join(" · ")}
                       </span>
@@ -204,24 +265,38 @@ export function SidePanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-neutral-200 px-4 py-3">
+        {picking && (
+          <p className="mb-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
+            지도를 클릭해 새 장소의 위치를 지정하세요.
+          </p>
+        )}
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="산 이름, 산행, 날짜, 올린 사람으로 검색"
+          placeholder="장소, 활동, 날짜, 올린 사람으로 검색"
           className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
         />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className="mb-3">
+          <NewLocationForm
+            pickedPoint={pickedPoint}
+            onPickingChange={onPickingChange}
+            onPickPoint={onPickPoint}
+            onCreated={onOpenLocation}
+          />
+        </div>
+
         <div className="mb-2 flex items-baseline justify-between">
-          <h2 className="text-sm font-semibold">산행 앨범</h2>
+          <h2 className="text-sm font-semibold">활동 앨범</h2>
           <span className="text-xs text-neutral-500">{albums.length}건</span>
         </div>
 
         {albums.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-500">
-            {query ? "검색 결과가 없습니다." : "아직 등록된 산행이 없습니다."}
+            {query ? "검색 결과가 없습니다." : "아직 등록된 활동이 없습니다."}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -235,7 +310,10 @@ export function SidePanel({
                     <span className="text-sm font-semibold">{location.name}</span>
                     <TypeTag type={location.type} />
                   </span>
-                  <span className="mt-1 block truncate text-sm text-neutral-700">{hike.title}</span>
+                  <span className="mt-1 flex items-center gap-1.5">
+                    <span className="min-w-0 truncate text-sm text-neutral-700">{hike.title}</span>
+                    <ActivityTag type={hike.activityType} />
+                  </span>
                   <span className="mt-1 block text-[11px] text-neutral-500">
                     {new Date(hike.date).toLocaleDateString("ko-KR")} · 사진{" "}
                     {hike.photos.length}장

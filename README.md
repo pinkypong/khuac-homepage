@@ -9,13 +9,13 @@
 | 프레임워크 | Next.js 15.5.25 (App Router, TypeScript, Tailwind CSS v4) |
 | 호스팅 | Cloudflare Workers (`@opennextjs/cloudflare` 어댑터) |
 | DB / Auth | Supabase (Postgres, RLS, pgvector) |
-| 사진 저장소 | Cloudflare R2 (원본만 저장) |
-| 이미지 리사이징 | Cloudflare Images 바인딩 (요청 시점 즉석 변환) |
+| 사진 저장소 | Cloudflare R2 (원본 + 변환 썸네일 캐시) |
+| 이미지 리사이징 | Cloudflare Images 바인딩 (최초 1회 변환 후 R2에 캐시) |
 | 지도 | Google Maps Platform |
 
 > **네이티브 바이너리 금지**: Workers 런타임은 V8 isolate 기반이라 `sharp` 같은 네이티브 모듈을
-> 실행할 수 없습니다. 썸네일/프리뷰는 미리 만들어 저장하지 않고, `wrangler.jsonc`의 `IMAGES`
-> 바인딩으로 요청 시점에 변환합니다.
+> 실행할 수 없습니다. 썸네일/프리뷰는 `wrangler.jsonc`의 `IMAGES` 바인딩으로 요청 시점에
+> 만들고, 결과를 R2에 캐시해 사진당 한 번만 변환합니다.
 
 ## 로컬 개발 시작하기
 
@@ -159,9 +159,11 @@ src/
     join/[token]/        # 초대 링크 랜딩 (카카오톡/밴드 공유용)
     auth/callback/       # OAuth/매직링크 콜백 (code 교환 + 초대 소비)
     pending-approval/    # role='pending' 유저 전용 대기 페이지
-    map/                  # Google Maps 지도 (page → map-loader → map-view)
+    map/                  # 지도 중심 화면 (page → map-shell → map-view / side-panel / hike-detail)
+    hikes/[id]/           # 산행 갤러리 딥링크 (지도 밖에서 바로 열 때)
+    privacy/              # 개인정보처리방침 (Google OAuth 심사에 필요한 공개 페이지)
     photos/upload/        # 사진 업로드 (presign → R2 직접 업로드 → EXIF/위치 매칭)
-    api/images/[...key]/  # Cloudflare Images 바인딩으로 즉석 리사이징
+    api/images/[...key]/  # 리사이징 + R2 캐시
     admin/
       members/            # 가입 승인/거절 (admin 전용)
       invites/            # 초대 링크 발급/취소 (admin 전용)
@@ -170,6 +172,7 @@ src/
     sign-out-button.tsx
     auth-buttons.tsx    # 로그인 버튼 (login/join 페이지 공용)
     copy-link-button.tsx
+    photo-lightbox.tsx  # 사진 뷰어 (지도 패널 / 갤러리 페이지 공용)
   lib/
     env.ts             # 필수 환경변수 조회 헬퍼
     supabase/
@@ -179,7 +182,9 @@ src/
       middleware.ts    # 미들웨어 전용 클라이언트 (쿠키 갱신)
       require-role.ts  # 서버 액션/라우트용 승인멤버·admin 세션 체크
     r2/
-      presign.ts        # aws4fetch 기반 presigned PUT URL, storage key 생성
+      client.ts         # aws4fetch 기반 presigned URL + S3 API 읽기/쓰기/삭제
+    photos/
+      limits.ts         # 허용 이미지 형식·용량 (동영상 차단)
     images/
       url.ts             # 썸네일/프리뷰 URL 빌더 (/api/images/... 링크)
     gps/
@@ -187,6 +192,7 @@ src/
       validate.ts          # EXIF GPS 유효성 검사 (0,0 등 무효값 처리)
       exif.ts               # exifr로 GPS/촬영일/크기 파싱, 실패해도 안 죽음
       match-photo-location.ts # 4+1가지 매칭 케이스 판정 (순수 함수, 유닛테스트 있음)
+      track.ts              # GPX 파싱·축약·거리 계산, 사진 GPS 폴백 경로 (유닛테스트 있음)
   types/
     database.ts        # 수기 작성 DB 타입 (Docker 생기면 생성 타입으로 교체)
 ```
@@ -194,18 +200,37 @@ src/
 ## 사진 업로드 파이프라인 (Phase 3)
 
 1. `/photos/upload`에서 산행(선택)과 파일을 고르면 `presignPhotoUpload` 서버 액션이
-   R2 presigned PUT URL을 발급 (`src/lib/r2/presign.ts`, `aws4fetch` 사용 — 전체 AWS SDK
+   R2 presigned PUT URL을 발급 (`src/lib/r2/client.ts`, `aws4fetch` 사용 — 전체 AWS SDK
    대신 Workers 런타임에 맞는 5KB짜리 경량 SigV4 서명 라이브러리를 씀)
 2. 브라우저가 그 URL로 원본을 R2에 직접 PUT (서버 경유 없음)
-3. `processUploadedPhoto` 서버 액션이 R2 바인딩으로 방금 올라온 원본을 읽어 `exifr`로 EXIF
+3. `processUploadedPhoto` 서버 액션이 R2의 S3 API로 방금 올라온 원본을 읽어 `exifr`로 EXIF
    파싱 → `matchPhotoLocation`(`src/lib/gps/match-photo-location.ts`)으로 위치 매칭 →
    `photos` 테이블에 insert
-4. 썸네일/프리뷰는 저장하지 않고 `/api/images/<storage_key>?w=400&q=75` 같은 URL을 요청할
-   때마다 `env.IMAGES` 바인딩이 즉석 변환 (`src/app/api/images/[...key]/route.ts`) — 이
-   라우트는 그 자체로 `requireApprovedMember()`를 체크함. `middleware.ts`의 정적 파일
-   확장자 제외 규칙(`.jpg`, `.png` 등으로 끝나는 경로는 미들웨어를 건너뜀) 때문에
+4. 썸네일/프리뷰는 `/api/images/<storage_key>?w=400&q=75` 요청 시 `env.IMAGES` 바인딩으로
+   변환하고, 결과를 R2의 `derived/w400q75/...` 키에 캐시합니다
+   (`src/app/api/images/[...key]/route.ts`). Cloudflare가 이미지 변환을 **월별 고유
+   (이미지, 옵션) 조합 단위로** 과금하기 때문에, 캐시가 없으면 아카이브를 훑는 달마다
+   전체가 다시 과금됩니다. 썸네일은 수십 KB라 저장이 훨씬 쌉니다.
+   이 라우트는 그 자체로 `requireApprovedMember()`를 체크합니다. `middleware.ts`의 정적
+   파일 확장자 제외 규칙(`.jpg`, `.png` 등으로 끝나는 경로는 미들웨어를 건너뜀) 때문에
    storage key가 확장자를 포함하면 미들웨어가 이 라우트를 아예 안 거치므로, 라우트 자체의
    인증 체크가 유일한 방어선입니다.
+
+### 서버에서 R2를 읽는 방식
+
+서버 측 읽기/쓰기는 Workers 바인딩이 아니라 **R2의 S3 API**(`src/lib/r2/client.ts`)를
+씁니다. 브라우저는 presigned URL로 *실제* R2에 올리는데, `next dev`에서 R2 바인딩은
+Miniflare의 로컬 에뮬레이션 버킷이라 방금 올라온 객체를 절대 못 봅니다. S3 경로로 통일하면
+로컬과 배포가 같게 동작합니다. 그래서 `wrangler.jsonc`에는 사진용 R2 바인딩이 없고,
+`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET_NAME`을 씁니다.
+
+### 동영상 차단
+
+`src/lib/photos/limits.ts`에 허용 형식(JPEG/PNG/WebP/HEIC)과 용량 상한(30MB)을 두고,
+파일 선택 필터 → 클라이언트 필터 → **서버 검증** 3단계로 막습니다. presigned PUT은
+클라이언트가 무엇이든 올릴 수 있으므로 업로드 완료 후 실제 파일을 다시 읽어 형식·크기를
+확인하고, 어긋나면 R2에서 삭제합니다. 동영상을 막는 이유는 용량(4K 1분 > 사진 수백 장)뿐
+아니라 `exifr`도 Images 바인딩도 영상을 처리하지 못해 썸네일이 깨지기 때문입니다.
 
 ### 위치 매칭 로직 (핵심)
 
@@ -228,11 +253,11 @@ src/
 ### 필요한 R2 버킷
 
 ```bash
-wrangler r2 bucket create khuac-photos
+wrangler r2 bucket create khuac
 ```
 
 `.env.local`에는 `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET_NAME`
-(=`khuac-photos`)가 있어야 presign이 동작합니다 (Cloudflare 대시보드 → R2 → Manage API
+(=`khuac`)가 있어야 presign이 동작합니다 (Cloudflare 대시보드 → R2 → Manage API
 Tokens에서 발급). `wrangler.jsonc`의 `PHOTOS_BUCKET` 바인딩은 서버 코드(R2 읽기, 이미지
 리사이징)에서만 쓰이고, 브라우저의 직접 업로드는 이 S3 호환 자격증명으로 별도 인증합니다.
 
@@ -272,7 +297,7 @@ Map ID를 발급해 넣으면 됩니다. 키가 아예 없으면 지도 대신 �
 
 - OpenNext 증분 캐시용 R2 버킷 생성:
   `wrangler r2 bucket create khuac-homepage-opennext-cache`
-- 사진용 R2 버킷 생성: `wrangler r2 bucket create khuac-photos`
+- 사진용 R2 버킷 생성: `wrangler r2 bucket create khuac`
 - khuac.com을 Worker의 Custom Domain으로 연결
 - 시크릿 등록 (`wrangler secret put ...`)
 
