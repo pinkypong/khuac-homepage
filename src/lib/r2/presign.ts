@@ -43,3 +43,14 @@ export async function presignPutUrl(storageKey: string, expiresInSeconds = 300):
   });
   return signed.url;
 }
+
+export async function presignGetUrl(storageKey: string, expiresInSeconds = 300): Promise<string> {
+  const client = r2Client();
+  const url = new URL(objectUrl(storageKey));
+  url.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
+  const signed = await client.sign(url.toString(), {
+    method: "GET",
+    aws: { signQuery: true },
+  });
+  return signed.url;
+}
