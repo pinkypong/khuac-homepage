@@ -11,8 +11,9 @@ import {
 } from "@/lib/gps/track";
 import { PhotoLightbox, type LightboxPhoto } from "@/components/photo-lightbox";
 import type { MapHike, MapLocation } from "./map-shell";
-import { saveHikeTrack } from "./actions";
-import { deleteActivity, deletePhoto } from "./admin-actions";
+import { renameActivity, saveHikeTrack } from "./actions";
+import { deleteActivity } from "./admin-actions";
+import { deletePhoto } from "./photo-actions";
 import { ACTIVITY_LABEL } from "./activity";
 import { HikePhotoUpload } from "./hike-photo-upload";
 
@@ -36,6 +37,9 @@ export function HikeDetail({
   const [uploading, setUploading] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Keyed by hike id so moving to another activity can't carry a stale draft.
+  const [renaming, setRenaming] = useState<{ hikeId: string; title: string } | null>(null);
+  const [savingName, setSavingName] = useState(false);
 
   const photos: LightboxPhoto[] = hike.photos.map((p) => ({
     id: p.id,
@@ -60,6 +64,21 @@ export function HikeDetail({
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function submitRename() {
+    if (!renaming) return;
+    setSavingName(true);
+    try {
+      await renameActivity(hike.id, renaming.title);
+      setRenaming(null);
+      router.refresh();
+    } catch (err) {
+      // The input stays open with what was typed so it can be retried.
+      window.alert(err instanceof Error ? err.message : "활동 이름 수정에 실패했습니다.");
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -108,11 +127,47 @@ export function HikeDetail({
             전체 지도
           </button>
         </div>
+        {renaming?.hikeId === hike.id ? (
+          <div className="mt-2 flex items-center gap-1.5">
+            <input
+              value={renaming.title}
+              onChange={(e) => setRenaming({ hikeId: hike.id, title: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitRename();
+                if (e.key === "Escape") setRenaming(null);
+              }}
+              autoFocus
+              className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-sm"
+            />
+            <button
+              type="button"
+              onClick={submitRename}
+              disabled={savingName}
+              className="shrink-0 rounded bg-neutral-900 px-2 py-1 text-[11px] text-white disabled:opacity-50"
+            >
+              저장
+            </button>
+            <button
+              type="button"
+              onClick={() => setRenaming(null)}
+              className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-[11px] text-neutral-600"
+            >
+              취소
+            </button>
+          </div>
+        ) : (
         <div className="mt-2 flex items-center gap-2">
           <h1 className="min-w-0 truncate text-lg font-semibold">{hike.title}</h1>
           <span className="shrink-0 rounded border border-neutral-300 px-1 py-px text-[10px] text-neutral-600">
             {ACTIVITY_LABEL[hike.activityType]}
           </span>
+          <button
+            type="button"
+            onClick={() => setRenaming({ hikeId: hike.id, title: hike.title })}
+            className="shrink-0 rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600 hover:bg-neutral-50"
+          >
+            이름 수정
+          </button>
           {isAdmin && (
             <button
               type="button"
@@ -124,6 +179,7 @@ export function HikeDetail({
             </button>
           )}
         </div>
+        )}
         <p className="mt-0.5 text-xs text-neutral-500">
           {new Date(hike.date).toLocaleDateString("ko-KR")}
           {distance ? " · " + distance : ""}
@@ -191,17 +247,16 @@ export function HikeDetail({
                     {photo.uploaderName}
                   </span>
                 </button>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => removePhoto(photo.id)}
-                    disabled={deleting}
-                    aria-label="사진 삭제"
-                    className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] leading-none text-white hover:bg-red-600 disabled:opacity-50"
-                  >
-                    삭제
-                  </button>
-                )}
+                {/* Any approved member may remove a photo, not just admins. */}
+                <button
+                  type="button"
+                  onClick={() => removePhoto(photo.id)}
+                  disabled={deleting}
+                  aria-label="사진 삭제"
+                  className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] leading-none text-white hover:bg-red-600 disabled:opacity-50"
+                >
+                  삭제
+                </button>
               </li>
             ))}
           </ul>

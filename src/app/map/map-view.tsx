@@ -107,6 +107,44 @@ function Dot({
   );
 }
 
+type MapTypeChoice = "roadmap" | "hybrid";
+
+const MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
+  { id: "roadmap", label: "지도" },
+  { id: "hybrid", label: "위성" },
+];
+
+/** Stands in for the stock 지도/위성 switcher. "hybrid" rather than "satellite"
+    so place names stay on the imagery - finding mountains by name is the point. */
+function MapTypeToggle() {
+  const map = useMap();
+  const [mapType, setMapType] = useState<MapTypeChoice>("roadmap");
+
+  return (
+    <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
+      {MAP_TYPES.map(({ id, label }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => {
+            if (!map) return;
+            map.setMapTypeId(id);
+            setMapType(id);
+          }}
+          className={
+            "border-l border-neutral-300 px-2.5 py-1 first:border-l-0 " +
+            (mapType === id
+              ? "bg-neutral-900 text-white"
+              : "text-neutral-700 hover:bg-neutral-50")
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function MapView({
   mapId,
   locations,
@@ -156,6 +194,7 @@ export function MapView({
       defaultZoom={DEFAULT_ZOOM}
       gestureHandling="greedy"
       disableDefaultUI={false}
+      mapTypeControl={false}
       className="h-full w-full"
       onZoomChanged={(event) => setZoom(event.detail.zoom)}
       onClick={(event) => {
@@ -164,8 +203,8 @@ export function MapView({
         if (latLng) onPickPoint({ lat: latLng.lat, lng: latLng.lng });
       }}
     >
-      {/* Rendered as a real map control so Google lays it out in its own
-          stack instead of it landing on top of the map/satellite toggle. */}
+      {/* A real map control, so Google spaces it within its own stack rather
+          than letting it land on top of another control. */}
       <MapControl position={ControlPosition.LEFT_BOTTOM}>
         <button
           type="button"
@@ -174,6 +213,12 @@ export function MapView({
         >
           지도 접기
         </button>
+      </MapControl>
+
+      {/* Top-left is where the stock switcher sat, and it stays clear of the
+          fullscreen (top-right) and 지도 접기 (left-bottom) controls. */}
+      <MapControl position={ControlPosition.TOP_LEFT}>
+        <MapTypeToggle />
       </MapControl>
 
       <Camera locations={locations} activeLocationId={activeLocationId} pinnedHike={pinnedHike} />

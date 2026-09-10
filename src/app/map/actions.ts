@@ -96,3 +96,32 @@ export async function createHike(input: {
   revalidatePath("/map");
   return { hikeId: (data as { id: string }).id };
 }
+
+// Any approved member may rename an album, not just its creator: names often
+// come straight from a Google Places search and arrive wrong.
+export async function renameLocation(locationId: string, name: string) {
+  const { supabase } = await requireApprovedMember();
+
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("장소 이름을 입력해주세요.");
+
+  const { error } = await supabase
+    .from("locations")
+    .update({ name: trimmed })
+    .eq("id", locationId);
+  if (error) throw error;
+
+  revalidatePath("/map");
+}
+
+export async function renameActivity(hikeId: string, title: string) {
+  const { supabase } = await requireApprovedMember();
+
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("활동 이름을 입력해주세요.");
+
+  const { error } = await supabase.from("hikes").update({ title: trimmed }).eq("id", hikeId);
+  if (error) throw error;
+
+  revalidatePath("/map");
+}
