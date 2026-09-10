@@ -1,50 +1,90 @@
 import { createClient } from "@/lib/supabase/server";
-import { MapLoader, type MapLocation } from "./map-loader";
+import { photoPointsToTrack, type TrackPoint } from "@/lib/gps/track";
+import type { LocationType } from "@/types/database";
+import { MapShell, type MapLocation, type MapHike } from "./map-shell";
 
 interface LocationRow {
   id: string;
   name: string;
+  type: LocationType;
   region: string | null;
   elevation: number | null;
   lat: number;
   lng: number;
-  hikes: { id: string; title: string; date: string }[];
-  // PostgREST returns aggregates on a to-many embed as [{ count: n }].
-  photos: { count: number }[];
+  hikes: {
+    id: string;
+    title: string;
+    date: string;
+    description: string | null;
+    track: TrackPoint[] | null;
+    photos: {
+      id: string;
+      storage_key_original: string;
+      taken_at: string | null;
+      exif_lat: number | null;
+      exif_lng: number | null;
+      uploader: { name: string } | null;
+    }[];
+  }[];
 }
 
 export default async function MapPage() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("locations")
-    .select("id, name, region, elevation, lat, lng, hikes(id, title, date), photos(count)")
+    .select(
+      "id, name, type, region, elevation, lat, lng, " +
+        "hikes(id, title, date, description, track, " +
+        "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader:members!uploader_id(name)))",
+    )
     .not("lat", "is", null)
     .not("lng", "is", null)
     .order("name");
   if (error) throw error;
 
-  const locations: MapLocation[] = (data as unknown as LocationRow[]).map((row) => ({
-    id: row.id,
-    name: row.name,
-    region: row.region,
-    elevation: row.elevation,
-    lat: row.lat,
-    lng: row.lng,
-    photoCount: row.photos?.[0]?.count ?? 0,
-    hikes: [...(row.hikes ?? [])].sort((a, b) => b.date.localeCompare(a.date)),
-  }));
+  const locations: MapLocation[] = (data as unknown as LocationRow[]).map((row) => {
+    const hikes: MapHike[] = [...(row.hikes ?? [])]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map((hike) => {
+        const photos = [...(hike.photos ?? [])]
+          .sort((a, b) => (a.taken_at ?? "").localeCompare(b.taken_at ?? ""))
+          .map((p) => ({
+            id: p.id,
+            storageKey: p.storage_key_original,
+            takenAt: p.taken_at,
+            exifLat: p.exif_lat,
+            exifLng: p.exif_lng,
+            uploaderName: p.uploader?.name ?? "알 수 없음",
+          }));
 
-  return (
-    <main className="flex h-screen flex-col">
-      <header className="border-b border-neutral-200 px-4 py-3">
-        <h1 className="text-lg font-semibold">산행 지도</h1>
-        <p className="text-sm text-neutral-500">
-          등록된 장소 {locations.length}곳 · 마커를 누르면 그 장소의 산행 목록이 나옵니다.
-        </p>
-      </header>
-      <div className="min-h-0 flex-1">
-        <MapLoader locations={locations} />
-      </div>
-    </main>
-  );
+        // A gym has no walking route at all; elsewhere fall back to the
+        // photos' own GPS trail when no GPX has been uploaded.
+        const fallback = row.type === "climbing_gym" ? null : photoPointsToTrack(photos);
+
+        return {
+          id: hike.id,
+          locationId: row.id,
+          title: hike.title,
+          date: hike.date,
+          description: hike.description,
+          track: hike.track ?? fallback,
+          trackSource: hike.track ? "gpx" : fallback ? "photos" : null,
+          photos,
+        };
+      });
+
+    return {
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      region: row.region,
+      elevation: row.elevation,
+      lat: row.lat,
+      lng: row.lng,
+      hikes,
+      photoCount: hikes.reduce((sum, h) => sum + h.photos.length, 0),
+    };
+  });
+
+  return <MapShell locations={locations} />;
 }
