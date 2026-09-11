@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getPreviewUrl } from "@/lib/images/url";
 import { getOriginalUrl } from "@/app/hikes/[id]/actions";
+import { CommentThread } from "./comment-thread";
 
 export interface LightboxPhoto {
   id: string;
@@ -46,6 +47,10 @@ export function PhotoLightbox({
     if (openIndex === null) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") close();
+      // Arrow keys move the caret while a comment is being typed; stepping to
+      // the next photo mid-sentence would throw the draft away.
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === "TEXTAREA" || target?.tagName === "INPUT") return;
       if (e.key === "ArrowRight") step(1);
       if (e.key === "ArrowLeft") step(-1);
     }
@@ -63,6 +68,12 @@ export function PhotoLightbox({
       // Originals stay private in R2; this hands out a short-lived signed URL.
       const url = await getOriginalUrl(photoId);
       window.open(url, "_blank", "noopener");
+    } catch {
+      // Any member may delete any photo, so the one on screen can be gone by
+      // the time this button is pressed. Without this the rejection was
+      // swallowed and the button simply did nothing, twice, forever.
+      window.alert("사진을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.");
+      close();
     } finally {
       setDownloading(false);
     }
@@ -98,41 +109,57 @@ export function PhotoLightbox({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-6">
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            step(-1);
-          }}
-          className="shrink-0 px-3 py-6 text-3xl text-white/70 hover:text-white"
-          aria-label="이전 사진"
-        >
-          ‹
-        </button>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={getPreviewUrl(open.storageKey)}
-          alt={open.uploaderName + "님이 올린 사진"}
-          onClick={(e) => e.stopPropagation()}
-          className="max-h-full max-w-full object-contain"
-        />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            step(1);
-          }}
-          className="shrink-0 px-3 py-6 text-3xl text-white/70 hover:text-white"
-          aria-label="다음 사진"
-        >
-          ›
-        </button>
-      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 md:flex-row md:gap-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                step(-1);
+              }}
+              className="shrink-0 px-3 py-6 text-3xl text-white/70 hover:text-white"
+              aria-label="이전 사진"
+            >
+              ‹
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getPreviewUrl(open.storageKey)}
+              alt={open.uploaderName + "님이 올린 사진"}
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-full max-w-full object-contain"
+            />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                step(1);
+              }}
+              className="shrink-0 px-3 py-6 text-3xl text-white/70 hover:text-white"
+              aria-label="다음 사진"
+            >
+              ›
+            </button>
+          </div>
 
-      <p className="pb-4 text-center text-xs text-white/50">
-        {openIndex + 1} / {photos.length}
-      </p>
+          <p className="pt-2 text-center text-xs text-white/50">
+            {openIndex + 1} / {photos.length}
+          </p>
+        </div>
+
+        {/* A light panel rather than a dark variant of the thread: it is the
+            same component the activity panel renders, and one styling keeps
+            the two readings of a comment identical.
+            Keyed by photo so stepping to the next one drops the half-typed
+            draft with the photo it was meant for. */}
+        <aside
+          onClick={(e) => e.stopPropagation()}
+          className="max-h-[40vh] w-full shrink-0 overflow-y-auto rounded-lg bg-white p-3 md:max-h-none md:w-80"
+        >
+          <CommentThread key={open.id} subjectKind="photo" subjectId={open.id} />
+        </aside>
+      </div>
     </div>
   );
 }

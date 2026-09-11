@@ -10,11 +10,12 @@ import {
   trackDistanceMeters,
 } from "@/lib/gps/track";
 import { PhotoLightbox, type LightboxPhoto } from "@/components/photo-lightbox";
+import { CommentThread } from "@/components/comment-thread";
 import type { MapHike, MapLocation } from "./map-shell";
 import { renameActivity, saveHikeTrack } from "./actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
-import { ACTIVITY_LABEL } from "./activity";
+import { ACTIVITY_COLOR, ACTIVITY_LABEL } from "./activity";
 import { HikePhotoUpload } from "./hike-photo-upload";
 
 export function HikeDetail({
@@ -158,7 +159,10 @@ export function HikeDetail({
         ) : (
         <div className="mt-2 flex items-center gap-2">
           <h1 className="min-w-0 truncate text-lg font-semibold">{hike.title}</h1>
-          <span className="shrink-0 rounded border border-neutral-300 px-1 py-px text-[10px] text-neutral-600">
+          <span
+            className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium text-white"
+            style={{ backgroundColor: ACTIVITY_COLOR[hike.activityType] }}
+          >
             {ACTIVITY_LABEL[hike.activityType]}
           </span>
           <button
@@ -261,6 +265,12 @@ export function HikeDetail({
             ))}
           </ul>
         )}
+
+        {/* Keyed by hike so switching activities inside the panel remounts the
+            thread instead of showing the previous one's comments. */}
+        <div className="mt-5 border-t border-neutral-200 pt-4">
+          <CommentThread key={hike.id} subjectKind="hike" subjectId={hike.id} />
+        </div>
       </div>
 
       {uploadOpen && (
