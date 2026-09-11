@@ -93,8 +93,14 @@ npx supabase gen types typescript --local > src/types/database.ts
 
 ## 인증 (Auth)
 
-로그인은 Google OAuth와 이메일 매직링크(OTP) 두 가지입니다. 비밀번호를 아예 다루지 않는
-방식이라 비밀번호 재설정/유출 걱정이 없고, 신뢰된 소규모 동아리 사이트에는 충분합니다.
+`/login`은 **로그인 / 회원가입** 탭으로 나뉘고, 각 탭에서 Google OAuth 또는 이메일+비밀번호를
+쓸 수 있습니다. 매직링크(OTP)도 "비밀번호 없이 메일로 로그인 링크 받기"로 남아 있습니다 —
+비밀번호가 생기기 전에 가입한 사람과, 비밀번호를 두고 싶지 않은 사람을 위한 대체 수단입니다.
+
+비밀번호를 도입한 이유는 매직링크만으로는 **재방문 로그인이 매번 메일함 왕복**이기 때문입니다.
+`signInWithOtp`는 가입과 로그인이 같은 API라 탭을 나누는 것만으로는 해결되지 않습니다.
+마지막에 쓴 이메일 주소는 브라우저 `localStorage`에 기억해 로그인 탭에 채워둡니다
+(비밀번호는 저장하지 않습니다).
 
 ### Supabase 대시보드 설정 (최초 1회)
 
@@ -103,6 +109,19 @@ npx supabase gen types typescript --local > src/types/database.ts
 - **Authentication → Providers → Google**: [Google Cloud Console](https://console.cloud.google.com/apis/credentials)에서
   OAuth 2.0 클라이언트 ID 발급 후 Client ID/Secret 등록. 승인된 리디렉션 URI는 Supabase가
   알려주는 `https://<project-ref>.supabase.co/auth/v1/callback` 값 사용
+- **Authentication → SMTP Settings**: 커스텀 SMTP(Resend 등) 등록 — **필수**.
+  Supabase 기본 발신자는 시간당 몇 통으로 제한되어 부원 30명 가입을 감당하지 못하고,
+  메일 템플릿도 유료 플랜 없이는 바꿀 수 없습니다
+- **Authentication → Email Templates**: 링크를 `token_hash` 형식으로 변경. 기본값인 PKCE
+  `code` 방식은 **링크를 요청한 브라우저에서만** 열리므로, PC에서 요청하고 폰에서 메일을
+  열면 실패합니다 (`/auth/callback`은 두 형식을 모두 처리하도록 이미 구현돼 있습니다)
+
+### 비밀번호 재설정
+
+`/login`의 "비밀번호를 잊으셨나요?" → `resetPasswordForEmail` → 메일의 링크가
+`/auth/callback`을 거쳐 `/auth/reset-password`로 들어옵니다. 이 경로는 복구 세션이 살아 있는
+상태로 열리므로, 미들웨어에서 승인 상태와 무관하게 통과시킵니다 — 비밀번호를 잊은 것과
+가입 승인 여부는 상관이 없습니다.
 
 ### 가입 승인 흐름
 
@@ -112,10 +131,15 @@ npx supabase gen types typescript --local > src/types/database.ts
 이유: `auth.users` insert와 같은 트랜잭션에서 동기 실행되어, 인증은 됐는데 `members` 행이
 없는 상태(웹훅 실패/타임아웃)가 아예 발생하지 않습니다.
 
+이름은 가입 과정에서 묻지 않습니다 — Google은 프로필 이름을, 매직링크는 이메일의 @ 앞부분을
+그대로 씁니다. 그래서 `/pending-approval`에 이름 입력란이 있고, 승인 후에는 지도 상단바에서
+고칠 수 있습니다. 관리자가 승인 큐에서 읽는 이름이 이것이므로, 대기 화면에서 고치는 것이
+기본 흐름입니다.
+
 | 역할 | 접근 가능 범위 |
 | --- | --- |
-| 비로그인 | `/login`만 접근 가능, 그 외는 `/login`으로 리다이렉트 |
-| `pending` | `/pending-approval`만 접근 가능 |
+| 비로그인 | `/login`, `/auth/*`, `/privacy`만 접근 가능, 그 외는 `/login`으로 리다이렉트 |
+| `pending` | `/pending-approval`(+ `/auth/reset-password`)만 접근 가능 |
 | `member` | 일반 페이지 접근 가능, `/admin/*` 차단 |
 | `admin` | 전체 접근 가능, `/admin/members`에서 승인/거절 |
 
@@ -125,12 +149,19 @@ npx supabase gen types typescript --local > src/types/database.ts
 
 ### 테스트 시나리오
 
-1. `/login`에서 이메일로 로그인 → 메일의 링크 클릭 → `/auth/callback` → `/pending-approval`로 리다이렉트
-2. 같은 계정으로 `/`나 `/admin/members`에 직접 접근 시도 → `/pending-approval`로 다시 리다이렉트되는지 확인
-3. Supabase Studio(또는 다른 admin 계정)에서 해당 멤버를 `role='admin'`으로 수동 승격
-4. admin 계정으로 로그인 → `/admin/members`에서 대기 중인 신규 가입자에게 "승인" 클릭
-5. 승인된 계정으로 다시 로그인 → `/`에 정상 접근되는지, `/admin/members`는 차단되는지 확인
-6. 다른 pending 계정에 "거절" 클릭 → 해당 계정으로 로그인 시도 시 Supabase Auth 단계에서부터 실패하는지 확인 (auth.users 행 자체가 삭제됨)
+1. `/login`의 **회원가입** 탭에서 이메일+비밀번호로 가입 → 확인 메일의 링크 클릭 →
+   `/auth/callback` → `/pending-approval`로 리다이렉트 → 거기서 이름 입력
+2. 로그아웃 후 **로그인** 탭에서 같은 이메일+비밀번호로 즉시 로그인되는지 확인
+   (메일함을 거치지 않아야 함)
+3. "비밀번호를 잊으셨나요?" → 재설정 메일 → `/auth/reset-password`에서 새 비밀번호 →
+   그 비밀번호로 로그인
+4. PC에서 메일을 요청하고 **폰에서** 링크를 열어도 동작하는지 (`token_hash` 템플릿 확인)
+5. Google 로그인 시 계정 선택 화면이 매번 뜨는지 (`prompt=select_account`)
+6. 같은 계정으로 `/`나 `/admin/members`에 직접 접근 시도 → `/pending-approval`로 다시 리다이렉트되는지 확인
+7. Supabase Studio(또는 다른 admin 계정)에서 해당 멤버를 `role='admin'`으로 수동 승격
+8. admin 계정으로 로그인 → `/admin/members`에서 대기 중인 신규 가입자에게 "승인" 클릭
+9. 승인된 계정으로 다시 로그인 → `/`에 정상 접근되는지, `/admin/members`는 차단되는지 확인
+10. 다른 pending 계정에 "거절" 클릭 → 해당 계정으로 로그인 시도 시 Supabase Auth 단계에서부터 실패하는지 확인 (auth.users 행 자체가 삭제됨)
 
 ## 폴더 구조
 
@@ -138,8 +169,9 @@ npx supabase gen types typescript --local > src/types/database.ts
 src/
   middleware.ts        # 인증/승인 상태에 따른 라우트 접근 제어
   app/
-    login/              # Google OAuth + 이메일 매직링크
-    auth/callback/       # OAuth/매직링크 콜백 (code 교환 / token_hash 검증)
+    login/              # 로그인/회원가입 탭 (Google OAuth + 이메일·비밀번호 + 매직링크)
+    auth/callback/       # OAuth/메일 링크 콜백 (code 교환 / token_hash 검증)
+    auth/reset-password/ # 비밀번호 재설정 (복구 링크가 도착하는 곳)
     pending-approval/    # role='pending' 유저 전용 대기 페이지
     map/                  # 지도 중심 화면 (page → map-shell → map-view / side-panel / hike-detail)
     hikes/[id]/           # 산행 갤러리 딥링크 (지도 밖에서 바로 열 때)
@@ -151,7 +183,7 @@ src/
       photos/unmatched/   # 위치 매칭 대기 사진 처리 (admin 전용)
   components/
     sign-out-button.tsx
-    auth-buttons.tsx    # 로그인 버튼 (Google OAuth + 이메일 매직링크)
+    auth-buttons.tsx    # 로그인/회원가입 탭 + Google·비밀번호·매직링크
     photo-lightbox.tsx  # 사진 뷰어 (지도 패널 / 갤러리 페이지 공용)
   lib/
     env.ts             # 필수 환경변수 조회 헬퍼

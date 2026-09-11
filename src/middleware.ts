@@ -4,9 +4,10 @@ import type { MemberRole } from "@/types/database";
 
 const PENDING_APPROVAL_PATH = "/pending-approval";
 const LOGIN_PATH = "/login";
+const RESET_PASSWORD_PATH = "/auth/reset-password";
 
 // Paths reachable without a session (or, for /login, without redirect logic).
-const PUBLIC_PATHS = [LOGIN_PATH, "/auth/callback", "/privacy"];
+const PUBLIC_PATHS = [LOGIN_PATH, "/auth/callback", RESET_PASSWORD_PATH, "/privacy"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -40,6 +41,13 @@ export async function middleware(request: NextRequest) {
 
   const role = member?.role as MemberRole | undefined;
   const isApproved = role === "member" || role === "admin";
+
+  // A recovery link signs you in before you choose the new password, so this
+  // runs with a live session. It has to stay reachable even while approval is
+  // pending - forgetting a password has nothing to do with being approved.
+  if (pathname.startsWith(RESET_PASSWORD_PATH)) {
+    return getResponse();
+  }
 
   if (pathname.startsWith(LOGIN_PATH)) {
     return redirectTo(isApproved ? "/" : PENDING_APPROVAL_PATH);
