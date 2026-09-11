@@ -30,7 +30,7 @@ export default async function UnmatchedPhotosPage() {
   const locations = (locationsData ?? []) as LocationOption[];
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
+    <main className="mx-auto max-w-4xl px-4 py-8 md:py-10">
       <h1 className="mb-2 text-xl font-semibold">위치 매칭 대기 사진</h1>
       <p className="mb-6 text-sm text-neutral-500">
         EXIF GPS로 자동 매칭되지 않았거나, GPS 자체가 없고 산행에도 위치가 없는 사진입니다.

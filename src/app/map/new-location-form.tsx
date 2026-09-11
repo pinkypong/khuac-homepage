@@ -79,7 +79,7 @@ export function NewLocationForm({
     return (
       <button
         onClick={() => toggle(true)}
-        className="w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs text-neutral-600 hover:border-neutral-500"
+        className="w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-600 hover:border-neutral-500 md:py-2 md:text-xs"
       >
         + 새 장소 등록
       </button>
@@ -105,14 +105,14 @@ export function NewLocationForm({
         onChange={(e) => setName(e.target.value)}
         placeholder="장소 이름 (예: 관악산)"
         required
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
       />
 
       <div className="mt-2 flex gap-2">
         <select
           value={type}
           onChange={(e) => setType(e.target.value as LocationType)}
-          className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+          className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
         >
           {TYPES.map((t) => (
             <option key={t} value={t}>
@@ -124,7 +124,7 @@ export function NewLocationForm({
           value={region}
           onChange={(e) => setRegion(e.target.value)}
           placeholder="지역"
-          className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+          className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
         />
       </div>
 
@@ -134,7 +134,7 @@ export function NewLocationForm({
           onChange={(e) => setElevation(e.target.value)}
           type="number"
           placeholder="고도(m, 선택)"
-          className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+          className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
         />
       )}
 
@@ -144,14 +144,14 @@ export function NewLocationForm({
         <button
           type="button"
           onClick={() => toggle(false)}
-          className="rounded border border-neutral-300 px-3 py-1.5 text-xs"
+          className="rounded border border-neutral-300 px-4 py-2 text-sm md:px-3 md:py-1.5 md:text-xs"
         >
           취소
         </button>
         <button
           type="submit"
           disabled={saving}
-          className="rounded bg-neutral-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+          className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50 md:px-3 md:py-1.5 md:text-xs"
         >
           {saving ? "저장 중…" : "등록"}
         </button>

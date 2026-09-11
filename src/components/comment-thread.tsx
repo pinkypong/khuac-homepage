@@ -29,6 +29,18 @@ function message(err: unknown, fallback: string) {
 }
 
 /**
+ * Whether Enter should post instead of breaking the line.
+ *
+ * It is the habit everyone brings from chat apps on a keyboard, but a phone
+ * keyboard has no Shift+Enter to escape to: return would post every comment
+ * after its first line and there would be no way to write a second one.
+ * Read per keystroke rather than into state - no SSR value to mismatch.
+ */
+function enterShouldSubmit() {
+  return !window.matchMedia("(pointer: coarse)").matches;
+}
+
+/**
  * Loads and renders one subject's comments, fetching on mount rather than
  * taking them as props - see loadComments for why photo comments are not
  * preloaded with the map tree.
@@ -153,7 +165,7 @@ export function CommentThread({
                     value={editing.body}
                     onChange={(e) => setEditing({ id: comment.id, body: e.target.value })}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
+                      if (e.key === "Enter" && !e.shiftKey && enterShouldSubmit()) {
                         e.preventDefault();
                         saveEdit();
                       }
@@ -162,21 +174,21 @@ export function CommentThread({
                     rows={2}
                     maxLength={COMMENT_MAX_LENGTH}
                     autoFocus
-                    className="w-full resize-none rounded border border-neutral-300 px-2 py-1 text-xs"
+                    className="w-full resize-none rounded border border-neutral-300 px-2 py-1 text-base md:text-xs"
                   />
                   <div className="mt-1 flex gap-1.5">
                     <button
                       type="button"
                       onClick={saveEdit}
                       disabled={busy}
-                      className="rounded bg-neutral-900 px-2 py-0.5 text-[11px] text-white disabled:opacity-50"
+                      className="rounded bg-neutral-900 px-2.5 py-1.5 text-xs text-white disabled:opacity-50 md:px-2 md:py-0.5 md:text-[11px]"
                     >
                       저장
                     </button>
                     <button
                       type="button"
                       onClick={() => setEditing(null)}
-                      className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600"
+                      className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-600 md:px-2 md:py-0.5 md:text-[11px]"
                     >
                       취소
                     </button>
@@ -190,7 +202,7 @@ export function CommentThread({
                     {comment.body}
                   </p>
                   {(isAuthor || viewer?.isAdmin) && (
-                    <div className="mt-1 flex gap-2 text-[11px] text-neutral-400">
+                    <div className="mt-1 flex gap-3 py-0.5 text-xs text-neutral-400 md:gap-2 md:text-[11px]">
                       {isAuthor && (
                         <button
                           type="button"
@@ -224,9 +236,7 @@ export function CommentThread({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            // Enter posts and Shift+Enter breaks the line - the habit everyone
-            // brings from chat apps.
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && enterShouldSubmit()) {
               e.preventDefault();
               submit();
             }
@@ -234,22 +244,28 @@ export function CommentThread({
           rows={2}
           maxLength={COMMENT_MAX_LENGTH}
           disabled={submitting}
-          placeholder="댓글 남기기 (Enter 등록, Shift+Enter 줄바꿈)"
-          className="w-full resize-none rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs disabled:opacity-50"
+          placeholder="댓글 남기기"
+          className="w-full resize-none rounded-lg border border-neutral-200 px-2.5 py-2 text-base disabled:opacity-50 md:py-1.5 md:text-xs"
         />
         <div className="mt-1 flex items-center justify-between gap-2">
           {formError ? (
             <p className="text-[11px] text-red-600">{formError}</p>
           ) : (
             <span className="text-[11px] text-neutral-400">
-              {draft.length > 0 ? `${draft.length}/${COMMENT_MAX_LENGTH}` : ""}
+              {draft.length > 0 ? (
+                `${draft.length}/${COMMENT_MAX_LENGTH}`
+              ) : (
+                // The shortcut this describes is keyboard-only, and so is the
+                // hint - see enterShouldSubmit.
+                <span className="hidden md:inline">Enter 등록 · Shift+Enter 줄바꿈</span>
+              )}
             </span>
           )}
           <button
             type="button"
             onClick={submit}
             disabled={submitting || !draft.trim()}
-            className="shrink-0 rounded bg-neutral-900 px-2.5 py-1 text-[11px] text-white disabled:opacity-40"
+            className="shrink-0 rounded bg-neutral-900 px-3 py-1.5 text-xs text-white disabled:opacity-40 md:px-2.5 md:py-1 md:text-[11px]"
           >
             {submitting ? "등록 중…" : "등록"}
           </button>

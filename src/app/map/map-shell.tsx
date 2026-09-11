@@ -1,13 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { ActivityType, LocationType } from "@/types/database";
 import type { TrackPoint } from "@/lib/gps/track";
 import Link from "next/link";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ViewerName } from "@/app/account/name-form";
+import { PendingBadge } from "@/components/pending-badge";
 import { SidePanel } from "./side-panel";
 
 export interface MapPhoto {
@@ -65,6 +66,22 @@ const MIN_MAP_WIDTH = 320;
 const MIN_PANEL_WIDTH = 340;
 const DEFAULT_MAP_WIDTH = 0.55;
 
+/**
+ * Which half of the app a phone is looking at.
+ *
+ * The split view needs MIN_MAP_WIDTH + MIN_PANEL_WIDTH = 660px and a phone in
+ * portrait has 390, so below Tailwind's md the two halves become tabs and the
+ * drag divider goes away. The breakpoint lives only in class names - nothing
+ * here measures the viewport - so this state is simply inert at md and above,
+ * where both halves are on screen at once.
+ */
+type MobileTab = "map" | "album";
+
+const MOBILE_TABS: { id: MobileTab; label: string }[] = [
+  { id: "map", label: "지도" },
+  { id: "album", label: "앨범" },
+];
+
 export interface PickedPoint {
   lat: number;
   lng: number;
@@ -74,15 +91,18 @@ export function MapShell({
   locations,
   viewerName,
   isAdmin,
+  pendingCount,
 }: {
   locations: MapLocation[];
   viewerName: string;
   isAdmin: boolean;
+  pendingCount: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState<number | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const [dragging, setDragging] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("map");
 
   const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
   const [activeHikeId, setActiveHikeId] = useState<string | null>(null);
@@ -123,9 +143,19 @@ export function MapShell({
   const pinnedHike = allHikes.find((h) => h.id === pinnedHikeId) ?? null;
   const hoveredHike = allHikes.find((h) => h.id === hoveredHikeId) ?? null;
 
+  function showMap() {
+    setMobileTab("map");
+    // 지도 접기 is hidden below md, but the flag survives a desktop session
+    // being narrowed to a phone, and an empty 지도 tab would be a dead end.
+    setMapOpen(true);
+  }
+
   function openLocation(locationId: string) {
     setActiveLocationId(locationId);
     setActiveHikeId(null);
+    // Only one half is on screen on a phone, so a marker tap that left the map
+    // up would look like nothing had happened: hand over to the list it opened.
+    setMobileTab("album");
   }
 
   function openHike(hike: MapHike) {
@@ -135,6 +165,14 @@ export function MapShell({
     // are hovered, unlike the transient hover preview.
     setPinnedHikeId(hike.id);
     setHoveredHikeId(null);
+    setMobileTab("album");
+  }
+
+  function pickPoint(point: PickedPoint) {
+    setPickedPoint(point);
+    // The form waiting on this point is in the other tab, so a phone goes back
+    // to it rather than leaving the member on a map that looks unchanged.
+    setMobileTab("album");
   }
 
   function goToRoot() {
@@ -144,28 +182,44 @@ export function MapShell({
     setHoveredHikeId(null);
   }
 
+  // Read only at md and above. Left unset until measured so the pane keeps its
+  // natural width for the one frame before the effect runs.
+  const mapWidthStyle =
+    mapWidth === null ? undefined : ({ "--map-width": mapWidth + "px" } as CSSProperties);
+
   const shell = (
-    <div className="flex h-screen w-full flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-4 py-2">
-        <span className="text-sm font-semibold">산악부 지도</span>
-        <nav className="flex items-center gap-4 text-xs text-neutral-600">
+    <div className="flex h-app w-full flex-col overflow-hidden">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-neutral-200 px-4 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))]">
+        <span className="min-w-0 truncate text-sm font-semibold">산악부 지도</span>
+        <nav className="flex shrink-0 items-center gap-3 text-xs text-neutral-600 md:gap-4">
           {viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}
-          <Link href="/members" className="hover:underline">
+          <Link href="/members" className="py-1 hover:underline">
             부원
           </Link>
           {isAdmin && (
-            <Link href="/admin/members" className="hover:underline">
+            <Link href="/admin/members" className="flex items-center gap-1 py-1 hover:underline">
               관리자
+              <PendingBadge count={pendingCount} />
             </Link>
           )}
           <SignOutButton />
         </nav>
       </header>
 
-    <div ref={containerRef} className="flex min-h-0 w-full flex-1 overflow-hidden">
+    <div ref={containerRef} className="relative flex min-h-0 w-full flex-1 overflow-hidden">
       {mapOpen && (
         <>
-          <div className="relative shrink-0" style={{ width: mapWidth ?? undefined }}>
+          {/* Below md the two panes sit on top of each other and the tab bar
+              picks one. They are hidden with visibility rather than unmounted,
+              so the map keeps its tiles, its camera and its WebGL context
+              across a tab switch instead of reloading on every one. */}
+          <div
+            style={mapWidthStyle}
+            className={
+              "absolute inset-0 w-full md:relative md:inset-auto md:w-[var(--map-width)] md:shrink-0 " +
+              (mobileTab === "map" ? "" : "invisible md:visible")
+            }
+          >
             {apiKey ? (
               <MapView
                 mapId={mapId}
@@ -178,7 +232,7 @@ export function MapShell({
                 onCollapseMap={() => setMapOpen(false)}
                 picking={picking}
                 pickedPoint={pickedPoint}
-                onPickPoint={setPickedPoint}
+                onPickPoint={pickPoint}
               />
             ) : (
               <div className="p-4">
@@ -192,7 +246,7 @@ export function MapShell({
 
           <div
             onPointerDown={() => setDragging(true)}
-            className={`w-1.5 shrink-0 cursor-col-resize bg-neutral-200 transition-colors hover:bg-neutral-400 ${
+            className={`hidden w-1.5 shrink-0 cursor-col-resize bg-neutral-200 transition-colors hover:bg-neutral-400 md:block ${
               dragging ? "bg-neutral-400" : ""
             }`}
             role="separator"
@@ -202,12 +256,19 @@ export function MapShell({
         </>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className={
+          "absolute inset-0 flex min-w-0 flex-col bg-white md:relative md:inset-auto md:flex-1 " +
+          // A collapsed map leaves the 지도 tab with nothing in it, so on a
+          // phone the panel stays up until 지도 is tapped and re-opens it.
+          (mobileTab === "album" || !mapOpen ? "" : "invisible md:visible")
+        }
+      >
         {!mapOpen && (
           <button
             type="button"
             onClick={() => setMapOpen(true)}
-            className="border-b border-neutral-200 px-4 py-2 text-left text-xs text-neutral-600 hover:bg-neutral-50"
+            className="hidden border-b border-neutral-200 px-4 py-2 text-left text-xs text-neutral-600 hover:bg-neutral-50 md:block"
           >
             지도 펼치기
           </button>
@@ -222,9 +283,10 @@ export function MapShell({
           onOpenHike={openHike}
           onHoverHike={setHoveredHikeId}
           onBackToRoot={goToRoot}
+          onShowOnMap={showMap}
           picking={picking}
           pickedPoint={pickedPoint}
-          onPickPoint={setPickedPoint}
+          onPickPoint={pickPoint}
           onPickingChange={(next) => {
             setPicking(next);
             if (!next) setPickedPoint(null);
@@ -233,6 +295,31 @@ export function MapShell({
         />
       </div>
       </div>
+
+      {/* Bottom rather than top: this is the control a member reaches for most
+          often on a phone, and the bottom edge is where the thumb already is.
+          The padding clears the home indicator on a notched device. */}
+      <nav
+        aria-label="화면 전환"
+        className="flex shrink-0 border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
+      >
+        {MOBILE_TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={mobileTab === id}
+            onClick={() => (id === "map" ? showMap() : setMobileTab("album"))}
+            className={
+              "flex-1 py-3 text-sm " +
+              (mobileTab === id
+                ? "font-semibold text-neutral-900 shadow-[inset_0_2px_0_0_currentColor]"
+                : "text-neutral-500")
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
     </div>
   );
 

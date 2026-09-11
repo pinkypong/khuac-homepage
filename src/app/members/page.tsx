@@ -31,8 +31,8 @@ export default async function MembersPage() {
   const adminCount = members.filter((m) => m.role === "admin").length;
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <Link href="/map" className="text-sm text-neutral-500 underline">
+    <main className="mx-auto max-w-2xl px-4 pb-[calc(2.5rem+env(safe-area-inset-bottom))] pt-[calc(2.5rem+env(safe-area-inset-top))]">
+      <Link href="/map" className="inline-block py-1 text-sm text-neutral-500 underline">
         ← 지도로
       </Link>
 

@@ -57,5 +57,7 @@ export function PlaceSearch({ onSelect }: { onSelect: (place: PlaceResult) => vo
     };
   }, [places]);
 
-  return <div ref={containerRef} className="[&_*]:text-sm" />;
+  // Google styles its own element, so the size is forced from outside. 16px
+  // below md: a smaller field makes iOS zoom the page the moment it is tapped.
+  return <div ref={containerRef} className="[&_*]:text-base md:[&_*]:text-sm" />;
 }

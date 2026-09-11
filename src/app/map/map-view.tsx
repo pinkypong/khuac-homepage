@@ -123,13 +123,15 @@ function Dot({
   return (
     <div className="flex cursor-pointer items-center gap-1">
       <span
-        className="rounded-full border-2 border-white shadow"
+        className="relative rounded-full border-2 border-white shadow"
         style={{
           backgroundColor: color,
           width: emphasised ? 14 : 11,
           height: emphasised ? 14 : 11,
         }}
-      />
+      >
+        <span className="absolute -inset-3 md:hidden" aria-hidden="true" />
+      </span>
       {showLabel && (
         <span className="whitespace-nowrap rounded bg-white/90 px-1 py-0.5 text-[11px] font-medium text-neutral-900 shadow-sm">
           {label}
@@ -191,7 +193,7 @@ function MapTypeToggle() {
             setMapType(id);
           }}
           className={
-            "border-l border-neutral-300 px-2.5 py-1 first:border-l-0 " +
+            "border-l border-neutral-300 px-3 py-1.5 first:border-l-0 md:px-2.5 md:py-1 " +
             (mapType === id
               ? "bg-neutral-900 text-white"
               : "text-neutral-700 hover:bg-neutral-50")
@@ -207,7 +209,7 @@ function MapTypeToggle() {
 /** Four colours mean nothing without a key, so the map carries its own. */
 function ActivityLegend() {
   return (
-    <div className="m-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded border border-neutral-300 bg-white/90 px-2 py-1 text-[11px] text-neutral-700 shadow-sm">
+    <div className="m-2 hidden flex-wrap items-center gap-x-2.5 gap-y-1 rounded border border-neutral-300 bg-white/90 px-2 py-1 text-[11px] text-neutral-700 shadow-sm md:flex">
       {ACTIVITY_TYPES.map((type) => (
         <span key={type} className="flex items-center gap-1">
           <span
@@ -310,7 +312,7 @@ export function MapView({
         <button
           type="button"
           onClick={onCollapseMap}
-          className="m-2 rounded border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 shadow-sm hover:bg-neutral-50"
+          className="m-2 hidden rounded border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 shadow-sm hover:bg-neutral-50 md:block"
         >
           지도 접기
         </button>

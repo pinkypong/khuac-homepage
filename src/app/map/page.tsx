@@ -43,6 +43,16 @@ export default async function MapPage() {
     ? await supabase.from("members").select("name, role").eq("auth_user_id", user.id).single()
     : { data: null };
   const viewer = (member as { name: string; role: string } | null) ?? null;
+  const isAdmin = viewer?.role === "admin";
+
+  // Only admins can act on this, and members_select would hand a non-admin an
+  // empty result anyway - so the round trip is skipped rather than wasted.
+  const { count: pendingCount } = isAdmin
+    ? await supabase
+        .from("members")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "pending")
+    : { count: 0 };
   const { data, error } = await supabase
     .from("locations")
     .select(
@@ -116,7 +126,8 @@ export default async function MapPage() {
     <MapShell
       locations={locations}
       viewerName={viewer?.name ?? ""}
-      isAdmin={viewer?.role === "admin"}
+      isAdmin={isAdmin}
+      pendingCount={pendingCount ?? 0}
     />
   );
 }

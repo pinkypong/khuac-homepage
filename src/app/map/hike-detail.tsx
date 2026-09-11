@@ -23,12 +23,14 @@ export function HikeDetail({
   hike,
   onBackToRoot,
   onBackToLocation,
+  onShowOnMap,
   isAdmin,
 }: {
   location: MapLocation;
   hike: MapHike;
   onBackToRoot: () => void;
   onBackToLocation: () => void;
+  onShowOnMap: () => void;
   isAdmin: boolean;
 }) {
   const router = useRouter();
@@ -120,11 +122,23 @@ export function HikeDetail({
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={onBackToLocation}
-            className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
+            className="min-w-0 truncate rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 md:py-1"
           >
             ← {location.name}
           </button>
-          <button onClick={onBackToRoot} className="text-xs text-neutral-500 hover:underline">
+          {/* Opening an activity pins its route; below md that route is on the
+              other tab, so this is how anyone gets to see it. */}
+          <button
+            type="button"
+            onClick={onShowOnMap}
+            className="shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 md:hidden"
+          >
+            지도에서 보기
+          </button>
+          <button
+            onClick={onBackToRoot}
+            className="hidden shrink-0 text-xs text-neutral-500 hover:underline md:block"
+          >
             전체 지도
           </button>
         </div>
@@ -138,20 +152,20 @@ export function HikeDetail({
                 if (e.key === "Escape") setRenaming(null);
               }}
               autoFocus
-              className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-sm"
+              className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
             />
             <button
               type="button"
               onClick={submitRename}
               disabled={savingName}
-              className="shrink-0 rounded bg-neutral-900 px-2 py-1 text-[11px] text-white disabled:opacity-50"
+              className="shrink-0 rounded bg-neutral-900 px-2.5 py-1.5 text-xs text-white disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
             >
               저장
             </button>
             <button
               type="button"
               onClick={() => setRenaming(null)}
-              className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-[11px] text-neutral-600"
+              className="shrink-0 rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-600 md:px-2 md:py-1 md:text-[11px]"
             >
               취소
             </button>
@@ -168,7 +182,7 @@ export function HikeDetail({
           <button
             type="button"
             onClick={() => setRenaming({ hikeId: hike.id, title: hike.title })}
-            className="shrink-0 rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-600 hover:bg-neutral-50"
+            className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 md:py-0.5 md:text-[11px]"
           >
             이름 수정
           </button>
@@ -177,7 +191,7 @@ export function HikeDetail({
               type="button"
               onClick={removeActivity}
               disabled={deleting}
-              className="ml-auto shrink-0 rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="ml-auto shrink-0 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 md:py-0.5 md:text-[11px]"
             >
               활동 삭제
             </button>
@@ -199,7 +213,7 @@ export function HikeDetail({
         <button
           type="button"
           onClick={() => setUploadOpen(true)}
-          className="mb-4 w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs text-neutral-600 hover:border-neutral-500"
+          className="mb-4 w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-600 hover:border-neutral-500 md:py-2 md:text-xs"
         >
           + 이 활동에 사진 올리기
         </button>
@@ -257,7 +271,7 @@ export function HikeDetail({
                   onClick={() => removePhoto(photo.id)}
                   disabled={deleting}
                   aria-label="사진 삭제"
-                  className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[11px] leading-none text-white hover:bg-red-600 disabled:opacity-50"
+                  className="absolute right-1 top-1 rounded bg-black/60 px-2 py-1 text-xs leading-none text-white hover:bg-red-600 disabled:opacity-50 md:px-1.5 md:py-0.5 md:text-[11px]"
                 >
                   삭제
                 </button>

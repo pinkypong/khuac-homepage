@@ -58,7 +58,7 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs text-neutral-600 hover:border-neutral-500"
+        className="w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-600 hover:border-neutral-500 md:py-2 md:text-xs"
       >
         + 새 활동 등록
       </button>
@@ -111,14 +111,14 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
         onChange={(e) => setTitle(e.target.value)}
         placeholder="활동 이름 (예: 겨울 정기산행)"
         required
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
       />
       <input
         value={date}
         onChange={(e) => setDate(e.target.value)}
         type="date"
         required
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
       />
       <div className="mt-2">
         <label className="mb-1 block text-[11px] text-neutral-500">활동 종류</label>
@@ -130,7 +130,7 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
               onClick={() => setActivityType(t)}
               title={ACTIVITY_HINT[t]}
               className={
-                "rounded border px-2 py-1 text-xs " +
+                "rounded border px-3 py-1.5 text-sm md:px-2 md:py-1 md:text-xs " +
                 (activityType === t
                   ? "border-neutral-900 bg-neutral-900 text-white"
                   : "border-neutral-300 text-neutral-700 hover:border-neutral-500")
@@ -150,21 +150,21 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
         onChange={(e) => setDescription(e.target.value)}
         placeholder="설명 (선택)"
         rows={2}
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
       />
       {error && <p className="mt-2 text-[11px] text-red-600">{error}</p>}
       <div className="mt-3 flex justify-end gap-2">
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded border border-neutral-300 px-3 py-1.5 text-xs"
+          className="rounded border border-neutral-300 px-4 py-2 text-sm md:px-3 md:py-1.5 md:text-xs"
         >
           취소
         </button>
         <button
           type="submit"
           disabled={saving || (spotRequired && !spot)}
-          className="rounded bg-neutral-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+          className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50 md:px-3 md:py-1.5 md:text-xs"
         >
           {saving ? "저장 중…" : "등록"}
         </button>

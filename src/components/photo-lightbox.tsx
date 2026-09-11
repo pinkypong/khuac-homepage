@@ -86,7 +86,7 @@ export function PhotoLightbox({
       aria-modal="true"
       onClick={close}
     >
-      <div className="flex items-start justify-between gap-4 p-4 text-white">
+      <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-[calc(1rem+env(safe-area-inset-top))] text-white">
         <div>
           <p className="text-sm font-medium">{open.uploaderName}</p>
           <p className="text-xs text-white/70">{formatTaken(open.takenAt)}</p>
@@ -99,26 +99,26 @@ export function PhotoLightbox({
               downloadOriginal(open.id);
             }}
             disabled={downloading}
-            className="rounded border border-white/40 px-3 py-1.5 text-xs disabled:opacity-50"
+            className="rounded border border-white/40 px-3 py-2 text-xs disabled:opacity-50 md:py-1.5"
           >
             {downloading ? "여는 중…" : "원본 다운로드"}
           </button>
-          <button type="button" onClick={close} className="text-2xl leading-none" aria-label="닫기">
+          <button type="button" onClick={close} className="px-1 text-2xl leading-none" aria-label="닫기">
             ×
           </button>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-4 md:flex-row md:gap-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:flex-row md:gap-4">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 step(-1);
               }}
-              className="shrink-0 px-3 py-6 text-3xl text-white/70 hover:text-white"
+              className="absolute left-0 top-1/2 z-10 -translate-y-1/2 px-3 py-6 text-3xl text-white/70 drop-shadow-md hover:text-white md:static md:translate-y-0 md:shrink-0 md:drop-shadow-none"
               aria-label="이전 사진"
             >
               ‹
@@ -136,7 +136,7 @@ export function PhotoLightbox({
                 e.stopPropagation();
                 step(1);
               }}
-              className="shrink-0 px-3 py-6 text-3xl text-white/70 hover:text-white"
+              className="absolute right-0 top-1/2 z-10 -translate-y-1/2 px-3 py-6 text-3xl text-white/70 drop-shadow-md hover:text-white md:static md:translate-y-0 md:shrink-0 md:drop-shadow-none"
               aria-label="다음 사진"
             >
               ›
@@ -155,7 +155,7 @@ export function PhotoLightbox({
             draft with the photo it was meant for. */}
         <aside
           onClick={(e) => e.stopPropagation()}
-          className="max-h-[40vh] w-full shrink-0 overflow-y-auto rounded-lg bg-white p-3 md:max-h-none md:w-80"
+          className="max-h-[40dvh] w-full shrink-0 overflow-y-auto rounded-lg bg-white p-3 md:max-h-none md:w-80"
         >
           <CommentThread key={open.id} subjectKind="photo" subjectId={open.id} />
         </aside>

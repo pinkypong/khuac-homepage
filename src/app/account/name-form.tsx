@@ -78,7 +78,7 @@ export function NameForm({ initialName }: { initialName: string }) {
           onChange={(e) => setDraft(e.target.value)}
           maxLength={MAX_NAME_LENGTH}
           disabled={saving}
-          className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm disabled:opacity-50"
+          className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-base disabled:opacity-50 md:text-sm"
         />
         <button
           type="submit"
@@ -140,7 +140,7 @@ export function ViewerName({
         aria-invalid={error ? true : undefined}
         title={error ?? undefined}
         className={
-          "w-28 rounded border px-1.5 py-0.5 text-xs disabled:opacity-50 " +
+          "w-28 rounded border px-1.5 py-1 text-base disabled:opacity-50 md:py-0.5 md:text-xs " +
           (error ? "border-red-400" : "border-neutral-300")
         }
       />
@@ -148,14 +148,14 @@ export function ViewerName({
         type="button"
         onClick={save}
         disabled={saving || !draft.trim()}
-        className="rounded bg-neutral-900 px-1.5 py-0.5 text-[11px] text-white disabled:opacity-50"
+        className="shrink-0 rounded bg-neutral-900 px-2 py-1 text-xs text-white disabled:opacity-50 md:px-1.5 md:py-0.5 md:text-[11px]"
       >
         저장
       </button>
       <button
         type="button"
         onClick={cancel}
-        className="rounded border border-neutral-300 px-1.5 py-0.5 text-[11px] text-neutral-600"
+        className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 md:px-1.5 md:py-0.5 md:text-[11px]"
       >
         취소
       </button>

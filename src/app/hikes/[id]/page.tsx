@@ -51,8 +51,8 @@ export default async function HikePage({ params }: { params: Promise<{ id: strin
     : "장소 미지정";
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10">
-      <Link href="/map" className="text-sm text-neutral-500 underline">
+    <main className="mx-auto max-w-5xl px-4 pb-[calc(2.5rem+env(safe-area-inset-bottom))] pt-[calc(2.5rem+env(safe-area-inset-top))]">
+      <Link href="/map" className="inline-block py-1 text-sm text-neutral-500 underline">
         ← 지도로
       </Link>
 

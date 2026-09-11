@@ -21,7 +21,7 @@ export function SignOutButton() {
       type="button"
       onClick={handleSignOut}
       disabled={pending}
-      className="text-sm text-neutral-500 underline hover:text-neutral-800 disabled:opacity-50"
+      className="shrink-0 py-1 text-sm text-neutral-500 underline hover:text-neutral-800 disabled:opacity-50"
     >
       로그아웃
     </button>

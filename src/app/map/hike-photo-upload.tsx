@@ -88,7 +88,7 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
             onClick={onClose}
             disabled={busy}
             aria-label="닫기"
-            className="text-xl leading-none text-neutral-400 hover:text-neutral-700 disabled:opacity-40"
+            className="px-2 py-1 text-xl leading-none text-neutral-400 hover:text-neutral-700 disabled:opacity-40"
           >
             ×
           </button>
@@ -100,7 +100,7 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
           multiple
           disabled={busy}
           onChange={(e) => onFiles(e.target.files)}
-          className="mt-4 w-full rounded border border-neutral-300 px-3 py-2 text-xs"
+          className="mt-4 w-full rounded border border-neutral-300 px-3 py-2 text-sm md:text-xs"
         />
 
         {progress && <p className="mt-2 text-xs text-neutral-600">{progress}</p>}
@@ -111,7 +111,7 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded bg-neutral-900 px-4 py-1.5 text-xs text-white disabled:opacity-50"
+            className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50 md:py-1.5 md:text-xs"
           >
             {busy ? "업로드 중…" : "닫기"}
           </button>

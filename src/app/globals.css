@@ -21,3 +21,17 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Mobile Safari counts the address bar inside 100vh, so a full-height layout
+   ends up taller than what is on screen and its last row hides under the
+   browser chrome. dvh measures the viewport as it actually is; the vh line
+   above it is what browsers older than dvh fall back to. */
+@utility h-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+@utility min-h-app {
+  min-height: 100vh;
+  min-height: 100dvh;
+}

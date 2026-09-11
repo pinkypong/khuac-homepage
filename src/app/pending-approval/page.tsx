@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createClient } from "@/lib/supabase/server";
 import { NameForm } from "@/app/account/name-form";
+import { PendingWatcher } from "./pending-watcher";
 
 export default async function PendingApprovalPage() {
   const supabase = await createClient();
@@ -18,10 +19,12 @@ export default async function PendingApprovalPage() {
   const name = (data as { name: string | null } | null)?.name ?? "";
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col items-center justify-center gap-4 px-4 text-center">
+    <main className="mx-auto flex min-h-app max-w-sm flex-col items-center justify-center gap-4 px-4 py-10 text-center">
+      <PendingWatcher />
+
       <h1 className="text-xl font-semibold">관리자 승인 대기 중입니다</h1>
       <p className="text-sm text-neutral-600">
-        가입 신청이 접수되었습니다. 운영진 승인 후 이용하실 수 있습니다.
+        가입 신청이 접수되었습니다. 승인되면 이 화면에서 자동으로 넘어갑니다.
       </p>
 
       {/* Asked for here rather than after approval: this is the name the admin

@@ -105,6 +105,7 @@ export function SidePanel({
   onOpenHike,
   onHoverHike,
   onBackToRoot,
+  onShowOnMap,
   isAdmin,
   picking,
   pickedPoint,
@@ -119,6 +120,9 @@ export function SidePanel({
   onOpenHike: (hike: MapHike) => void;
   onHoverHike: (hikeId: string | null) => void;
   onBackToRoot: () => void;
+  // Below md the map is a tab away rather than beside the panel, so every
+  // screen that puts something on the map needs a way to go and look at it.
+  onShowOnMap: () => void;
   isAdmin: boolean;
   picking: boolean;
   pickedPoint: PickedPoint | null;
@@ -223,6 +227,7 @@ export function SidePanel({
         hike={activeHike}
         onBackToRoot={onBackToRoot}
         onBackToLocation={() => onOpenLocation(activeLocation.id)}
+        onShowOnMap={onShowOnMap}
         isAdmin={isAdmin}
       />
     );
@@ -232,12 +237,24 @@ export function SidePanel({
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-neutral-200 px-4 py-3">
-          <button
-            onClick={onBackToRoot}
-            className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50"
-          >
-            ← 전체 지도
-          </button>
+          <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={onBackToRoot}
+              className="rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 md:py-1"
+            >
+              {/* On a phone this button only moves the list: the map it also
+                  resets is behind the other tab. */}
+              <span className="md:hidden">← 전체 목록</span>
+              <span className="hidden md:inline">← 전체 지도</span>
+            </button>
+            <button
+              type="button"
+              onClick={onShowOnMap}
+              className="rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 md:hidden"
+            >
+              지도에서 보기
+            </button>
+          </div>
           <div className="mt-2 flex items-center gap-2">
             {renamingId === activeLocation.id ? (
               <>
@@ -261,7 +278,7 @@ export function SidePanel({
                   type="button"
                   onClick={() => saveName(activeLocation)}
                   disabled={savingName}
-                  className="shrink-0 rounded bg-neutral-800 px-2 py-1 text-[11px] text-white hover:bg-neutral-700 disabled:opacity-50"
+                  className="shrink-0 rounded bg-neutral-800 px-2.5 py-1.5 text-xs text-white hover:bg-neutral-700 disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
                 >
                   저장
                 </button>
@@ -269,7 +286,7 @@ export function SidePanel({
                   type="button"
                   onClick={() => setRenamingId(null)}
                   disabled={savingName}
-                  className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+                  className="shrink-0 rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
                 >
                   취소
                 </button>
@@ -284,7 +301,7 @@ export function SidePanel({
                     setDraftName(activeLocation.name);
                     setRenamingId(activeLocation.id);
                   }}
-                  className="ml-auto shrink-0 rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50"
+                  className="ml-auto shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-700 hover:bg-neutral-50 md:py-0.5 md:text-[11px]"
                 >
                   이름 수정
                 </button>
@@ -293,7 +310,7 @@ export function SidePanel({
                     type="button"
                     onClick={() => removeLocation(activeLocation)}
                     disabled={deleting}
-                    className="shrink-0 rounded border border-red-300 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    className="shrink-0 rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50 md:py-0.5 md:text-[11px]"
                   >
                     장소 삭제
                   </button>
@@ -361,16 +378,23 @@ export function SidePanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-neutral-200 px-4 py-3">
         {picking && (
-          <p className="mb-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
-            지도를 클릭해 새 장소의 위치를 지정하세요.
-          </p>
+          <div className="mb-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
+            <p>지도를 클릭해 새 장소의 위치를 지정하세요.</p>
+            <button
+              type="button"
+              onClick={onShowOnMap}
+              className="mt-1.5 rounded border border-red-300 px-2 py-1 text-xs font-medium md:hidden"
+            >
+              지도 열기
+            </button>
+          </div>
         )}
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="장소, 활동, 날짜, 올린 사람으로 검색"
-          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-base md:text-sm"
         />
       </div>
 
