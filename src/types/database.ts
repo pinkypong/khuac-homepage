@@ -22,19 +22,17 @@ export interface Member {
   email: string | null;
   role: MemberRole;
   avatar_url: string | null;
-  invited_via: string | null;
   joined_at: string;
   updated_at: string;
 }
 
-export interface Invite {
+export interface Comment {
   id: string;
-  token: string;
-  label: string | null;
-  created_by: string | null;
-  max_uses: number | null;
-  used_count: number;
-  expires_at: string | null;
-  revoked_at: string | null;
+  author_id: string | null;
+  // Exactly one of these is set - see the comments_one_subject constraint.
+  photo_id: string | null;
+  hike_id: string | null;
+  body: string;
   created_at: string;
+  updated_at: string;
 }

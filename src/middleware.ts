@@ -6,9 +6,7 @@ const PENDING_APPROVAL_PATH = "/pending-approval";
 const LOGIN_PATH = "/login";
 
 // Paths reachable without a session (or, for /login, without redirect logic).
-// /join/<token> is the invite landing page shared via KakaoTalk/Band - it
-// must be visible to signed-out visitors, that's the whole point of it.
-const PUBLIC_PATHS = [LOGIN_PATH, "/auth/callback", "/join", "/privacy"];
+const PUBLIC_PATHS = [LOGIN_PATH, "/auth/callback", "/privacy"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

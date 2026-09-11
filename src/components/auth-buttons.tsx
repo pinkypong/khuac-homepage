@@ -3,30 +3,21 @@
 import { useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-interface AuthButtonsProps {
-  // Carried through the OAuth/magic-link redirect so /auth/callback can
-  // attribute the resulting signup to this invite (see consume_invite).
-  inviteToken?: string;
-}
-
 // OAuth completes in the same browser it started in, so it can use the PKCE
 // code exchange at /auth/callback.
-function oauthCallbackUrl(inviteToken?: string) {
-  const url = new URL("/auth/callback", window.location.origin);
-  if (inviteToken) url.searchParams.set("invite", inviteToken);
-  return url.toString();
+function oauthCallbackUrl() {
+  return new URL("/auth/callback", window.location.origin).toString();
 }
 
 // Email links land on the same route. "next" is always present so a custom
 // mail template can append "&token_hash=...&type=..." safely later on.
-function emailConfirmUrl(inviteToken?: string) {
+function emailConfirmUrl() {
   const url = new URL("/auth/callback", window.location.origin);
   url.searchParams.set("next", "/");
-  if (inviteToken) url.searchParams.set("invite", inviteToken);
   return url.toString();
 }
 
-export function AuthButtons({ inviteToken }: AuthButtonsProps) {
+export function AuthButtons() {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +28,15 @@ export function AuthButtons({ inviteToken }: AuthButtonsProps) {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: oauthCallbackUrl(inviteToken) },
+      options: {
+        redirectTo: oauthCallbackUrl(),
+        // Signing out of this app does not sign anyone out of Google, so with
+        // one account in the browser Google skips its own chooser and returns
+        // that same account instantly - there is no way back to the picker.
+        // Members share family and lab machines, and an admin testing what a
+        // regular member sees needs to switch accounts, so ask every time.
+        queryParams: { prompt: "select_account" },
+      },
     });
     if (error) setError(error.message);
   }
@@ -49,7 +48,7 @@ export function AuthButtons({ inviteToken }: AuthButtonsProps) {
     const supabase = createClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: emailConfirmUrl(inviteToken) },
+      options: { emailRedirectTo: emailConfirmUrl() },
     });
     setPending(false);
     if (error) setError(error.message);

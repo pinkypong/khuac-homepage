@@ -17,7 +17,6 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const invite = searchParams.get("invite");
   const next = searchParams.get("next") ?? "/";
 
   const supabase = await createClient();
@@ -38,10 +37,5 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
-  if (invite) {
-    // Best-effort: a bad/expired invite must not block sign-in, it just means
-    // this signup won't be attributed to that invite.
-    await supabase.rpc("consume_invite", { p_token: invite });
-  }
   return NextResponse.redirect(`${origin}${next}`);
 }
