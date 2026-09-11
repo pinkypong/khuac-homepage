@@ -31,7 +31,20 @@ export async function requireApprovedMember() {
   const { supabase, member } = await currentMember();
   if (!member) throw new RoleError(401);
   if (member.role !== "member" && member.role !== "admin") throw new RoleError(403);
-  return { supabase, memberId: member.id };
+  // isAdmin rides along because the role was already read: actions that gate
+  // one branch on it (deleting someone else's comment) would otherwise pay for
+  // a second lookup of the same row.
+  return { supabase, memberId: member.id, isAdmin: member.role === "admin" };
+}
+
+// Any signed-in member, approval pending or not. Deliberately weaker than
+// requireApprovedMember: someone waiting in the queue still has to be able to
+// fix the name Google picked for them, and that is the moment an admin reads
+// it to decide whether to let them in.
+export async function requireMember() {
+  const { supabase, member } = await currentMember();
+  if (!member) throw new RoleError(401);
+  return { supabase, memberId: member.id, role: member.role };
 }
 
 // Shared by every admin-only server action. Middleware already blocks

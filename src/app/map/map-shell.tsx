@@ -7,6 +7,7 @@ import type { TrackPoint } from "@/lib/gps/track";
 import Link from "next/link";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { SignOutButton } from "@/components/sign-out-button";
+import { ViewerName } from "@/app/account/name-form";
 import { SidePanel } from "./side-panel";
 
 export interface MapPhoto {
@@ -148,7 +149,10 @@ export function MapShell({
       <header className="flex shrink-0 items-center justify-between border-b border-neutral-200 px-4 py-2">
         <span className="text-sm font-semibold">산악부 지도</span>
         <nav className="flex items-center gap-4 text-xs text-neutral-600">
-          {viewerName && <span className="text-neutral-500">{viewerName}</span>}
+          {viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}
+          <Link href="/members" className="hover:underline">
+            부원
+          </Link>
           {isAdmin && (
             <Link href="/admin/members" className="hover:underline">
               관리자
@@ -167,7 +171,7 @@ export function MapShell({
                 mapId={mapId}
                 locations={locations}
                 activeLocationId={activeLocationId}
-                pinnedHike={pinnedHike}
+                selectedHike={pinnedHike}
                 hoveredHike={hoveredHike}
                 onSelectLocation={openLocation}
                 onSelectHike={openHike}

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { UNKNOWN_MEMBER_NAME, memberDirectory } from "@/lib/supabase/member-names";
 import { photoPointsToTrack, type TrackPoint } from "@/lib/gps/track";
 import type { ActivityType, LocationType } from "@/types/database";
 import { MapShell, type MapLocation, type MapHike } from "./map-shell";
@@ -27,7 +28,7 @@ interface LocationRow {
       taken_at: string | null;
       exif_lat: number | null;
       exif_lng: number | null;
-      uploader: { name: string } | null;
+      uploader_id: string | null;
     }[];
   }[];
 }
@@ -47,14 +48,22 @@ export default async function MapPage() {
     .select(
       "id, name, type, region, elevation, lat, lng, created_at, " +
         "hikes(id, title, date, description, activity_type, lat, lng, track, " +
-        "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader:members!uploader_id(name)))",
+        "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
     )
     .not("lat", "is", null)
     .not("lng", "is", null)
     .order("name");
   if (error) throw error;
 
-  const locations: MapLocation[] = (data as unknown as LocationRow[]).map((row) => {
+  const rows = data as unknown as LocationRow[];
+  // Names come from the member_names view, not a join: members itself stays
+  // unreadable to anyone but its owner and admins because it holds email.
+  const names = await memberDirectory(
+    supabase,
+    rows.flatMap((r) => (r.hikes ?? []).flatMap((h) => (h.photos ?? []).map((p) => p.uploader_id))),
+  );
+
+  const locations: MapLocation[] = rows.map((row) => {
     const hikes: MapHike[] = [...(row.hikes ?? [])]
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((hike) => {
@@ -66,7 +75,8 @@ export default async function MapPage() {
             takenAt: p.taken_at,
             exifLat: p.exif_lat,
             exifLng: p.exif_lng,
-            uploaderName: p.uploader?.name ?? "알 수 없음",
+            uploaderName:
+              (p.uploader_id ? names.get(p.uploader_id)?.name : null) ?? UNKNOWN_MEMBER_NAME,
           }));
 
         // A gym has no walking route at all; elsewhere fall back to the

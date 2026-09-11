@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { UNKNOWN_MEMBER_NAME, memberDirectory } from "@/lib/supabase/member-names";
 import { HikeGallery, type GalleryPhoto } from "./gallery";
 
 interface HikeRow {
@@ -13,7 +14,7 @@ interface HikeRow {
     id: string;
     storage_key_original: string;
     taken_at: string | null;
-    uploader: { name: string } | null;
+    uploader_id: string | null;
   }[];
 }
 
@@ -24,7 +25,7 @@ export default async function HikePage({ params }: { params: Promise<{ id: strin
   const { data, error } = await supabase
     .from("hikes")
     .select(
-      "id, title, date, description, location:locations!location_id(name, region, elevation), photos(id, storage_key_original, taken_at, uploader:members!uploader_id(name))",
+      "id, title, date, description, location:locations!location_id(name, region, elevation), photos(id, storage_key_original, taken_at, uploader_id)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -32,13 +33,15 @@ export default async function HikePage({ params }: { params: Promise<{ id: strin
   if (!data) notFound();
 
   const hike = data as unknown as HikeRow;
+  const names = await memberDirectory(supabase, hike.photos.map((p) => p.uploader_id));
   const photos: GalleryPhoto[] = [...hike.photos]
     .sort((a, b) => (a.taken_at ?? "").localeCompare(b.taken_at ?? ""))
     .map((p) => ({
       id: p.id,
       storageKey: p.storage_key_original,
       takenAt: p.taken_at,
-      uploaderName: p.uploader?.name ?? "알 수 없음",
+      uploaderName:
+        (p.uploader_id ? names.get(p.uploader_id)?.name : null) ?? UNKNOWN_MEMBER_NAME,
     }));
 
   const locationLine = hike.location
