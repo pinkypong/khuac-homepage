@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ActivityType } from "@/types/database";
 import { createHike } from "./actions";
-import { ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
+import { ACTIVITY_HAS_OWN_SPOT, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
 import { PlaceSearch, type PlaceResult } from "./place-search";
 
 export function NewHikeForm({ locationId }: { locationId: string }) {
@@ -18,9 +18,17 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // The server enforces this too; catching it here saves a round trip and can
+  // point at the field that is missing.
+  const spotRequired = ACTIVITY_HAS_OWN_SPOT[activityType];
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    if (spotRequired && !spot) {
+      setError("산행·등반은 봉우리나 코스 위치를 검색해 지정해주세요.");
+      return;
+    }
     setSaving(true);
     try {
       await createHike({
@@ -63,7 +71,12 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
 
       <div className="mt-2">
         <label className="mb-1 block text-[11px] text-neutral-500">
-          봉우리·코스 검색 (선택)
+          봉우리·코스 검색{" "}
+          {spotRequired ? (
+            <span className="text-red-600">(필수)</span>
+          ) : (
+            <span>(선택)</span>
+          )}
         </label>
         <PlaceSearch
           onSelect={(place) => {
@@ -71,10 +84,25 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
             if (!title) setTitle(place.name);
           }}
         />
-        {spot && (
-          <p className="mt-1 text-[11px] text-neutral-500">
-            {spot.name} · {spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}
+        {spot ? (
+          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-neutral-500">
+            <span className="min-w-0 truncate">
+              {spot.name} · {spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSpot(null)}
+              className="shrink-0 text-neutral-400 underline hover:text-neutral-700"
+            >
+              지우기
+            </button>
           </p>
+        ) : (
+          spotRequired && (
+            <p className="mt-1 text-[11px] text-neutral-400">
+              지도에 붉은 핀으로 표시될 지점입니다.
+            </p>
+          )
         )}
       </div>
 
@@ -135,7 +163,7 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
         </button>
         <button
           type="submit"
-          disabled={saving}
+          disabled={saving || (spotRequired && !spot)}
           className="rounded bg-neutral-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
         >
           {saving ? "저장 중…" : "등록"}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AdvancedMarker,
   ControlPosition,
@@ -12,45 +12,89 @@ import {
 } from "@vis.gl/react-google-maps";
 import type { TrackPoint } from "@/lib/gps/track";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
-import { TYPE_COLOR } from "./side-panel";
+import {
+  ACTIVITY_COLOR,
+  ACTIVITY_HAS_OWN_SPOT,
+  ACTIVITY_LABEL,
+  ACTIVITY_TYPES,
+  MIXED_ACTIVITY_COLOR,
+  folderMarkerColor,
+} from "./activity";
 
-// Fallback view (roughly the Korean peninsula) before fitBounds kicks in.
+// The home view: the whole peninsula, always the same frame. It is a fixed
+// starting point rather than a fitBounds over the folders, so the map that
+// greets everyone looks the same today as it will after fifty more outings.
 const DEFAULT_CENTER = { lat: 36.5, lng: 127.8 };
-const DEFAULT_ZOOM = 6;
+const DEFAULT_ZOOM = 7;
 const SINGLE_LOCATION_ZOOM = 11;
+// Close enough to read the ridge an activity actually happened on.
+const SPOT_ZOOM = 14;
 
 // Past this the map's own labels carry the detail and our pills just cover
 // them, so a marker keeps its dot but drops the name.
 const LABEL_MAX_ZOOM = 12;
 
-const PINNED_COLOR = "#D23B2E";
+// Red says "this is the one you picked" and nothing else, which is why no
+// activity colour is red.
+const SELECTED_COLOR = "#D23B2E";
 const PREVIEW_COLOR = "#4A6B52";
 
 function toPath(track: TrackPoint[]) {
   return track.map(([lat, lng]) => ({ lat, lng }));
 }
 
-/** Frames the map: all markers at first, then the open location or route. */
+/** Frames the map: Korea at rest, then the open folder or selected activity. */
 function Camera({
   locations,
   activeLocationId,
-  pinnedHike,
+  selectedHike,
 }: {
   locations: MapLocation[];
   activeLocationId: string | null;
-  pinnedHike: MapHike | null;
+  selectedHike: MapHike | null;
 }) {
   const map = useMap();
   const core = useMapsLibrary("core");
+  const appliedRef = useRef<string>("");
 
   useEffect(() => {
     if (!map || !core) return;
 
-    // A pinned route wins: frame the whole track so the red line is visible.
-    if (pinnedHike?.track && pinnedHike.track.length >= 2) {
+    // A refetch (a photo upload, a rename) hands back new objects holding the
+    // same coordinates. Without this the map would snap back to its framing
+    // every time, throwing away wherever the viewer had panned to.
+    // The track length is part of the key so a freshly uploaded GPX reframes.
+    const key = selectedHike
+      ? "h:" + selectedHike.id + ":" + (selectedHike.track?.length ?? 0)
+      : activeLocationId
+        ? "l:" + activeLocationId
+        : "root";
+    if (appliedRef.current === key) return;
+    appliedRef.current = key;
+
+    if (!activeLocationId && !selectedHike) {
+      map.setCenter(DEFAULT_CENTER);
+      map.setZoom(DEFAULT_ZOOM);
+      return;
+    }
+
+    // A route wins: frame the whole track so the red line is visible end to end.
+    if (selectedHike?.track && selectedHike.track.length >= 2) {
       const bounds = new core.LatLngBounds();
-      for (const [lat, lng] of pinnedHike.track) bounds.extend({ lat, lng });
+      for (const [lat, lng] of selectedHike.track) bounds.extend({ lat, lng });
       map.fitBounds(bounds, 64);
+      return;
+    }
+
+    // No route, but the activity has a point of its own: go stand on it.
+    if (
+      selectedHike &&
+      selectedHike.lat != null &&
+      selectedHike.lng != null &&
+      ACTIVITY_HAS_OWN_SPOT[selectedHike.activityType]
+    ) {
+      map.setCenter({ lat: selectedHike.lat, lng: selectedHike.lng });
+      map.setZoom(SPOT_ZOOM);
       return;
     }
 
@@ -58,20 +102,8 @@ function Camera({
     if (active) {
       map.setCenter({ lat: active.lat, lng: active.lng });
       map.setZoom(SINGLE_LOCATION_ZOOM);
-      return;
     }
-
-    if (locations.length === 0) return;
-    if (locations.length === 1) {
-      map.setCenter({ lat: locations[0].lat, lng: locations[0].lng });
-      map.setZoom(SINGLE_LOCATION_ZOOM);
-      return;
-    }
-
-    const bounds = new core.LatLngBounds();
-    for (const location of locations) bounds.extend({ lat: location.lat, lng: location.lng });
-    map.fitBounds(bounds, 64);
-  }, [map, core, locations, activeLocationId, pinnedHike]);
+  }, [map, core, locations, activeLocationId, selectedHike]);
 
   return null;
 }
@@ -103,6 +135,33 @@ function Dot({
           {label}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * The selected activity's own GPS point. Deliberately a pin rather than a dot:
+ * the dots answer "what is here", this one answers "this is the one you opened,
+ * and it happened exactly here".
+ */
+function SelectedPin({ label }: { label: string }) {
+  return (
+    <div className="flex cursor-pointer flex-col items-center">
+      <span className="mb-0.5 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-white shadow"
+        style={{ backgroundColor: SELECTED_COLOR }}
+      >
+        {label}
+      </span>
+      {/* The tip sits on the coordinate: AdvancedMarker anchors bottom-centre. */}
+      <svg width="24" height="32" viewBox="0 0 24 32" aria-hidden="true">
+        <path
+          d="M12 31C12 31 2 18.5 2 11.5a10 10 0 1 1 20 0C22 18.5 12 31 12 31Z"
+          fill={SELECTED_COLOR}
+          stroke="#ffffff"
+          strokeWidth="2"
+        />
+        <circle cx="12" cy="11.5" r="3.6" fill="#ffffff" />
+      </svg>
     </div>
   );
 }
@@ -145,11 +204,35 @@ function MapTypeToggle() {
   );
 }
 
+/** Four colours mean nothing without a key, so the map carries its own. */
+function ActivityLegend() {
+  return (
+    <div className="m-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded border border-neutral-300 bg-white/90 px-2 py-1 text-[11px] text-neutral-700 shadow-sm">
+      {ACTIVITY_TYPES.map((type) => (
+        <span key={type} className="flex items-center gap-1">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: ACTIVITY_COLOR[type] }}
+          />
+          {ACTIVITY_LABEL[type]}
+        </span>
+      ))}
+      <span className="flex items-center gap-1">
+        <span
+          className="h-2 w-2 rounded-full"
+          style={{ backgroundColor: MIXED_ACTIVITY_COLOR }}
+        />
+        여러 활동
+      </span>
+    </div>
+  );
+}
+
 export function MapView({
   mapId,
   locations,
   activeLocationId,
-  pinnedHike,
+  selectedHike,
   hoveredHike,
   onSelectLocation,
   onSelectHike,
@@ -161,7 +244,7 @@ export function MapView({
   mapId: string;
   locations: MapLocation[];
   activeLocationId: string | null;
-  pinnedHike: MapHike | null;
+  selectedHike: MapHike | null;
   hoveredHike: MapHike | null;
   onSelectLocation: (locationId: string) => void;
   onSelectHike: (hike: MapHike) => void;
@@ -176,16 +259,34 @@ export function MapView({
   // Only preview a hover when it isn't already the pinned route, so the two
   // styles never stack on the same line.
   const previewTrack =
-    hoveredHike && hoveredHike.id !== pinnedHike?.id && hoveredHike.track?.length
+    hoveredHike && hoveredHike.id !== selectedHike?.id && hoveredHike.track?.length
       ? hoveredHike.track
       : null;
 
   const activeLocation = locations.find((l) => l.id === activeLocationId) ?? null;
   // Individual peaks/routes stay hidden until their mountain is opened -
-  // otherwise every outing piles onto the same spot at country zoom.
+  // otherwise every outing piles onto the same spot at country zoom. Gym and
+  // artificial-wall sessions never get one: their point is the venue, so the
+  // marker would land on top of the folder's.
   const spotHikes = activeLocation
-    ? activeLocation.hikes.filter((h) => h.lat != null && h.lng != null)
+    ? activeLocation.hikes.filter(
+        (h) => ACTIVITY_HAS_OWN_SPOT[h.activityType] && h.lat != null && h.lng != null,
+      )
     : [];
+
+  // Where the red pin goes, if anywhere.
+  const selectedSpot =
+    selectedHike &&
+    ACTIVITY_HAS_OWN_SPOT[selectedHike.activityType] &&
+    selectedHike.lat != null &&
+    selectedHike.lng != null
+      ? { lat: selectedHike.lat, lng: selectedHike.lng }
+      : null;
+
+  // A gym session, or an activity nobody has placed yet, has no point of its
+  // own. Rather than leave the click with no answer on the map, the folder's
+  // own marker turns red and stands in for it.
+  const selectedFolderId = selectedHike && !selectedSpot ? selectedHike.locationId : null;
 
   return (
     <Map
@@ -221,7 +322,15 @@ export function MapView({
         <MapTypeToggle />
       </MapControl>
 
-      <Camera locations={locations} activeLocationId={activeLocationId} pinnedHike={pinnedHike} />
+      <MapControl position={ControlPosition.RIGHT_BOTTOM}>
+        <ActivityLegend />
+      </MapControl>
+
+      <Camera
+        locations={locations}
+        activeLocationId={activeLocationId}
+        selectedHike={selectedHike}
+      />
 
       {previewTrack && (
         <Polyline
@@ -232,10 +341,10 @@ export function MapView({
         />
       )}
 
-      {pinnedHike?.track && pinnedHike.track.length >= 2 && (
+      {selectedHike?.track && selectedHike.track.length >= 2 && (
         <Polyline
-          path={toPath(pinnedHike.track)}
-          strokeColor={PINNED_COLOR}
+          path={toPath(selectedHike.track)}
+          strokeColor={SELECTED_COLOR}
           strokeOpacity={1}
           strokeWeight={5}
         />
@@ -243,7 +352,7 @@ export function MapView({
 
       {pickedPoint && (
         <AdvancedMarker position={pickedPoint} title="새 장소 위치">
-          <Dot color={PINNED_COLOR} label="새 장소" showLabel emphasised />
+          <Dot color={SELECTED_COLOR} label="새 장소" showLabel emphasised />
         </AdvancedMarker>
       )}
 
@@ -255,7 +364,11 @@ export function MapView({
           onClick={() => onSelectLocation(location.id)}
         >
           <Dot
-            color={TYPE_COLOR[location.type]}
+            color={
+              location.id === selectedFolderId
+                ? SELECTED_COLOR
+                : folderMarkerColor(location.hikes.map((h) => h.activityType))
+            }
             label={location.name}
             showLabel={showLabels}
             emphasised={location.id === activeLocationId}
@@ -263,21 +376,29 @@ export function MapView({
         </AdvancedMarker>
       ))}
 
-      {spotHikes.map((hike) => (
-        <AdvancedMarker
-          key={hike.id}
-          position={{ lat: hike.lat as number, lng: hike.lng as number }}
-          title={hike.title}
-          onClick={() => onSelectHike(hike)}
-        >
-          <Dot
-            color={hike.id === pinnedHike?.id ? PINNED_COLOR : PREVIEW_COLOR}
-            label={hike.title}
-            showLabel
-            emphasised={hike.id === pinnedHike?.id}
-          />
+      {spotHikes
+        .filter((hike) => hike.id !== selectedHike?.id)
+        .map((hike) => (
+          <AdvancedMarker
+            key={hike.id}
+            position={{ lat: hike.lat as number, lng: hike.lng as number }}
+            title={hike.title}
+            onClick={() => onSelectHike(hike)}
+          >
+            <Dot
+              color={ACTIVITY_COLOR[hike.activityType]}
+              label={hike.title}
+              showLabel
+              emphasised={false}
+            />
+          </AdvancedMarker>
+        ))}
+
+      {selectedSpot && selectedHike && (
+        <AdvancedMarker position={selectedSpot} title={selectedHike.title}>
+          <SelectedPin label={selectedHike.title} />
         </AdvancedMarker>
-      ))}
+      )}
     </Map>
   );
 }

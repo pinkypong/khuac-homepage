@@ -8,7 +8,7 @@ import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import { HikeDetail } from "./hike-detail";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
-import { ACTIVITY_LABEL } from "./activity";
+import { ACTIVITY_COLOR, ACTIVITY_LABEL, folderMarkerColor } from "./activity";
 import { deleteLocation } from "./admin-actions";
 import { renameLocation } from "./actions";
 
@@ -18,28 +18,26 @@ export const TYPE_LABEL: Record<LocationType, string> = {
   crag: "실외 암장",
 };
 
-export const TYPE_COLOR: Record<LocationType, string> = {
-  mountain: "#C4622D",
-  climbing_gym: "#3D6E86",
-  crag: "#7A4F79",
-};
-
-function TypeTag({ type }: { type: LocationType }) {
+/** Same colour the marker uses, so a badge here reads as that dot out there. */
+function ActivityTag({ type }: { type: ActivityType }) {
   return (
     <span
-      className="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-white"
-      style={{ backgroundColor: TYPE_COLOR[type] }}
+      className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium text-white"
+      style={{ backgroundColor: ACTIVITY_COLOR[type] }}
     >
-      {TYPE_LABEL[type]}
+      {ACTIVITY_LABEL[type]}
     </span>
   );
 }
 
-function ActivityTag({ type }: { type: ActivityType }) {
+/** The folder's own dot, repeated beside its name in the list. Grey when the
+    folder mixes kinds of outing - the activity badges below carry the detail. */
+function FolderDot({ location }: { location: MapLocation }) {
   return (
-    <span className="shrink-0 rounded border border-neutral-300 px-1 py-px text-[10px] text-neutral-600">
-      {ACTIVITY_LABEL[type]}
-    </span>
+    <span
+      className="h-2.5 w-2.5 shrink-0 rounded-full"
+      style={{ backgroundColor: folderMarkerColor(location.hikes.map((h) => h.activityType)) }}
+    />
   );
 }
 
@@ -278,8 +276,8 @@ export function SidePanel({
               </>
             ) : (
               <>
+                <FolderDot location={activeLocation} />
                 <h1 className="min-w-0 truncate text-lg font-semibold">{activeLocation.name}</h1>
-                <TypeTag type={activeLocation.type} />
                 <button
                   type="button"
                   onClick={() => {
@@ -404,8 +402,8 @@ export function SidePanel({
                   className="w-full rounded-lg border border-neutral-200 p-3 text-left transition-colors hover:border-neutral-400"
                 >
                   <span className="flex items-center gap-2">
+                    <FolderDot location={location} />
                     <span className="min-w-0 truncate text-sm font-semibold">{location.name}</span>
-                    <TypeTag type={location.type} />
                   </span>
                   <span className="mt-1 block text-[11px] text-neutral-500">
                     {[

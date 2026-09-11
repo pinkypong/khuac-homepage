@@ -5,6 +5,7 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { isValidGps } from "@/lib/gps/validate";
 import type { ActivityType, LocationType } from "@/types/database";
+import { ACTIVITY_HAS_OWN_SPOT } from "@/app/map/activity";
 
 // The GPX file itself is parsed in the browser (Workers have no XML parser),
 // so what arrives here is already just coordinates - validate them anyway.
@@ -77,6 +78,15 @@ export async function createHike(input: {
   if (!title) throw new Error("활동 이름을 입력해주세요.");
   if (!input.date) throw new Error("날짜를 선택해주세요.");
 
+  const hasSpot = input.lat != null && isValidGps(input.lat, input.lng);
+  // A hike or a climb sits somewhere specific inside its folder - 대청봉 and
+  // 울산바위 are both 설악산 - so without a point the map can say no more than
+  // "somewhere on this mountain". A gym or wall session happens at the venue
+  // itself, so it is exempt.
+  if (ACTIVITY_HAS_OWN_SPOT[input.activityType] && !hasSpot) {
+    throw new Error("산행·등반은 봉우리나 코스 위치를 검색해 지정해주세요.");
+  }
+
   const { data, error } = await supabase
     .from("hikes")
     .insert({
@@ -85,8 +95,8 @@ export async function createHike(input: {
       date: input.date,
       activity_type: input.activityType,
       description: input.description?.trim() || null,
-      lat: input.lat != null && isValidGps(input.lat, input.lng) ? input.lat : null,
-      lng: input.lat != null && isValidGps(input.lat, input.lng) ? input.lng : null,
+      lat: hasSpot ? input.lat : null,
+      lng: hasSpot ? input.lng : null,
       created_by: memberId,
     })
     .select("id")
