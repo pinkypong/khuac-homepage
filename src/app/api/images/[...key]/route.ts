@@ -67,6 +67,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
 
   // Written after the response is on its way; a failed cache write should
   // never turn a working image into an error.
+  //
+  // Known gap: if the photo is deleted during the transform above, this write
+  // lands after deleteStorageObjects has already swept the variants, and the
+  // cache-hit branch then serves the derivative without ever consulting the
+  // original. Closing it properly costs a lookup on every cache miss, which is
+  // a poor trade for a few-hundred-millisecond window behind a members-only
+  // gate - so it is left open deliberately.
   const cacheWrite = putObject(cacheKey, transformed, "image/webp").catch((err) => {
     console.error("[api/images] cache write failed:", err);
   });

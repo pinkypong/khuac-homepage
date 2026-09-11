@@ -97,6 +97,14 @@ export async function processUploadedPhoto(input: {
     .select("id")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // The bytes are already in R2 by the time we get here, so a failed insert
+    // would otherwise leave an object nothing references and nobody can find -
+    // still billed, and invisible to every screen in the app. The commonest
+    // cause is a foreign key violation: the activity was deleted while this
+    // upload was in flight.
+    await deleteObject(input.storageKey);
+    throw error;
+  }
   return { photoId: (photo as { id: string }).id, status: match.status };
 }

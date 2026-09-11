@@ -13,15 +13,25 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 // so R2 deletes go out in small batches instead of one giant Promise.all.
 const DELETE_BATCH_SIZE = 10;
 
-export async function photoKeysForHikes(
+/**
+ * Deletes the photo rows belonging to these hikes and returns their storage
+ * keys, in one statement.
+ *
+ * Reading the keys first and deleting second would leave a window in which a
+ * concurrent upload inserts a row: the delete would take it, but its key was
+ * never in the list, so its file would survive in R2 unreferenced. DELETE ...
+ * RETURNING makes the keys we clean up exactly the rows we removed.
+ */
+export async function deletePhotosForHikes(
   supabase: Supabase,
   hikeIds: string[],
 ): Promise<string[]> {
   if (hikeIds.length === 0) return [];
   const { data, error } = await supabase
     .from("photos")
-    .select("storage_key_original")
-    .in("hike_id", hikeIds);
+    .delete()
+    .in("hike_id", hikeIds)
+    .select("storage_key_original");
   if (error) throw error;
   return ((data ?? []) as { storage_key_original: string }[]).map((p) => p.storage_key_original);
 }

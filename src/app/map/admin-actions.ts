@@ -2,18 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/supabase/require-role";
-import { deleteStorageObjects, photoKeysForHikes } from "./photo-storage";
+import { deletePhotosForHikes, deleteStorageObjects } from "./photo-storage";
 
 export async function deleteActivity(hikeId: string): Promise<void> {
   const { supabase } = await requireAdminSession();
 
-  const storageKeys = await photoKeysForHikes(supabase, [hikeId]);
-
   // photos.hike_id is ON DELETE SET NULL, not CASCADE, so the photo rows have
   // to be removed explicitly or they survive as unattached orphans.
   // (hike_participants does cascade and needs no help.)
-  const { error: photosError } = await supabase.from("photos").delete().eq("hike_id", hikeId);
-  if (photosError) throw photosError;
+  const storageKeys = await deletePhotosForHikes(supabase, [hikeId]);
 
   const { error } = await supabase.from("hikes").delete().eq("id", hikeId);
   if (error) throw error;
@@ -36,12 +33,9 @@ export async function deleteLocation(locationId: string): Promise<void> {
   if (hikesError) throw hikesError;
 
   const hikeIds = ((hikeRows ?? []) as { id: string }[]).map((h) => h.id);
-  const storageKeys = await photoKeysForHikes(supabase, hikeIds);
+  const storageKeys = await deletePhotosForHikes(supabase, hikeIds);
 
   if (hikeIds.length > 0) {
-    const { error: photosError } = await supabase.from("photos").delete().in("hike_id", hikeIds);
-    if (photosError) throw photosError;
-
     const { error: hikeError } = await supabase.from("hikes").delete().in("id", hikeIds);
     if (hikeError) throw hikeError;
   }
