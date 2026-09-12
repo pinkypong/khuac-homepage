@@ -28,6 +28,8 @@ export function HikeDetail({
   isAdmin,
   focusedPhotoId,
   onFocusedPhotoConsumed,
+  onStartTrailPick,
+  trailBusy,
 }: {
   location: MapLocation;
   hike: MapHike;
@@ -37,6 +39,8 @@ export function HikeDetail({
   isAdmin: boolean;
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
+  onStartTrailPick: () => void;
+  trailBusy: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -261,6 +265,24 @@ export function HikeDetail({
             />
             {uploading && <p className="mt-1 text-[11px] text-neutral-500">업로드 중…</p>}
             {gpxError && <p className="mt-1 text-[11px] text-red-600">{gpxError}</p>}
+
+            {/* Hardly any outing has a GPX - nobody remembers to record one -
+                so the usual case needs a way to draw the route that is not a
+                file nobody has. These are real OpenStreetMap paths, picked by
+                the person who walked them. */}
+            <div className="mt-3 border-t border-neutral-200 pt-3">
+              <p className="text-[11px] text-neutral-500">
+                GPX 파일이 없다면, 지도에서 걸었던 등산로를 직접 골라 경로를 만들 수 있습니다.
+              </p>
+              <button
+                type="button"
+                onClick={onStartTrailPick}
+                disabled={trailBusy}
+                className="mt-2 w-full rounded-lg border border-neutral-400 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+              >
+                {trailBusy ? "등산로 불러오는 중…" : "지도에서 등산로 고르기"}
+              </button>
+            </div>
           </div>
         )}
 

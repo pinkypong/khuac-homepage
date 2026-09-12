@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import type { ActivityType, LocationType } from "@/types/database";
 import type { TrackPoint } from "@/lib/gps/track";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ACTIVITY_TYPES, ACTIVITY_LABEL } from "./activity";
 import { getThumbnailUrl } from "@/lib/images/url";
@@ -13,6 +14,9 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { ViewerName } from "@/app/account/name-form";
 import { PendingBadge } from "@/components/pending-badge";
 import { SidePanel } from "./side-panel";
+import { loadTrails, saveTrailRoute } from "./route-actions";
+import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
+import { formatDistance, trackDistanceMeters } from "@/lib/gps/track";
 import { MapErrorBoundary, MapUnavailable } from "./map-error-boundary";
 
 export interface MapPhoto {
@@ -96,6 +100,72 @@ function NavIcon({kind}: {kind: "map" | "album" | "upload" | "profile"}) {
  return <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]}/></svg>;
 }
 
+/**
+ * The controls for an in-progress route build, sitting over the map.
+ *
+ * Over the map rather than in the panel because that is where the tapping
+ * happens - on a phone the panel is a different tab entirely, and a save button
+ * the member has to switch screens to reach would be a save button they never
+ * find.
+ */
+function TrailPickBar({
+  pick,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  pick: { segments: TrailSegment[]; chosen: number[] };
+  busy: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const chosenSegments = pick.chosen
+    .map((id) => pick.segments.find((segment) => segment.id === id))
+    .filter((segment): segment is TrailSegment => segment !== undefined);
+
+  // Measured on the stitched line, not by adding the parts up: segments that
+  // do not join are dropped when stitching, and counting them here would
+  // promise a distance the saved route does not have.
+  const stitched = stitchSegments(chosenSegments);
+  const distance = stitched.length >= 2 ? formatDistance(trackDistanceMeters(stitched)) : null;
+  const dropped = chosenSegments.length - 1 > 0 && stitched.length < 2;
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className="pointer-events-auto mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-neutral-300 bg-white/95 p-3 shadow-lg backdrop-blur">
+        <p className="text-xs font-medium">
+          {pick.chosen.length === 0
+            ? "걸었던 등산로를 순서대로 눌러주세요."
+            : `구간 ${pick.chosen.length}개 선택${distance ? ` · ${distance}` : ""}`}
+        </p>
+        {dropped && (
+          <p className="text-[11px] text-amber-700">
+            고른 구간들이 서로 이어지지 않습니다. 중간 구간을 마저 선택해주세요.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="flex-1 rounded-lg border border-neutral-300 py-2 text-xs font-medium disabled:opacity-50"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={busy || pick.chosen.length === 0}
+            className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {busy ? "저장 중…" : "이 경로로 저장"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function MapShell({
   locations,
   viewerName,
@@ -107,6 +177,7 @@ export function MapShell({
   isAdmin: boolean;
   pendingCount: number;
 }) {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [activity, setActivity] = useState<ActivityType | "all">("all");
@@ -126,6 +197,16 @@ export function MapShell({
   // lightbox on that photo. Cleared once consumed, otherwise closing the
   // lightbox would immediately reopen it.
   const [focusedPhotoId, setFocusedPhotoId] = useState<string | null>(null);
+  // An in-progress route build: which activity it is for, the paths offered
+  // around it, and the ones chosen so far in the order they were tapped.
+  const [trailPick, setTrailPick] = useState<{
+    hikeId: string;
+    lat: number;
+    lng: number;
+    segments: TrailSegment[];
+    chosen: number[];
+  } | null>(null);
+  const [trailBusy, setTrailBusy] = useState(false);
   // When the "new location" form is open the map turns into a coordinate
   // picker - far easier than asking anyone to type lat/lng.
   const [picking, setPicking] = useState(false);
@@ -199,6 +280,51 @@ export function MapShell({
     setMobileTab("album");
   }
 
+  async function startTrailPick(hike: MapHike, fallbackLat: number, fallbackLng: number) {
+    const lat = hike.lat ?? fallbackLat;
+    const lng = hike.lng ?? fallbackLng;
+    setTrailBusy(true);
+    try {
+      const segments = await loadTrails(lat, lng);
+      if (segments.length === 0) {
+        window.alert("이 주변에 등록된 등산로가 없습니다. GPX 파일을 올려주세요.");
+        return;
+      }
+      setTrailPick({ hikeId: hike.id, lat, lng, segments, chosen: [] });
+      // The paths are on the map, which on a phone is the other tab.
+      setMobileTab("map");
+      setMapOpen(true);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "등산로를 불러오지 못했습니다.");
+    } finally {
+      setTrailBusy(false);
+    }
+  }
+
+  function toggleTrail(id: number) {
+    setTrailPick((current) => {
+      if (!current) return current;
+      const chosen = current.chosen.includes(id)
+        ? current.chosen.filter((existing) => existing !== id)
+        : [...current.chosen, id];
+      return { ...current, chosen };
+    });
+  }
+
+  async function saveTrailPick() {
+    if (!trailPick) return;
+    setTrailBusy(true);
+    try {
+      await saveTrailRoute(trailPick.hikeId, trailPick.lat, trailPick.lng, trailPick.chosen);
+      setTrailPick(null);
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "경로 저장에 실패했습니다.");
+    } finally {
+      setTrailBusy(false);
+    }
+  }
+
   function goToRoot() {
     setActiveLocationId(null);
     setActiveHikeId(null);
@@ -253,6 +379,9 @@ export function MapShell({
                 picking={picking}
                 pickedPoint={pickedPoint}
                 onPickPoint={pickPoint}
+                trailSegments={trailPick?.segments ?? null}
+                chosenTrailIds={trailPick?.chosen ?? []}
+                onToggleTrail={toggleTrail}
               /></MapErrorBoundary>
             ) : (
               <div className="p-4">
@@ -261,6 +390,14 @@ export function MapShell({
                   <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>가 설정되지 않았습니다.
                 </p>
               </div>
+            )}
+            {trailPick && (
+              <TrailPickBar
+                pick={trailPick}
+                busy={trailBusy}
+                onCancel={() => setTrailPick(null)}
+                onSave={saveTrailPick}
+              />
             )}
           </div>
 
@@ -303,6 +440,8 @@ export function MapShell({
           pinnedHikeId={pinnedHikeId}
           onOpenLocation={openLocation}
           onOpenHike={openHike}
+          onStartTrailPick={startTrailPick}
+          trailBusy={trailBusy}
           focusedPhotoId={focusedPhotoId}
           onFocusedPhotoConsumed={() => setFocusedPhotoId(null)}
           onHoverHike={setHoveredHikeId}

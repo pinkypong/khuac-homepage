@@ -138,6 +138,8 @@ export function SidePanel({
   pinnedHikeId,
   onOpenLocation,
   onOpenHike,
+  onStartTrailPick,
+  trailBusy,
   focusedPhotoId,
   onFocusedPhotoConsumed,
   onHoverHike,
@@ -155,6 +157,8 @@ export function SidePanel({
   pinnedHikeId: string | null;
   onOpenLocation: (locationId: string) => void;
   onOpenHike: (hike: MapHike) => void;
+  onStartTrailPick: (hike: MapHike, lat: number, lng: number) => void;
+  trailBusy: boolean;
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
   onHoverHike: (hikeId: string | null) => void;
@@ -270,6 +274,8 @@ export function SidePanel({
         onShowOnMap={onShowOnMap}
         isAdmin={isAdmin}
         focusedPhotoId={focusedPhotoId}
+        onStartTrailPick={() => onStartTrailPick(activeHike, activeLocation.lat, activeLocation.lng)}
+        trailBusy={trailBusy}
         onFocusedPhotoConsumed={onFocusedPhotoConsumed}
       />
     );

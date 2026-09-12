@@ -17,6 +17,7 @@ import type { TrackPoint } from "@/lib/gps/track";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
+import type { TrailSegment } from "@/lib/routes/trails";
 import {
   ACTIVITY_COLOR,
   ACTIVITY_HAS_OWN_SPOT,
@@ -43,6 +44,11 @@ const LABEL_MAX_ZOOM = 12;
 // activity colour is red.
 const SELECTED_COLOR = "#D23B2E";
 const PREVIEW_COLOR = "#4A6B52";
+// Trail picking uses its own two colours: blue-grey reads as "offered" rather
+// than as any of the activity colours, and amber as "you picked this" without
+// borrowing the red that means a saved route.
+const TRAIL_CANDIDATE_COLOR = "#5B7C99";
+const TRAIL_CHOSEN_COLOR = "#D98C2B";
 
 function toPath(track: TrackPoint[]) {
   return track.map(([lat, lng]) => ({ lat, lng }));
@@ -302,6 +308,9 @@ export function MapView({
   picking,
   pickedPoint,
   onPickPoint,
+  trailSegments,
+  chosenTrailIds,
+  onToggleTrail,
 }: {
   mapId: string;
   locations: MapLocation[];
@@ -315,6 +324,9 @@ export function MapView({
   picking: boolean;
   pickedPoint: PickedPoint | null;
   onPickPoint: (point: PickedPoint) => void;
+  trailSegments: TrailSegment[] | null;
+  chosenTrailIds: number[];
+  onToggleTrail: (id: number) => void;
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [openPhotoGroup, setOpenPhotoGroup] = useState<{hikeId:string;key:string}|null>(null);
@@ -413,6 +425,27 @@ export function MapView({
           strokeWeight={3}
         />
       )}
+
+      {/* Candidate paths from OpenStreetMap, drawn to be tapped. Unchosen ones
+          stay faint so the mountain is still readable underneath; a chosen one
+          goes solid and heavy so the route reads as a route while it is being
+          assembled. */}
+      {trailSegments?.map((segment) => {
+        const order = chosenTrailIds.indexOf(segment.id);
+        const chosen = order >= 0;
+        return (
+          <Polyline
+            key={segment.id}
+            path={toPath(segment.points)}
+            strokeColor={chosen ? TRAIL_CHOSEN_COLOR : TRAIL_CANDIDATE_COLOR}
+            strokeOpacity={chosen ? 1 : 0.55}
+            strokeWeight={chosen ? 6 : 3}
+            zIndex={chosen ? 3 : 1}
+            clickable
+            onClick={() => onToggleTrail(segment.id)}
+          />
+        );
+      })}
 
       {selectedHike?.track && selectedHike.track.length >= 2 && (
         <Polyline
