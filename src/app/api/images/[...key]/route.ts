@@ -16,7 +16,15 @@ import { requireApprovedMember, RoleError } from "@/lib/supabase/require-role";
 // Resizing needs the Cloudflare Images binding, which only exists on Workers.
 // Without it the original is served unchanged so local development still
 // shows photos - and nothing is cached, since nothing was derived.
-const CACHE_CONTROL = "private, max-age=86400";
+// A storage key is a uuid and its bytes never change, so a day was leaving
+// repeat views to pay the full round trip - auth, R2, and the transform on a
+// miss - for a file the browser already had. "immutable" stops the
+// revalidation request too.
+//
+// Not a year, deliberately: this is the one copy that outlives a deletion,
+// sitting in the browser of someone who already saw the photo. A month keeps
+// that window short enough to be reasonable.
+const CACHE_CONTROL = "private, max-age=2592000, immutable";
 
 function derivedKey(storageKey: string, width: number | undefined, quality: number) {
   return `derived/w${width ?? "orig"}q${quality}/${storageKey}.webp`;

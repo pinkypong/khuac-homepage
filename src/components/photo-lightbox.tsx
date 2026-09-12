@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getPreviewUrl } from "@/lib/images/url";
+import { getPreviewUrl, getThumbnailUrl } from "@/lib/images/url";
 import { getOriginalUrl } from "@/app/hikes/[id]/actions";
 import { CommentThread } from "./comment-thread";
 
@@ -33,6 +33,9 @@ export function PhotoLightbox({
   onChangeIndex: (index: number | null) => void;
 }) {
   const [downloading, setDownloading] = useState(false);
+  // Which photo's full-size file has actually arrived, so the stand-in below
+  // stays until it does.
+  const [loadedId, setLoadedId] = useState<string | null>(null);
 
   const close = useCallback(() => onChangeIndex(null), [onChangeIndex]);
   const step = useCallback(
@@ -42,6 +45,19 @@ export function PhotoLightbox({
     },
     [openIndex, photos.length, onChangeIndex],
   );
+
+  // Fetch the pictures either side in the background. Stepping through an
+  // album otherwise starts every download from nothing at the moment the
+  // arrow is pressed, which is the whole of the wait.
+  useEffect(() => {
+    if (openIndex === null || photos.length < 2) return;
+    for (const delta of [1, -1]) {
+      const neighbour = photos[(openIndex + delta + photos.length) % photos.length];
+      if (!neighbour) continue;
+      const preload = new window.Image();
+      preload.src = getPreviewUrl(neighbour.storageKey);
+    }
+  }, [openIndex, photos]);
 
   useEffect(() => {
     if (openIndex === null) return;
@@ -123,13 +139,34 @@ export function PhotoLightbox({
             >
               ‹
             </button>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={getPreviewUrl(open.storageKey)}
-              alt={open.uploaderName + "님이 올린 사진"}
+            <span
+              className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center"
               onClick={(e) => e.stopPropagation()}
-              className="max-h-full max-w-full object-contain"
-            />
+            >
+              {/* The grid already downloaded this one, so it paints instantly
+                  and the screen is never blank while the full-size file is on
+                  its way. Blurred so nobody mistakes it for a bad photo. */}
+              {loadedId !== open.id && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={getThumbnailUrl(open.storageKey)}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 h-full w-full scale-105 object-contain blur-lg"
+                />
+              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={open.id}
+                src={getPreviewUrl(open.storageKey)}
+                alt={open.uploaderName + "님이 올린 사진"}
+                onLoad={() => setLoadedId(open.id)}
+                className={
+                  "relative max-h-full max-w-full object-contain transition-opacity duration-200 " +
+                  (loadedId === open.id ? "opacity-100" : "opacity-0")
+                }
+              />
+            </span>
             <button
               type="button"
               onClick={(e) => {
