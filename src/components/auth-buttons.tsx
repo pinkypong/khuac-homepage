@@ -24,10 +24,13 @@ function emailConfirmUrl() {
   return url.toString();
 }
 
+// Straight to the reset screen, with no query string and no hop through
+// /auth/callback. Supabase matches redirect_to against its allow list as
+// literal text, so "...?next=/auth/reset-password" failed to match an entry of
+// "https://khuac.com/auth/callback" and the link landed on the Site URL - which
+// is to say the login screen - instead of the form it promised.
 function recoveryUrl() {
-  const url = new URL("/auth/callback", window.location.origin);
-  url.searchParams.set("next", "/auth/reset-password");
-  return url.toString();
+  return new URL("/auth/reset-password", window.location.origin).toString();
 }
 
 function readLastEmail() {
@@ -122,9 +125,9 @@ export function AuthButtons() {
   // and a differing initial value would be a hydration mismatch.
   useEffect(() => setEmail(readLastEmail()), []);
 
-  // Confirming an email opens the link in a new tab, and the session lands
-  // there. This tab would otherwise sit on the signup form running down its
-  // countdown, as though nothing had happened. Only a session arriving *after*
+  // A mail link - confirming a signup, or finishing a password reset - opens in
+  // a new tab, and the session lands there. This tab would otherwise sit
+  // unchanged, as though nothing had happened. Only a session arriving *after*
   // mount counts: acting on one already present would fight the middleware,
   // which is what decides where a signed-in member belongs.
   useEffect(() => {

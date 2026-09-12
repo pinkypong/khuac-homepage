@@ -7,9 +7,18 @@ import { createClient } from "@/lib/supabase/client";
 const MIN_PASSWORD_LENGTH = 8;
 
 /**
- * Where a recovery link lands. /auth/callback has already exchanged the token
- * for a session by the time anyone gets here, so the only thing left is to
- * choose the new password - and if that session is missing, the link expired.
+ * Where a recovery link lands, and where its token is redeemed.
+ *
+ * This used to rely on /auth/callback to establish the session first and then
+ * forward here. That hop is gone: carrying "?next=..." made the redirect target
+ * fail Supabase's literal match against its allow list, so the mail link went
+ * to the Site URL instead and a member asking to reset a password was handed
+ * the login screen with no explanation.
+ *
+ * Both link shapes are handled here for the same reason /auth/callback handles
+ * both - a PKCE "code" on the default mail template, a "token_hash" once the
+ * template is customised, which is the shape that survives being opened on a
+ * different device.
  */
 export default function ResetPasswordPage() {
   const [ready, setReady] = useState<boolean | null>(null);
@@ -21,7 +30,36 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getSession().then(({ data }) => setReady(data.session !== null));
+
+    async function redeem() {
+      // Read off location rather than useSearchParams: this page is only ever
+      // reached by following a link, and it keeps the route out of Suspense.
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      const tokenHash = params.get("token_hash");
+
+      if (tokenHash) {
+        const { error } = await supabase.auth.verifyOtp({
+          type: "recovery",
+          token_hash: tokenHash,
+        });
+        setReady(!error);
+        return;
+      }
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        setReady(!error);
+        return;
+      }
+
+      // No token in the URL: either the link was already redeemed and this is a
+      // reload, or someone navigated here directly.
+      const { data } = await supabase.auth.getSession();
+      setReady(data.session !== null);
+    }
+
+    redeem();
   }, []);
 
   async function submit(event: FormEvent) {
