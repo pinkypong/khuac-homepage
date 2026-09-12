@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   downsampleTrack,
   formatDistance,
-  photoPointsToTrack,
   sanitizeTrack,
   trackDistanceMeters,
   type TrackPoint,
@@ -45,27 +44,6 @@ describe("formatDistance", () => {
   });
 });
 
-describe("photoPointsToTrack", () => {
-  it("orders points by capture time", () => {
-    const track = photoPointsToTrack([
-      { exifLat: 37.66, exifLng: 126.98, takenAt: "2026-09-01T10:00:00Z" },
-      { exifLat: 37.65, exifLng: 126.97, takenAt: "2026-09-01T08:00:00Z" },
-    ]);
-    expect(track).toEqual([
-      [37.65, 126.97],
-      [37.66, 126.98],
-    ]);
-  });
-
-  it("skips photos without usable GPS", () => {
-    const track = photoPointsToTrack([
-      { exifLat: 37.66, exifLng: 126.98, takenAt: "2026-09-01T10:00:00Z" },
-      { exifLat: null, exifLng: null, takenAt: "2026-09-01T11:00:00Z" },
-      { exifLat: 0, exifLng: 0, takenAt: "2026-09-01T12:00:00Z" },
-    ]);
-    expect(track).toBeNull();
-  });
-});
 
 describe("sanitizeTrack", () => {
   it("accepts a well-formed track", () => {

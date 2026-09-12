@@ -16,9 +16,11 @@ const EMPTY_EXIF: ParsedExif = { lat: null, lng: null, takenAt: null, width: nul
  * EMPTY_EXIF (which downstream just means location_match_status ends up
  * 'no_gps' or 'manual_pending') rather than failing the whole upload.
  */
-export async function parseExif(bytes: ArrayBuffer | Uint8Array): Promise<ParsedExif> {
+export async function parseExif(input: ArrayBuffer | Uint8Array | Blob): Promise<ParsedExif> {
   try {
-    const output = await exifr.parse(bytes, { gps: true, exif: true, tiff: true });
+    // Given a Blob, exifr range-reads only the header rather than the whole
+    // file - which is the point of handing it the File straight from the input.
+    const output = await exifr.parse(input, { gps: true, exif: true, tiff: true });
     if (!output) return EMPTY_EXIF;
 
     const rawLat = typeof output.latitude === "number" ? output.latitude : null;

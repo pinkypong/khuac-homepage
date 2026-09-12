@@ -9,6 +9,8 @@ import { HikeDetail } from "./hike-detail";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
 import { ACTIVITY_COLOR, ACTIVITY_LABEL, folderMarkerColor } from "./activity";
+import { getThumbnailUrl } from "@/lib/images/url";
+import { isValidGps } from "@/lib/gps/validate";
 import { deleteLocation } from "./admin-actions";
 import { renameLocation } from "./actions";
 
@@ -42,11 +44,40 @@ function FolderDot({ location }: { location: MapLocation }) {
 }
 
 /** Small preview of a route, shown next to each hike in a location's list. */
-function TrackThumb({ track, pinned }: { track: TrackPoint[] | null; pinned: boolean }) {
+/**
+ * A route sketch, or the first photo when there is no route.
+ *
+ * Most activities have no GPX - a track is only drawn from a real one now - so
+ * "경로 없음" would be what nearly every row showed. A thumbnail says more
+ * about an outing than the absence of a file does.
+ */
+function TrackThumb({
+  track,
+  pinned,
+  hike,
+}: {
+  track: TrackPoint[] | null;
+  pinned: boolean;
+  hike: MapHike;
+}) {
   if (!track || track.length < 2) {
+    const cover = hike.photos[0];
+    if (cover) {
+      return (
+        <span className="h-11 w-14 shrink-0 overflow-hidden rounded border border-neutral-200 bg-neutral-100">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getThumbnailUrl(cover.storageKey)}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+        </span>
+      );
+    }
     return (
       <span className="flex h-11 w-14 shrink-0 items-center justify-center rounded border border-neutral-200 bg-neutral-50 text-center text-[9px] leading-tight text-neutral-400">
-        경로 없음
+        사진 없음
       </span>
     );
   }
@@ -90,9 +121,12 @@ function hikeMeta(hike: MapHike) {
   const parts: string[] = [new Date(hike.date).toLocaleDateString("ko-KR")];
   if (hike.track && hike.track.length >= 2) {
     parts.push(formatDistance(trackDistanceMeters(hike.track)));
-    if (hike.trackSource === "photos") parts.push("사진 기반");
   }
+  const mapped = hike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng)).length;
   parts.push("사진 " + hike.photos.length);
+  // Worth saying out loud: it is what decides whether this row has anything to
+  // show on the map at all.
+  if (mapped > 0) parts.push("위치 " + mapped);
   return parts;
 }
 
@@ -103,6 +137,8 @@ export function SidePanel({
   pinnedHikeId,
   onOpenLocation,
   onOpenHike,
+  focusedPhotoId,
+  onFocusedPhotoConsumed,
   onHoverHike,
   onBackToRoot,
   onShowOnMap,
@@ -118,6 +154,8 @@ export function SidePanel({
   pinnedHikeId: string | null;
   onOpenLocation: (locationId: string) => void;
   onOpenHike: (hike: MapHike) => void;
+  focusedPhotoId: string | null;
+  onFocusedPhotoConsumed: () => void;
   onHoverHike: (hikeId: string | null) => void;
   onBackToRoot: () => void;
   // Below md the map is a tab away rather than beside the panel, so every
@@ -229,6 +267,8 @@ export function SidePanel({
         onBackToLocation={() => onOpenLocation(activeLocation.id)}
         onShowOnMap={onShowOnMap}
         isAdmin={isAdmin}
+        focusedPhotoId={focusedPhotoId}
+        onFocusedPhotoConsumed={onFocusedPhotoConsumed}
       />
     );
   }
@@ -354,7 +394,7 @@ export function SidePanel({
                         : "border-neutral-200 hover:border-neutral-400")
                     }
                   >
-                    <TrackThumb track={hike.track} pinned={pinnedHikeId === hike.id} />
+                    <TrackThumb track={hike.track} pinned={pinnedHikeId === hike.id} hike={hike} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
                         <span className="min-w-0 truncate text-sm font-semibold">{hike.title}</span>

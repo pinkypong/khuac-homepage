@@ -9,6 +9,7 @@ import {
   resolvePhotoType,
 } from "@/lib/photos/limits";
 import { presignPhotoUpload, processUploadedPhoto } from "@/app/photos/upload/actions";
+import { parseExif } from "@/lib/gps/exif";
 
 // A dialog rather than its own page: the hike is already open, so there is
 // nothing to choose - asking again would mean searching a list that only grows.
@@ -32,33 +33,66 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
     setError(null);
     setBusy(true);
 
+    // Three at a time. Strictly sequential meant a phone sat idle through each
+    // round trip before starting the next file; unbounded would have a hike's
+    // worth of multi-megabyte uploads fighting over one mobile connection.
+    const CONCURRENCY = 3;
+
     let done = 0;
     let skipped = 0;
-    for (const file of files) {
-      const contentType = resolvePhotoType(file.name, file.type);
-      if (!contentType || file.size > MAX_PHOTO_BYTES) {
-        skipped += 1;
-        continue;
-      }
-      setProgress(`${done + 1}/${files.length} 업로드 중…`);
-      try {
-        const { storageKey, uploadUrl } = await presignPhotoUpload({
-          filename: file.name,
-          contentType,
-        });
-        const put = await fetch(uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: { "content-type": contentType },
-        });
-        if (!put.ok) throw new Error(`업로드 실패 (${put.status})`);
-        await processUploadedPhoto({ storageKey, hikeId });
-        done += 1;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "업로드에 실패했습니다.");
-        break;
+    let failure: string | null = null;
+
+    const queue = files.filter((file) => {
+      const ok = resolvePhotoType(file.name, file.type) && file.size <= MAX_PHOTO_BYTES;
+      if (!ok) skipped += 1;
+      return ok;
+    });
+
+    setProgress(`0/${queue.length} 업로드 중…`);
+
+    let next = 0;
+    async function worker() {
+      while (!failure) {
+        const index = next++;
+        const file = queue[index];
+        if (!file) return;
+
+        const contentType = resolvePhotoType(file.name, file.type) as string;
+        try {
+          // Read here rather than on the server: exifr range-reads the header
+          // straight from the File, so the bytes never make a second trip.
+          const exif = await parseExif(file);
+          const { storageKey, uploadUrl } = await presignPhotoUpload({
+            filename: file.name,
+            contentType,
+          });
+          const put = await fetch(uploadUrl, {
+            method: "PUT",
+            body: file,
+            headers: { "content-type": contentType },
+          });
+          if (!put.ok) throw new Error(`업로드 실패 (${put.status})`);
+          await processUploadedPhoto({
+            storageKey,
+            hikeId,
+            exif: {
+              lat: exif.lat,
+              lng: exif.lng,
+              takenAt: exif.takenAt ? exif.takenAt.toISOString() : null,
+              width: exif.width,
+              height: exif.height,
+            },
+          });
+          done += 1;
+          setProgress(`${done}/${queue.length} 업로드 중…`);
+        } catch (err) {
+          failure = err instanceof Error ? err.message : "업로드에 실패했습니다.";
+        }
       }
     }
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+    if (failure) setError(failure);
 
     setBusy(false);
     setProgress(

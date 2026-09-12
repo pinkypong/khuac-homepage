@@ -70,6 +70,33 @@ export interface R2Object {
  * `next dev` the binding is Miniflare's *local* bucket - it would never see
  * that object. Going through S3 keeps dev and production on one path.
  */
+export interface R2ObjectHead {
+  contentType: string;
+  size: number;
+}
+
+/**
+ * What an object claims to be, without moving its bytes.
+ *
+ * The upload path only needs to check the type and the size before recording a
+ * photo; downloading several megabytes back into the Worker to learn them was
+ * the slowest thing in that path.
+ */
+export async function headObject(storageKey: string): Promise<R2ObjectHead | null> {
+  const client = r2Client();
+  const response = await client.fetch(objectUrl(storageKey), { method: "HEAD" });
+
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`R2 HEAD failed for ${storageKey}: ${response.status}`);
+  }
+
+  return {
+    contentType: response.headers.get("content-type") ?? "application/octet-stream",
+    size: Number(response.headers.get("content-length") ?? 0),
+  };
+}
+
 export async function getObject(storageKey: string): Promise<R2Object | null> {
   const client = r2Client();
   const response = await client.fetch(objectUrl(storageKey), { method: "GET" });

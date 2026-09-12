@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { presignPhotoUpload, processUploadedPhoto } from "./actions";
+import { parseExif } from "@/lib/gps/exif";
 import {
   MAX_PHOTO_BYTES,
   PHOTO_ACCEPT_ATTR,
@@ -66,7 +67,20 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
       return { state: "error", message: `업로드 실패 (${putResponse.status})` };
     }
 
-    const result = await processUploadedPhoto({ storageKey, hikeId: hikeId || null });
+    // The server no longer reads the file back to find this - see
+    // processUploadedPhoto.
+    const exif = await parseExif(file);
+    const result = await processUploadedPhoto({
+      storageKey,
+      hikeId: hikeId || null,
+      exif: {
+        lat: exif.lat,
+        lng: exif.lng,
+        takenAt: exif.takenAt ? exif.takenAt.toISOString() : null,
+        width: exif.width,
+        height: exif.height,
+      },
+    });
     return { state: "done", status: result.status };
   }
 

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { UNKNOWN_MEMBER_NAME, memberDirectory } from "@/lib/supabase/member-names";
-import { photoPointsToTrack, type TrackPoint } from "@/lib/gps/track";
+import type { TrackPoint } from "@/lib/gps/track";
 import type { ActivityType, LocationType } from "@/types/database";
 import { MapShell, type MapLocation, type MapHike } from "./map-shell";
 
@@ -104,10 +104,6 @@ export default async function MapPage() {
               (p.uploader_id ? names.get(p.uploader_id)?.name : null) ?? UNKNOWN_MEMBER_NAME,
           }));
 
-        // A gym has no walking route at all; elsewhere fall back to the
-        // photos' own GPS trail when no GPX has been uploaded.
-        const fallback = row.type === "climbing_gym" ? null : photoPointsToTrack(photos);
-
         return {
           id: hike.id,
           locationId: row.id,
@@ -117,8 +113,13 @@ export default async function MapPage() {
           activityType: hike.activity_type,
           lat: hike.lat,
           lng: hike.lng,
-          track: hike.track ?? fallback,
-          trackSource: hike.track ? "gpx" : fallback ? "photos" : null,
+          // Only a real GPX track draws a line now. A polyline through photo
+          // points was a straight-line join of wherever someone happened to
+          // stop and shoot, in time order - it looked like a route and was not
+          // one, and could run clean through a mountain. The photos speak for
+          // themselves as pins on the map instead.
+          track: hike.track,
+          trackSource: hike.track ? "gpx" : null,
           photos,
         };
       });

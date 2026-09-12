@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getThumbnailUrl } from "@/lib/images/url";
 import {
   downsampleTrack,
@@ -16,6 +16,7 @@ import { renameActivity, saveHikeTrack } from "./actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
 import { ACTIVITY_COLOR, ACTIVITY_LABEL } from "./activity";
+import { isValidGps } from "@/lib/gps/validate";
 import { HikePhotoUpload } from "./hike-photo-upload";
 
 export function HikeDetail({
@@ -25,6 +26,8 @@ export function HikeDetail({
   onBackToLocation,
   onShowOnMap,
   isAdmin,
+  focusedPhotoId,
+  onFocusedPhotoConsumed,
 }: {
   location: MapLocation;
   hike: MapHike;
@@ -32,6 +35,8 @@ export function HikeDetail({
   onBackToLocation: () => void;
   onShowOnMap: () => void;
   isAdmin: boolean;
+  focusedPhotoId: string | null;
+  onFocusedPhotoConsumed: () => void;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -43,6 +48,16 @@ export function HikeDetail({
   // Keyed by hike id so moving to another activity can't carry a stale draft.
   const [renaming, setRenaming] = useState<{ hikeId: string; title: string } | null>(null);
   const [savingName, setSavingName] = useState(false);
+
+  // Tapping a photo pin on the map asks for that picture, so open it here and
+  // hand the request back - leaving it set would reopen the lightbox the moment
+  // it was closed.
+  useEffect(() => {
+    if (!focusedPhotoId) return;
+    const index = hike.photos.findIndex((p) => p.id === focusedPhotoId);
+    if (index >= 0) setOpenIndex(index);
+    onFocusedPhotoConsumed();
+  }, [focusedPhotoId, hike.photos, onFocusedPhotoConsumed]);
 
   const photos: LightboxPhoto[] = hike.photos.map((p) => ({
     id: p.id,
@@ -116,6 +131,11 @@ export function HikeDetail({
   const distance =
     hike.track && hike.track.length >= 2 ? formatDistance(trackDistanceMeters(hike.track)) : null;
 
+  // Offering "see it on the map" for an activity with nothing mapped sends
+  // people to a map that has not moved, which reads as a broken button.
+  const mappedPhotos = hike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng)).length;
+  const hasSomethingToShow = mappedPhotos > 0 || (hike.track?.length ?? 0) >= 2;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-neutral-200 px-4 py-3">
@@ -126,15 +146,19 @@ export function HikeDetail({
           >
             ← {location.name}
           </button>
-          {/* Opening an activity pins its route; below md that route is on the
-              other tab, so this is how anyone gets to see it. */}
+          {/* Below md the map is on the other tab, so this is the only way to
+              it. Filled rather than outlined, and named after what appears
+              there: a bordered button reading "지도에서 보기" sat among four
+              other bordered buttons and went unnoticed in testing. */}
+          {hasSomethingToShow && (
           <button
             type="button"
             onClick={onShowOnMap}
-            className="shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 md:hidden"
+            className="shrink-0 rounded bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-white md:hidden"
           >
-            지도에서 보기
+            {mappedPhotos > 0 ? `지도에서 사진 위치 ${mappedPhotos}곳 보기` : "지도에서 경로 보기"}
           </button>
+          )}
           <button
             onClick={onBackToRoot}
             className="hidden shrink-0 text-xs text-neutral-500 hover:underline md:block"
@@ -201,7 +225,6 @@ export function HikeDetail({
         <p className="mt-0.5 text-xs text-neutral-500">
           {new Date(hike.date).toLocaleDateString("ko-KR")}
           {distance ? " · " + distance : ""}
-          {hike.trackSource === "photos" ? " · 사진 기반 경로" : ""}
           {" · 사진 " + hike.photos.length + "장"}
         </p>
         {hike.description && (

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AdvancedMarker,
+  CollisionBehavior,
   ControlPosition,
   Map,
   MapControl,
@@ -11,6 +12,8 @@ import {
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
 import type { TrackPoint } from "@/lib/gps/track";
+import { getThumbnailUrl } from "@/lib/images/url";
+import { isValidGps } from "@/lib/gps/validate";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import {
   ACTIVITY_COLOR,
@@ -65,7 +68,12 @@ function Camera({
     // every time, throwing away wherever the viewer had panned to.
     // The track length is part of the key so a freshly uploaded GPX reframes.
     const key = selectedHike
-      ? "h:" + selectedHike.id + ":" + (selectedHike.track?.length ?? 0)
+      ? "h:" +
+        selectedHike.id +
+        ":" +
+        (selectedHike.track?.length ?? 0) +
+        ":" +
+        selectedHike.photos.length
       : activeLocationId
         ? "l:" + activeLocationId
         : "root";
@@ -86,7 +94,29 @@ function Camera({
       return;
     }
 
-    // No route, but the activity has a point of its own: go stand on it.
+    // No route, but the photos know where they were taken: frame those instead.
+    // This is what the old photo-derived polyline was really showing, minus the
+    // claim that the straight lines between them were a path.
+    const geotagged = selectedHike
+      ? selectedHike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng))
+      : [];
+    if (geotagged.length > 0) {
+      const bounds = new core.LatLngBounds();
+      for (const photo of geotagged) {
+        bounds.extend({ lat: photo.exifLat as number, lng: photo.exifLng as number });
+      }
+      // A single photo gives a zero-size box, which fitBounds resolves to the
+      // maximum zoom - so place it by hand at a readable one instead.
+      if (geotagged.length === 1) {
+        map.setCenter(bounds.getCenter());
+        map.setZoom(SPOT_ZOOM);
+      } else {
+        map.fitBounds(bounds, 64);
+      }
+      return;
+    }
+
+    // Nothing geotagged, but the activity has a point of its own: stand on it.
     if (
       selectedHike &&
       selectedHike.lat != null &&
@@ -168,6 +198,32 @@ function SelectedPin({ label }: { label: string }) {
   );
 }
 
+/**
+ * A photo where it was taken.
+ *
+ * This replaced a polyline drawn through the same points. That line joined
+ * wherever somebody stopped to shoot, in time order, which looked like a route
+ * and was not one - a summit shot followed by a trailhead shot drew a straight
+ * line through the mountain. The pictures say where the day went without
+ * claiming a path nobody walked.
+ */
+function PhotoPin({ storageKey, alt }: { storageKey: string; alt: string }) {
+  return (
+    <span className="block cursor-pointer overflow-hidden rounded border-2 border-white bg-neutral-200 shadow-md">
+      {/* Reuses the 400px thumbnail the photo grid already generated, shown
+          small. A dedicated marker size would be a second Cloudflare Images
+          transformation per photo, billed monthly, to save a few KB. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={getThumbnailUrl(storageKey)}
+        alt={alt}
+        loading="lazy"
+        className="h-11 w-11 object-cover"
+      />
+    </span>
+  );
+}
+
 type MapTypeChoice = "roadmap" | "hybrid";
 
 const MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
@@ -238,6 +294,7 @@ export function MapView({
   hoveredHike,
   onSelectLocation,
   onSelectHike,
+  onSelectPhoto,
   onCollapseMap,
   picking,
   pickedPoint,
@@ -250,6 +307,7 @@ export function MapView({
   hoveredHike: MapHike | null;
   onSelectLocation: (locationId: string) => void;
   onSelectHike: (hike: MapHike) => void;
+  onSelectPhoto: (photoId: string) => void;
   onCollapseMap: () => void;
   picking: boolean;
   pickedPoint: PickedPoint | null;
@@ -284,6 +342,12 @@ export function MapView({
     selectedHike.lng != null
       ? { lat: selectedHike.lat, lng: selectedHike.lng }
       : null;
+
+  // Only the open activity's photos, and only those the camera actually
+  // geotagged - most phones do, a scanned or stripped file does not.
+  const photoPins = selectedHike
+    ? selectedHike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng))
+    : [];
 
   // A gym session, or an activity nobody has placed yet, has no point of its
   // own. Rather than leave the click with no answer on the map, the folder's
@@ -401,6 +465,26 @@ export function MapView({
           <SelectedPin label={selectedHike.title} />
         </AdvancedMarker>
       )}
+
+      {photoPins.map((photo) => (
+        <AdvancedMarker
+          key={photo.id}
+          position={{ lat: photo.exifLat as number, lng: photo.exifLng as number }}
+          title={photo.uploaderName + "님이 올린 사진"}
+          zIndex={1}
+          // Two hundred photos from one hike would be an unreadable pile at any
+          // zoom that fits the mountain. Letting the Maps API drop overlapping
+          // pins and reveal them on zoom does the thinning for us, with no
+          // clustering library and no arbitrary cap.
+          collisionBehavior={CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY}
+          onClick={() => onSelectPhoto(photo.id)}
+        >
+          <PhotoPin
+            storageKey={photo.storageKey}
+            alt={photo.uploaderName + "님이 올린 사진"}
+          />
+        </AdvancedMarker>
+      ))}
     </Map>
   );
 }

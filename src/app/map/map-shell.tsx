@@ -32,7 +32,7 @@ export interface MapHike {
   lat: number | null;
   lng: number | null;
   track: TrackPoint[] | null;
-  trackSource: "gpx" | "photos" | null;
+  trackSource: "gpx" | null;
   photos: MapPhoto[];
 }
 
@@ -108,6 +108,10 @@ export function MapShell({
   const [activeHikeId, setActiveHikeId] = useState<string | null>(null);
   const [pinnedHikeId, setPinnedHikeId] = useState<string | null>(null);
   const [hoveredHikeId, setHoveredHikeId] = useState<string | null>(null);
+  // Set when a photo pin on the map is tapped, so the detail panel can open its
+  // lightbox on that photo. Cleared once consumed, otherwise closing the
+  // lightbox would immediately reopen it.
+  const [focusedPhotoId, setFocusedPhotoId] = useState<string | null>(null);
   // When the "new location" form is open the map turns into a coordinate
   // picker - far easier than asking anyone to type lat/lng.
   const [picking, setPicking] = useState(false);
@@ -175,6 +179,12 @@ export function MapShell({
     setMobileTab("album");
   }
 
+  function selectPhoto(photoId: string) {
+    setFocusedPhotoId(photoId);
+    // The panel is where the photo opens, and on a phone it is not on screen.
+    setMobileTab("album");
+  }
+
   function goToRoot() {
     setActiveLocationId(null);
     setActiveHikeId(null);
@@ -229,6 +239,7 @@ export function MapShell({
                 hoveredHike={hoveredHike}
                 onSelectLocation={openLocation}
                 onSelectHike={openHike}
+                onSelectPhoto={selectPhoto}
                 onCollapseMap={() => setMapOpen(false)}
                 picking={picking}
                 pickedPoint={pickedPoint}
@@ -281,6 +292,8 @@ export function MapShell({
           pinnedHikeId={pinnedHikeId}
           onOpenLocation={openLocation}
           onOpenHike={openHike}
+          focusedPhotoId={focusedPhotoId}
+          onFocusedPhotoConsumed={() => setFocusedPhotoId(null)}
           onHoverHike={setHoveredHikeId}
           onBackToRoot={goToRoot}
           onShowOnMap={showMap}

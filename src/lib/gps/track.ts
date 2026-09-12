@@ -52,19 +52,6 @@ export function formatDistance(meters: number): string {
   return meters >= 1000 ? `${(meters / 1000).toFixed(1)}km` : `${Math.round(meters)}m`;
 }
 
-/**
- * Fallback route for hikes with no GPX: the photos that carry EXIF GPS, in the
- * order they were taken. Under two usable points there's nothing to draw.
- */
-export function photoPointsToTrack(
-  photos: { exifLat: number | null; exifLng: number | null; takenAt: string | null }[],
-): TrackPoint[] | null {
-  const points = photos
-    .filter((p) => isValidGps(p.exifLat, p.exifLng))
-    .sort((a, b) => (a.takenAt ?? "").localeCompare(b.takenAt ?? ""))
-    .map((p) => [p.exifLat as number, p.exifLng as number] as TrackPoint);
-  return points.length >= 2 ? points : null;
-}
 
 /** Server-side guard for coordinates arriving from the browser. */
 export function sanitizeTrack(input: unknown): TrackPoint[] | null {
