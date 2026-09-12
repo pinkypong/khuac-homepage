@@ -52,8 +52,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
     return new Response("Not found", { status: 404 });
   }
 
-  const { env, ctx } = getCloudflareContext();
-  if (!env.IMAGES) {
+  // Plain Next.js preview has no Workers context. Serve the authenticated
+  // original there, just as when the Images binding is absent.
+  const cloudflare = (() => {
+    try { return getCloudflareContext(); }
+    catch { return undefined; }
+  })();
+  const env = cloudflare?.env;
+  const ctx = cloudflare?.ctx;
+  if (!env?.IMAGES) {
     return new Response(original.bytes, {
       headers: { "content-type": original.contentType, "cache-control": CACHE_CONTROL },
     });

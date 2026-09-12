@@ -267,13 +267,13 @@ export function HikeDetail({
         {photos.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-500">아직 올라온 사진이 없습니다.</p>
         ) : (
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <ul className="club-photo-grid grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo, index) => (
               <li key={photo.id} className="relative">
                 <button
                   type="button"
                   onClick={() => setOpenIndex(index)}
-                  className="relative block w-full overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100"
+                  className="relative block w-full overflow-hidden border border-neutral-200 bg-neutral-100"
                   style={{ aspectRatio: "4 / 5" }}
                 >
                   {/* Plain <img>: /api/images already resizes. */}

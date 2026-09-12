@@ -1,9 +1,11 @@
 import type { NextConfig } from "next";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
-const nextConfig: NextConfig = {};
+export default function nextConfig(phase: string): NextConfig {
+  // Keep live development chunks separate from production builds.
+  return { distDir: phase === PHASE_DEVELOPMENT_SERVER ? ".next-dev" : ".next" };
+}
 
-export default nextConfig;
-
-// Makes Cloudflare bindings (R2, IMAGES, ...) reachable from `next dev`.
+// Makes Cloudflare bindings reachable from next dev.
 initOpenNextCloudflareForDev();

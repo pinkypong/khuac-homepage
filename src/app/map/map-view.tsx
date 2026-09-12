@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   AdvancedMarker,
+  InfoWindow,
   CollisionBehavior,
   ControlPosition,
   Map,
@@ -11,6 +12,7 @@ import {
   useMap,
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
+import { groupPhotosByPosition } from "@/lib/gps/photo-groups";
 import type { TrackPoint } from "@/lib/gps/track";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
@@ -224,10 +226,11 @@ function PhotoPin({ storageKey, alt }: { storageKey: string; alt: string }) {
   );
 }
 
-type MapTypeChoice = "roadmap" | "hybrid";
+type MapTypeChoice = "roadmap" | "terrain" | "hybrid";
 
 const MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
   { id: "roadmap", label: "지도" },
+  { id: "terrain", label: "지형" },
   { id: "hybrid", label: "위성" },
 ];
 
@@ -314,6 +317,7 @@ export function MapView({
   onPickPoint: (point: PickedPoint) => void;
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const [openPhotoGroup, setOpenPhotoGroup] = useState<{hikeId:string;key:string}|null>(null);
   const showLabels = zoom <= LABEL_MAX_ZOOM;
 
   // Only preview a hover when it isn't already the pinned route, so the two
@@ -348,6 +352,9 @@ export function MapView({
   const photoPins = selectedHike
     ? selectedHike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng))
     : [];
+
+  const photoGroups = groupPhotosByPosition(photoPins);
+  const expandedGroup = openPhotoGroup?.hikeId === selectedHike?.id ? photoGroups.find(g=>g.key===openPhotoGroup?.key) : undefined;
 
   // A gym session, or an activity nobody has placed yet, has no point of its
   // own. Rather than leave the click with no answer on the map, the folder's
@@ -466,25 +473,25 @@ export function MapView({
         </AdvancedMarker>
       )}
 
-      {photoPins.map((photo) => (
-        <AdvancedMarker
-          key={photo.id}
-          position={{ lat: photo.exifLat as number, lng: photo.exifLng as number }}
-          title={photo.uploaderName + "님이 올린 사진"}
-          zIndex={1}
-          // Two hundred photos from one hike would be an unreadable pile at any
-          // zoom that fits the mountain. Letting the Maps API drop overlapping
-          // pins and reveal them on zoom does the thinning for us, with no
-          // clustering library and no arbitrary cap.
-          collisionBehavior={CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY}
-          onClick={() => onSelectPhoto(photo.id)}
-        >
-          <PhotoPin
-            storageKey={photo.storageKey}
-            alt={photo.uploaderName + "님이 올린 사진"}
-          />
-        </AdvancedMarker>
-      ))}
+      {photoGroups.map((group) => {
+        const photo=group.photos[0];
+        return <AdvancedMarker key={group.key} position={group.position}
+          title={group.photos.length > 1 ? "같은 위치의 사진 " + group.photos.length + "장" : photo.uploaderName + "님이 올린 사진"}
+          zIndex={2} collisionBehavior={CollisionBehavior.REQUIRED}
+          onClick={() => {if(group.photos.length===1) onSelectPhoto(photo.id); else if(selectedHike) setOpenPhotoGroup({hikeId:selectedHike.id,key:group.key});}}>
+          <div className={group.photos.length>1?"map-photo-stack":""}>
+            <PhotoPin storageKey={photo.storageKey} alt={photo.uploaderName + "님이 올린 사진"}/>
+            {group.photos.length>1 && <span className="map-photo-count">{group.photos.length}</span>}
+          </div>
+        </AdvancedMarker>;
+      })}
+      {expandedGroup && <InfoWindow position={expandedGroup.position} onCloseClick={()=>setOpenPhotoGroup(null)} headerContent={"같은 위치의 사진 " + expandedGroup.photos.length + "장"}>
+        <div className="map-photo-picker">{expandedGroup.photos.map(photo=><button key={photo.id} onClick={()=>{setOpenPhotoGroup(null);onSelectPhoto(photo.id);}} aria-label={photo.uploaderName + "님 사진 크게 보기"}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={getThumbnailUrl(photo.storageKey)} alt={photo.uploaderName + "님이 올린 사진"}/>
+        </button>)}</div>
+      </InfoWindow>}
+
     </Map>
   );
 }

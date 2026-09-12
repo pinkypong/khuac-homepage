@@ -9,12 +9,16 @@ import {
   PHOTO_LIMITS_HINT,
   resolvePhotoType,
 } from "@/lib/photos/limits";
-import type { PhotoLocationMatchStatus } from "@/types/database";
+import type { ActivityType, PhotoLocationMatchStatus } from "@/types/database";
 
 interface Hike {
   id: string;
   title: string;
   date: string;
+  activity_type: ActivityType;
+  location_id: string;
+  locationName: string;
+  region: string;
 }
 
 type FileStatus =
@@ -33,6 +37,20 @@ const STATUS_LABEL: Record<PhotoLocationMatchStatus, string> = {
 
 export function UploadForm({ hikes }: { hikes: Hike[] }) {
   const [hikeId, setHikeId] = useState("");
+  const [query, setQuery] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [activity, setActivity] = useState("");
+  const [region, setRegion] = useState("");
+  const [place, setPlace] = useState("");
+  const labels: Record<ActivityType,string> = {hiking:"워킹",climbing:"등반",outdoor_wall:"외벽",indoor_climbing:"실내"};
+  const regions = [...new Set(hikes.map(h=>h.region))].sort((a,b)=>a.localeCompare(b,"ko"));
+  const places = [...new Map(hikes.filter(h=>!region||h.region===region).map(h=>[h.location_id,h.locationName])).entries()];
+  const invalidRange = Boolean(from && to && from > to);
+  const filtered = hikes.filter(h=>(!from||h.date>=from)&&(!to||h.date<=to)&&(!activity||h.activity_type===activity)&&(!region||h.region===region)&&(!place||h.location_id===place)&&[h.title,h.locationName,h.region].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
+  const selected = hikes.find(h=>h.id===hikeId);
+  function changeFilter(set:(v:string)=>void,value:string){set(value);setHikeId("");}
+
   const [files, setFiles] = useState<{ file: File; status: FileStatus }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [rejectedCount, setRejectedCount] = useState(0);
@@ -86,7 +104,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (files.length === 0 || submitting) return;
+    if (files.length === 0 || submitting || !hikeId || invalidRange) return;
     setSubmitting(true);
 
     for (let i = 0; i < files.length; i++) {
@@ -112,25 +130,29 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <label className="flex flex-col gap-1 text-sm">
-        산행 (선택)
-        <select
-          value={hikeId}
-          onChange={(e) => setHikeId(e.target.value)}
-          className="rounded border border-neutral-300 px-3 py-2"
-        >
-          <option value="">선택 안 함</option>
-          {hikes.map((hike) => (
-            <option key={hike.id} value={hike.id}>
-              {new Date(hike.date).toLocaleDateString("ko-KR")} · {hike.title}
-            </option>
-          ))}
-        </select>
-      </label>
+      <fieldset disabled={submitting} className="upload-selection">
+        <legend className="mb-4 font-semibold">1. 업로드할 앨범 찾기</legend>
+        <div className="upload-filter-grid">
+          <label>시작일<input type="date" value={from} max={to||undefined} onChange={e=>changeFilter(setFrom,e.target.value)}/></label>
+          <label>종료일<input type="date" value={to} min={from||undefined} onChange={e=>changeFilter(setTo,e.target.value)}/></label>
+          <label>활동<select value={activity} onChange={e=>changeFilter(setActivity,e.target.value)}><option value="">전체 활동</option>{Object.entries(labels).map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+          <label>지역<select value={region} onChange={e=>{changeFilter(setRegion,e.target.value);setPlace("");}}><option value="">전체 지역</option>{regions.map(r=><option key={r}>{r}</option>)}</select></label>
+          <label>장소<select value={place} onChange={e=>changeFilter(setPlace,e.target.value)}><option value="">전체 장소</option>{places.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>
+          <label>검색<input type="search" placeholder="활동명·장소명" value={query} onChange={e=>changeFilter(setQuery,e.target.value)}/></label>
+        </div>
+        <div className="my-4 flex items-center justify-between text-xs text-neutral-500"><span aria-live="polite">{filtered.length}개 앨범</span><button type="button" onClick={()=>{setFrom("");setTo("");setActivity("");setRegion("");setPlace("");setQuery("");setHikeId("");}}>필터 초기화</button></div>
+        {invalidRange && <p role="alert" className="text-sm text-red-700">종료일은 시작일 이후로 선택해주세요.</p>}
+        <div className="upload-results" role="radiogroup" aria-label="업로드 대상 앨범">
+        {filtered.map(h=><label key={h.id} className={hikeId===h.id?"selected":""}><input type="radio" name="album" value={h.id} checked={hikeId===h.id} onChange={()=>setHikeId(h.id)}/><span><strong>{h.title}</strong><small>{h.region} / {h.locationName} · {labels[h.activity_type]} · {h.date}</small></span></label>)}
+        {!filtered.length && <p className="p-5 text-sm text-neutral-500">조건에 맞는 앨범이 없습니다. 기간이나 활동을 변경해주세요.</p>}
+        </div>
+        {selected && <p className="mt-4 border-l-2 border-[#5b1a23] pl-3 text-sm">업로드 위치: {selected.region} / {selected.locationName} / {selected.title} · {selected.date}</p>}
+      </fieldset>
 
       <label className="flex flex-col gap-1 text-sm">
-        사진 파일
+        2. 사진 선택
         <input
+          disabled={submitting}
           type="file"
           accept={PHOTO_ACCEPT_ATTR}
           multiple
@@ -147,8 +169,8 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
 
       <button
         type="submit"
-        disabled={files.length === 0 || submitting}
-        className="self-start rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        disabled={files.length === 0 || submitting || !hikeId || invalidRange}
+        className="self-start rounded bg-[#5b1a23] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
         {submitting ? "업로드 중…" : `${files.length || ""} 장 업로드`}
       </button>

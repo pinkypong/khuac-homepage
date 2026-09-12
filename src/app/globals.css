@@ -35,3 +35,101 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
 }
+
+/* KHUAC: shared desktop and iPhone working surface. */
+:root { --club-burgundy: #5b1a23; --club-paper: #f5f5f1; }
+.club-app { background: var(--club-paper); color:#202320; font-family:var(--font-geist-sans), 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+.club-header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:18px 28px; padding-top:max(18px,env(safe-area-inset-top)); background:#fff; border-bottom:1px solid #deded8; }
+.club-brand { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+.club-brand img { width:64px; height:auto; }
+.club-brand strong { display:block; font-size:24px; letter-spacing:-.8px; line-height:1.1; }
+.club-brand small { display:block; margin-top:5px; font-size:12px; font-weight:650; }
+.club-desktop-nav { display:flex; align-items:center; gap:32px; }
+.club-desktop-nav button,.club-desktop-nav a { padding:14px 4px; font-size:14px; font-weight:650; border-bottom:3px solid transparent; }
+.club-desktop-nav button[aria-pressed=true] { border-color:var(--club-burgundy); }
+.club-header-actions { display:flex; gap:20px; align-items:center; }
+.club-upload { display:flex; align-items:center; gap:24px; padding:12px 20px; background:var(--club-burgundy); color:#fff; font-size:13px; font-weight:600; }
+.club-profile { width:44px; height:44px; border:1px solid #deded8; border-radius:50%; font-size:25px; }
+.club-toolbar { display:flex; gap:20px; padding:16px 28px; border-bottom:1px solid #deded8; background:#fff; }
+.club-search { display:flex; align-items:center; gap:12px; border:1px solid #deded8; padding:0 14px; flex:1; min-width:120px; }
+.club-search span { font-size:27px; }
+.club-search input { width:100%; min-width:0; min-height:44px; outline:none; font-size:14px; background:transparent; }
+.club-search:focus-within { outline:2px solid var(--club-burgundy); outline-offset:2px; }
+.club-filters { display:flex; gap:8px; overflow-x:auto; }
+.club-filters button { min-height:44px; white-space:nowrap; border:1px solid #deded8; padding:0 18px; font-size:13px; }
+.club-filters button[aria-pressed=true] { color:#fff; background:var(--club-burgundy); border-color:var(--club-burgundy); }
+.club-account { position:absolute; z-index:40; right:20px; top:100px; background:white; border:1px solid #deded8; padding:20px; display:flex; flex-direction:column; gap:18px; min-width:180px; }
+.club-account a,.club-account button { min-height:44px; }
+.club-album h1 { font-size:clamp(26px,3vw,38px); letter-spacing:-1px; line-height:1.15; padding:8px 0; }
+.club-album h2 { font-size:22px; letter-spacing:-.6px; }
+.club-album > div > div.border-b { padding:20px 24px; }
+.club-album input { min-height:44px; }
+.club-photo-grid { gap:6px; }
+.club-photo-grid > li:first-child { grid-column:1 / -1; }
+.club-photo-grid > li:first-child button { aspect-ratio:4/3 !important; }
+.club-photo-grid img { border-radius:0; }
+.club-map-sheet { display:none; }
+.club-app button { cursor:pointer; }
+.club-app :focus-visible { outline:2px solid var(--club-burgundy); outline-offset:3px; }
+@media(max-width:767px) {
+ .club-header { padding:12px 16px; padding-top:max(12px,env(safe-area-inset-top)); gap:12px; }
+ .club-brand { gap:9px; }.club-brand img { width:52px; }.club-brand strong { font-size:21px; }.club-brand small { font-size:11px; }
+ .club-desktop-nav,.club-upload { display:none; }
+ .club-toolbar { flex-direction:column; gap:10px; padding:10px 16px 12px; }
+ .club-search { background:#f3f3f1; border-color:transparent; }.club-search input { font-size:16px; }
+ .club-filters { gap:6px; }.club-filters button { flex:1; padding:0 13px; font-size:12px; }
+ .club-bottom-nav { z-index:20; }
+ .club-bottom-nav > a,.club-bottom-nav > button { display:flex; flex:1; flex-direction:column; justify-content:center; align-items:center; min-height:62px; gap:3px; font-size:10px; color:#686b68; box-shadow:none; padding:8px 0; }
+ .club-bottom-nav > button[aria-pressed=true] { color:var(--club-burgundy); font-weight:700; }
+ .club-bottom-nav span { font-size:25px; line-height:28px; }
+ .club-map-sheet { display:flex; position:absolute; z-index:10; bottom:0; left:0; right:0; align-items:center; gap:14px; padding:24px 20px 18px; background:white; border:1px solid #deded8; border-bottom:0; border-radius:20px 20px 0 0; text-align:left; }
+ .club-map-sheet img { width:80px; height:60px; object-fit:cover; }.club-map-sheet strong { display:block; font-size:20px; }.club-map-sheet small { display:block; margin-top:5px; color:#6d706a; font-size:12px; }.club-map-sheet > span:last-child { margin-left:auto; }
+ .club-grabber { position:absolute; top:8px; left:calc(50% - 18px); width:36px; height:4px; border-radius:4px; background:#c8cac5; }
+ .club-account { top:85px; right:16px; }
+ .club-album > div > div.border-b { padding:16px; }
+}
+
+/* Photo-led recent albums, matching the approved reference layout. */
+.club-profile { display:flex; align-items:center; justify-content:center; }
+.recent-tabs { display:flex; flex-shrink:0; gap:24px; padding:0 24px; border-bottom:1px solid #e2e2dd; }
+.recent-tabs button { min-height:48px; font-size:12px; color:#797b76; border-bottom:2px solid transparent; }
+.recent-tabs button[aria-pressed=true] { color:#5b1a23; border-color:#5b1a23; font-weight:650; }
+.recent-albums { padding:22px 24px 32px; }
+.recent-kicker { font-size:12px; color:#686b65; margin-bottom:12px; }
+.recent-kicker span { margin-left:7px; }
+.recent-title { display:flex; width:100%; align-items:center; justify-content:space-between; gap:16px; text-align:left; font-size:32px; line-height:1.18; letter-spacing:-1px; font-weight:750; }
+.recent-title > span { font-size:20px; font-weight:400; }
+.recent-meta { font-size:12px; color:#646761; margin:14px 0 16px; }
+.recent-cover { display:block; width:100%; overflow:hidden; }
+.recent-cover img { width:100%; aspect-ratio:4/3; object-fit:cover; }
+.recent-empty { width:100%; aspect-ratio:4/3; background:#f1f2ed; color:#72756e; font-size:13px; }
+.recent-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; margin-top:5px; }
+.recent-strip img { width:100%; aspect-ratio:4/3; object-fit:cover; }
+.recent-list-label { display:flex; justify-content:space-between; font-size:12px; margin-top:22px; padding-top:12px; border-top:1px solid #bbbfb6; }
+.recent-list-label span { color:#7b7e77; }
+.recent-row { display:flex; align-items:center; gap:14px; width:100%; text-align:left; padding:12px 0; border-bottom:1px solid #e0e2db; }
+.recent-row > img,.recent-row-placeholder { width:88px; height:66px; object-fit:cover; flex-shrink:0; }
+.recent-row-placeholder { display:grid; place-items:center; background:#f2f3ee; color:#84877f; font-size:10px; }
+.recent-row-text { flex:1; min-width:0; }.recent-row-text strong { display:block; font-size:15px; }.recent-row-text small { display:block; color:#767971; font-size:10px; margin-top:7px; }
+.recent-row:hover { background:#f7f7f3; }
+@media(min-width:768px) { .club-header { padding-top:10px; padding-bottom:10px; }.club-toolbar { padding-top:12px; padding-bottom:12px; }.club-search { flex:0 1 50%; }.club-filters { flex:1; }.club-filters button { flex:1; padding:0 10px; } }
+@media(max-width:767px) { .recent-albums { padding:20px 16px; }.recent-tabs { padding:0 16px; }.recent-title { font-size:28px; } }
+
+.upload-selection { min-width:0; border-bottom:1px solid #deded8; padding-bottom:24px; }
+.upload-filter-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.upload-filter-grid label { display:flex; flex-direction:column; gap:7px; font-size:12px; color:#5c6058; }
+.upload-filter-grid input,.upload-filter-grid select { width:100%; min-width:0; height:44px; padding:0 10px; border:1px solid #d8dbd3; background:#fff; border-radius:3px; color:#242822; font-size:14px; }
+.upload-results { max-height:310px; overflow:auto; border-top:1px solid #d8dbd3; }
+.upload-results label { display:flex; align-items:center; gap:12px; padding:14px 12px; border-bottom:1px solid #e3e5dd; cursor:pointer; }
+.upload-results label.selected { background:#f6efef; }
+.upload-results input { accent-color:#5b1a23; }
+.upload-results strong { display:block; font-size:14px; }.upload-results small { display:block; margin-top:5px; font-size:11px; color:#74796d; }
+@media(max-width:600px) { .upload-filter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.upload-filter-grid input,.upload-filter-grid select { font-size:16px; } }
+
+.map-photo-stack { position:relative; isolation:isolate; margin:6px; }
+.map-photo-stack::before,.map-photo-stack::after { content:""; position:absolute; inset:0; border:2px solid white; border-radius:4px; background:#c6cbbf; z-index:-1; box-shadow:0 1px 4px #0003; }
+.map-photo-stack::before { transform:translate(5px,-5px) rotate(8deg); }
+.map-photo-stack::after { transform:translate(2px,-2px) rotate(4deg); }
+.map-photo-count { position:absolute; bottom:-7px; right:-8px; min-width:23px; padding:2px 5px; border:2px solid white; border-radius:12px; background:#5b1a23; color:white; text-align:center; font-size:11px; font-weight:700; }
+.map-photo-picker { display:grid; grid-template-columns:repeat(3,72px); gap:5px; max-height:250px; overflow:auto; padding:4px; }
+.map-photo-picker button { cursor:pointer; }.map-photo-picker img { width:72px; height:72px; object-fit:cover; }.map-photo-picker button:focus-visible { outline:2px solid #5b1a23; outline-offset:2px; }

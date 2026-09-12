@@ -1,5 +1,6 @@
 "use client";
 
+import { RecentAlbums } from "./recent-albums";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import type { ActivityType, LocationType } from "@/types/database";
@@ -168,6 +169,7 @@ export function SidePanel({
   onPickPoint: (point: PickedPoint) => void;
 }) {
   const router = useRouter();
+  const [rootView, setRootView] = useState<"recent" | "places">("recent");
   const [query, setQuery] = useState("");
   const [deleting, setDeleting] = useState(false);
   // Holds the id of the folder being renamed, not a boolean: leaving the folder
@@ -416,6 +418,8 @@ export function SidePanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="recent-tabs"><button aria-pressed={rootView === "recent"} onClick={()=>setRootView("recent")}>최근 앨범</button><button aria-pressed={rootView === "places"} onClick={()=>setRootView("places")}>장소별 앨범</button></div>
+      {rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><RecentAlbums locations={locations} onOpenHike={onOpenHike} onHoverHike={onHoverHike}/></div> : <>
       <div className="border-b border-neutral-200 px-4 py-3">
         {picking && (
           <div className="mb-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
@@ -499,6 +503,7 @@ export function SidePanel({
           </ul>
         )}
       </div>
+      </>}
     </div>
   );
 }
