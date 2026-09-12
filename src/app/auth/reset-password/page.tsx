@@ -30,16 +30,31 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     const supabase = createClient();
+    let settled = false;
+
+    // Whoever gets there first wins: the listener below, the direct check, or
+    // the timeout. Without this the three of them fight over one state value.
+    const settle = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      setReady(ok);
+    };
+
+    // The browser client has detectSessionInUrl on, so supabase-js reads the
+    // recovery fragment and clears it during its own async startup. Racing that
+    // with a getSession() call is what made a working link report itself as
+    // expired - the hash was already gone and the session had not landed yet.
+    // Listening means it does not matter who finishes first.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) settle(true);
+    });
 
     async function redeem() {
-      // Supabase returns the recovery result in the URL *fragment*, not the
-      // query string. Browsers never send a fragment to the server, which is
-      // why routing this through the server-side /auth/callback could not work
-      // however the redirect was spelled: that route saw a bare URL every time
-      // and bounced to the login screen.
+      // Supabase returns the recovery result in the URL *fragment*. Browsers
+      // never send a fragment to the server, which is why routing this through
+      // the server-side /auth/callback could not work however the redirect was
+      // spelled: that route saw a bare URL every time.
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const params = new URLSearchParams(window.location.search);
-
       const hashError = hash.get("error_description") ?? hash.get("error");
       if (hashError) {
         setError(
@@ -47,48 +62,39 @@ export default function ResetPasswordPage() {
             ? "링크가 만료되었거나 이미 사용되었습니다."
             : decodeURIComponent(hashError.replace(/\+/g, " ")),
         );
-        setReady(false);
+        settle(false);
         return;
       }
 
-      const accessToken = hash.get("access_token");
-      const refreshToken = hash.get("refresh_token");
-      if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        // Drop the tokens from the address bar once they are spent, so a
-        // reload or a shared screenshot does not carry a live session.
-        window.history.replaceState(null, "", window.location.pathname);
-        setReady(!error);
-        return;
-      }
-
-      const tokenHash = params.get("token_hash");
+      // A customised mail template sends token_hash in the query string, which
+      // supabase-js does not redeem on its own.
+      const tokenHash = new URLSearchParams(window.location.search).get("token_hash");
       if (tokenHash) {
         const { error } = await supabase.auth.verifyOtp({
           type: "recovery",
           token_hash: tokenHash,
         });
-        setReady(!error);
+        settle(!error);
         return;
       }
 
-      const code = params.get("code");
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
-        setReady(!error);
-        return;
-      }
-
-      // Nothing in the URL: either the link was already redeemed and this is a
-      // reload, or someone navigated here directly.
       const { data } = await supabase.auth.getSession();
-      setReady(data.session !== null);
+      if (data.session) {
+        settle(true);
+        return;
+      }
+
+      // Nothing yet. Either startup is still parsing the URL - in which case
+      // the listener above answers - or there was never a token here.
+      window.setTimeout(async () => {
+        const { data: late } = await supabase.auth.getSession();
+        settle(late.session !== null);
+      }, 2000);
     }
 
     redeem();
+
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   async function submit(event: FormEvent) {
@@ -125,7 +131,7 @@ export default function ResetPasswordPage() {
       </p>
 
       {ready === null ? (
-        <p className="text-sm text-neutral-500">확인 중…</p>
+        <p className="text-sm text-neutral-500">링크를 확인하는 중…</p>
       ) : !ready ? (
         <>
           <p className="text-sm text-neutral-600">
