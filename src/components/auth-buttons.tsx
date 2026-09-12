@@ -312,7 +312,7 @@ export function AuthButtons() {
     if (error) {
       reportMailError(error.message);
     } else {
-      setNotice(`${email}로 비밀번호 재설정 링크를 보냈습니다.`);
+      setNotice(`${email}로 비밀번호 설정 링크를 보냈습니다. 메일함을 확인해주세요.`);
       startCooldown();
     }
   }
@@ -400,7 +400,7 @@ export function AuthButtons() {
             disabled={pending || cooling}
             className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50"
           >
-            비밀번호를 잊으셨나요?
+            비밀번호 설정 · 재설정
           </button>
         )}
         <button

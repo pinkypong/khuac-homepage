@@ -32,12 +32,40 @@ export default function ResetPasswordPage() {
     const supabase = createClient();
 
     async function redeem() {
-      // Read off location rather than useSearchParams: this page is only ever
-      // reached by following a link, and it keeps the route out of Suspense.
+      // Supabase returns the recovery result in the URL *fragment*, not the
+      // query string. Browsers never send a fragment to the server, which is
+      // why routing this through the server-side /auth/callback could not work
+      // however the redirect was spelled: that route saw a bare URL every time
+      // and bounced to the login screen.
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const params = new URLSearchParams(window.location.search);
-      const code = params.get("code");
-      const tokenHash = params.get("token_hash");
 
+      const hashError = hash.get("error_description") ?? hash.get("error");
+      if (hashError) {
+        setError(
+          /expired|invalid/i.test(hashError)
+            ? "링크가 만료되었거나 이미 사용되었습니다."
+            : decodeURIComponent(hashError.replace(/\+/g, " ")),
+        );
+        setReady(false);
+        return;
+      }
+
+      const accessToken = hash.get("access_token");
+      const refreshToken = hash.get("refresh_token");
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        // Drop the tokens from the address bar once they are spent, so a
+        // reload or a shared screenshot does not carry a live session.
+        window.history.replaceState(null, "", window.location.pathname);
+        setReady(!error);
+        return;
+      }
+
+      const tokenHash = params.get("token_hash");
       if (tokenHash) {
         const { error } = await supabase.auth.verifyOtp({
           type: "recovery",
@@ -47,13 +75,14 @@ export default function ResetPasswordPage() {
         return;
       }
 
+      const code = params.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         setReady(!error);
         return;
       }
 
-      // No token in the URL: either the link was already redeemed and this is a
+      // Nothing in the URL: either the link was already redeemed and this is a
       // reload, or someone navigated here directly.
       const { data } = await supabase.auth.getSession();
       setReady(data.session !== null);
@@ -87,15 +116,21 @@ export default function ResetPasswordPage() {
 
   return (
     <main className="mx-auto flex min-h-app max-w-sm flex-col justify-center gap-5 px-4 py-10">
-      <h1 className="text-2xl font-semibold">비밀번호 재설정</h1>
+      <h1 className="text-2xl font-semibold">비밀번호 설정</h1>
+      {/* Google members arrive here with no password to reset - they are
+          creating one - so the wording covers both cases. */}
+      <p className="-mt-2 text-sm text-neutral-600">
+        여기서 정한 비밀번호로 이메일 로그인을 쓸 수 있습니다. Google 로그인은 그대로
+        계속 됩니다.
+      </p>
 
       {ready === null ? (
         <p className="text-sm text-neutral-500">확인 중…</p>
       ) : !ready ? (
         <>
           <p className="text-sm text-neutral-600">
-            링크가 만료되었거나 이미 사용되었습니다. 로그인 화면에서 재설정 메일을 다시
-            받아주세요.
+            링크가 만료되었거나 이미 사용되었습니다. 로그인 화면의
+            &ldquo;비밀번호 설정 · 재설정&rdquo;에서 메일을 다시 받아주세요.
           </p>
           <Link href="/login" className="text-sm underline">
             로그인 화면으로
@@ -103,7 +138,7 @@ export default function ResetPasswordPage() {
         </>
       ) : done ? (
         <>
-          <p className="text-sm text-neutral-600">비밀번호를 변경했습니다.</p>
+          <p className="text-sm text-neutral-600">비밀번호를 저장했습니다. 이제 이메일과 비밀번호로 로그인할 수 있습니다.</p>
           {/* A full navigation, not a client-side one: the session cookie was
               just rewritten and the middleware has to read it on a fresh
               request to route by approval state. */}
