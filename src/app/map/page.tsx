@@ -36,42 +36,57 @@ interface LocationRow {
 export default async function MapPage() {
   const supabase = await createClient();
 
+  // getSession reads the cookie; getUser would spend a network round trip
+  // validating it against the auth server. Nothing here is an authorisation
+  // decision - the middleware already refused anyone who does not belong on
+  // this route, and RLS decides what the id below is allowed to read.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const { data: member } = user
-    ? await supabase.from("members").select("name, role").eq("auth_user_id", user.id).single()
-    : { data: null };
-  const viewer = (member as { name: string; role: string } | null) ?? null;
-  const isAdmin = viewer?.role === "admin";
+    data: { session },
+  } = await supabase.auth.getSession();
+  const userId = session?.user.id;
 
-  // Only admins can act on this, and members_select would hand a non-admin an
-  // empty result anyway - so the round trip is skipped rather than wasted.
-  const { count: pendingCount } = isAdmin
-    ? await supabase
-        .from("members")
-        .select("id", { count: "exact", head: true })
-        .eq("role", "pending")
-    : { count: 0 };
-  const { data, error } = await supabase
-    .from("locations")
-    .select(
-      "id, name, type, region, elevation, lat, lng, created_at, " +
-        "hikes(id, title, date, description, activity_type, lat, lng, track, " +
-        "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
-    )
-    .not("lat", "is", null)
-    .not("lng", "is", null)
-    .order("name");
+  // The album tree does not depend on who is looking at it, so waiting for the
+  // viewer's row before asking for it just adds one round trip to every load.
+  const [memberResult, locationsResult] = await Promise.all([
+    userId
+      ? supabase.from("members").select("name, role").eq("auth_user_id", userId).single()
+      : Promise.resolve({ data: null }),
+    supabase
+      .from("locations")
+      .select(
+        "id, name, type, region, elevation, lat, lng, created_at, " +
+          "hikes(id, title, date, description, activity_type, lat, lng, track, " +
+          "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
+      )
+      .not("lat", "is", null)
+      .not("lng", "is", null)
+      .order("name"),
+  ]);
+
+  const { data, error } = locationsResult;
   if (error) throw error;
 
+  const viewer = (memberResult.data as { name: string; role: string } | null) ?? null;
+  const isAdmin = viewer?.role === "admin";
   const rows = data as unknown as LocationRow[];
-  // Names come from the member_names view, not a join: members itself stays
-  // unreadable to anyone but its owner and admins because it holds email.
-  const names = await memberDirectory(
-    supabase,
-    rows.flatMap((r) => (r.hikes ?? []).flatMap((h) => (h.photos ?? []).map((p) => p.uploader_id))),
-  );
+
+  // Both of these needed the results above, and neither needs the other.
+  const [pendingResult, names] = await Promise.all([
+    // Only admins can act on this, and members_select would hand a non-admin an
+    // empty result anyway - so the round trip is skipped rather than wasted.
+    isAdmin
+      ? supabase.from("members").select("id", { count: "exact", head: true }).eq("role", "pending")
+      : Promise.resolve({ count: 0 }),
+    // Names come from the member_names view, not a join: members itself stays
+    // unreadable to anyone but its owner and admins because it holds email.
+    memberDirectory(
+      supabase,
+      rows.flatMap((r) =>
+        (r.hikes ?? []).flatMap((h) => (h.photos ?? []).map((p) => p.uploader_id)),
+      ),
+    ),
+  ]);
+  const pendingCount = pendingResult.count;
 
   const locations: MapLocation[] = rows.map((row) => {
     const hikes: MapHike[] = [...(row.hikes ?? [])]

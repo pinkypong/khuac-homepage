@@ -36,10 +36,13 @@ export default async function AdminMembersPage() {
       return a.name.localeCompare(b.name, "ko");
     });
 
-  // Used to hide 방출 on your own row; the action refuses it server-side too.
+  // Used to hide 방출 on your own row; the action refuses it server-side too,
+  // so this is a display detail and getSession's cookie read is enough - no
+  // need to spend a round trip revalidating the token with the auth server.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const viewerAuthId = session?.user.id;
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8 md:py-10">
@@ -106,7 +109,7 @@ export default async function AdminMembersPage() {
               </p>
             </div>
             <div className="flex shrink-0 gap-2">
-              {member.auth_user_id === user?.id ? (
+              {member.auth_user_id === viewerAuthId ? (
                 <span className="self-center text-xs text-neutral-400">본인</span>
               ) : (
                 <RemoveMemberButton authUserId={member.auth_user_id} name={member.name} />

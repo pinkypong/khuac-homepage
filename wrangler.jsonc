@@ -4,6 +4,12 @@
 	"name": "khuac-homepage",
 	"compatibility_date": "2026-09-03",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"routes": [
+		// Declared here rather than clicked in the dashboard so the domain this
+		// Worker answers on is part of the repo. Cloudflare creates the DNS
+		// record and certificate for the zone on deploy.
+		{ "pattern": "khuac.com", "custom_domain": true }
+	],
 	"assets": {
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"

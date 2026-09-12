@@ -68,8 +68,14 @@ export async function middleware(request: NextRequest) {
   return getResponse();
 }
 
+// api/images is excluded by path rather than by extension. The extension list
+// below cannot cover it: an iPhone uploads HEIC, buildStorageKey keeps whatever
+// extension the file had, and a thumbnail URL therefore ends in .heic - so every
+// photo in a gallery was running the full middleware, two Supabase round trips
+// each, before reaching a route that authenticates itself anyway
+// (requireApprovedMember at the top of app/api/images/[...key]/route.ts).
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!api/images|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

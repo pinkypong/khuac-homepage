@@ -6,15 +6,18 @@ import { PendingWatcher } from "./pending-watcher";
 
 export default async function PendingApprovalPage() {
   const supabase = await createClient();
+  // Reaching this page at all means the middleware already checked the session
+  // and found an unapproved member, so the id here is just the key to that
+  // member's own row - which RLS would restrict to them regardless.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) redirect("/login");
 
   const { data } = await supabase
     .from("members")
     .select("name")
-    .eq("auth_user_id", user.id)
+    .eq("auth_user_id", session.user.id)
     .single();
   const name = (data as { name: string | null } | null)?.name ?? "";
 

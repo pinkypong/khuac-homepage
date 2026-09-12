@@ -305,13 +305,48 @@ Maps SDK는 `next/dynamic`의 `ssr: false`로 클라이언트에서만 로드합
 (Advanced Marker에는 Map ID가 필요합니다), Cloud 기반 지도 스타일을 쓰고 싶을 때만 실제
 Map ID를 발급해 넣으면 됩니다. 키가 아예 없으면 지도 대신 설정 안내 문구가 표시됩니다.
 
-## 배포 전 준비 (Phase 6에서 진행)
+## 배포 (Phase 6)
 
-- OpenNext 증분 캐시용 R2 버킷 생성:
-  `wrangler r2 bucket create khuac-homepage-opennext-cache`
-- 사진용 R2 버킷 생성: `wrangler r2 bucket create khuac`
-- khuac.com을 Worker의 Custom Domain으로 연결
-- 시크릿 등록 (`wrangler secret put ...`)
+**https://khuac.com** 에서 서비스 중입니다. `workers.dev` 주소는 커스텀 도메인을 붙이면서
+비활성화되어 지금은 404입니다.
+
+```bash
+npm run cf:build   # dev 서버를 반드시 먼저 내릴 것 - 같은 .next를 쓴다
+npx wrangler deploy
+```
+
+도메인은 `wrangler.jsonc`의 `routes`에 `custom_domain`으로 선언되어 있습니다. 대시보드에서
+클릭하지 않고 여기 적어두는 쪽이, 이 Worker가 어느 도메인에 응답하는지를 저장소가 기억하게
+합니다.
+
+### 인증
+
+`wrangler login`(브라우저 OAuth)이 이 환경에서 반복 실패해서 API 토큰을 씁니다. Cloudflare
+대시보드 → My Profile → API Tokens → **Edit Cloudflare Workers** 템플릿으로 발급받아
+`.env.local`에 `CLOUDFLARE_API_TOKEN`으로 두면 wrangler가 자동으로 읽습니다.
+
+### Worker 환경변수
+
+`wrangler secret bulk`로 한 번에 등록합니다. 주의할 점: **`NEXT_PUBLIC_SUPABASE_URL`과
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`도 반드시 등록해야 합니다.** `NEXT_PUBLIC_` 접두사가 붙어
+있어도 `src/lib/supabase/server.ts`와 `middleware.ts`는 `requireEnv(...)`, 즉
+`process.env[name]` 형태의 **동적 조회**로 읽기 때문에 Next가 빌드 시점에 값을 박아 넣지
+못합니다. 빼먹으면 모든 요청이 "Missing environment variable"로 500이 납니다.
+
+등록 대상: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ACCESS_KEY_ID`,
+`R2_SECRET_ACCESS_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+(`CLOUDFLARE_API_TOKEN`은 이 PC가 wrangler에 인증하는 값이므로 Worker에 넣지 않습니다.)
+
+### 배포 후 대시보드 작업
+
+- **Supabase → Authentication → URL Configuration**: Site URL을 `https://khuac.com`으로,
+  Redirect URLs에 `https://khuac.com/auth/callback` 추가. 이걸 해야 다른 기기에서 연 메일
+  링크가 동작합니다 — Site URL이 `localhost`로 남아 있으면 폰이 자기 자신으로 리다이렉트되어
+  연결 실패로 보입니다
+- **Google Cloud Console → 인증 플랫폼 → 브랜딩**: 개인정보처리방침 URL을
+  `https://khuac.com/privacy`로 변경. 기존 `workers.dev` 주소는 이제 404입니다
+- **Google Maps API 키**: 리퍼러 제한에 khuac.com이 이미 등록되어 있는지 확인
 
 ## 알려진 이슈
 
