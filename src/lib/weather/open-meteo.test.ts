@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  chooseGeocodedPlace,
   daysInRange,
   parseForecastResponse,
   resolveTimeframe,
@@ -118,4 +119,62 @@ describe("summarizeForecast", () => {
   it("says so plainly when there is nothing to summarize", () => {
     expect(summarizeForecast([])).toBe("해당 기간의 예보 정보가 없습니다.");
   });
+});
+
+describe("chooseGeocodedPlace", () => {
+  // Shape taken from a real response: 청계산 is three different mountains, and
+  // the Seoul one a club would mean comes back third, romanised.
+  const cheonggye = {
+    results: [
+      { name: "청계산", latitude: 37.9302, longitude: 127.36894, feature_code: "MT", admin1: "경기도", admin2: "포천시" },
+      { name: "청계산", latitude: 37.5535, longitude: 127.4029, feature_code: "MT", admin1: "경기도", admin2: "양평군" },
+      { name: "Cheonggye-san", latitude: 37.42778, longitude: 127.05167, feature_code: "MT", admin1: "경기도", admin2: "성남시" },
+    ],
+  };
+
+  it("picks the mountain nearest where the club actually goes", () => {
+    // Roughly Seoul, as an average of the club's own locations would be.
+    const picked = chooseGeocodedPlace(cheonggye, { lat: 37.6, lng: 127.0 });
+    expect(picked?.region).toContain("성남시");
+    expect(picked?.lat).toBeCloseTo(37.42778, 4);
+  });
+
+  it("falls back to the first result when there is nothing to bias toward", () => {
+    expect(chooseGeocodedPlace(cheonggye, null)?.region).toBe("경기도 포천시");
+  });
+
+  it("prefers a mountain over a same-named place of another kind", () => {
+    const mixed = {
+      results: [
+        { name: "백운대", latitude: 35.8, longitude: 129.2, feature_code: "PPL", admin1: "경상북도", admin2: "경주시" },
+        { name: "백운대", latitude: 37.659, longitude: 126.9779, feature_code: "MT", admin1: "경기도", admin2: "고양시" },
+      ],
+    };
+    expect(chooseGeocodedPlace(mixed, null)?.region).toBe("경기도 고양시");
+  });
+
+  it("returns null for an empty or malformed payload", () => {
+    expect(chooseGeocodedPlace({ results: [] }, null)).toBeNull();
+    expect(chooseGeocodedPlace(null, null)).toBeNull();
+    expect(chooseGeocodedPlace({ results: [{ name: "좌표없음" }] }, null)).toBeNull();
+  });
+});
+
+it("uses Korean Monday before UTC midnight", () => {
+ const now = new Date("2026-09-13T15:01:00Z");
+ expect(resolveTimeframe("today", now).from.toISOString().slice(0,10)).toBe("2026-09-14");
+ const week = resolveTimeframe("this_week", now);
+ expect(week.from.toISOString().slice(0,10)).toBe("2026-09-14");
+ expect(week.to.toISOString().slice(0,10)).toBe("2026-09-20");
+ expect(daysInRange(parseForecastResponse(sampleResponse()), week)).toHaveLength(3);
+});
+it("includes Sunday in this weekend on Sunday", () => {
+ const range = resolveTimeframe("this_weekend", new Date("2026-09-12T15:01:00Z"));
+ expect(range.from.toISOString().slice(0,10)).toBe("2026-09-13");
+ expect(range.to.toISOString().slice(0,10)).toBe("2026-09-13");
+});
+it("handles a week crossing the year boundary", () => {
+ const range = resolveTimeframe("this_week", new Date("2026-12-31T16:00:00Z"));
+ expect(range.from.toISOString().slice(0,10)).toBe("2026-12-28");
+ expect(range.to.toISOString().slice(0,10)).toBe("2027-01-03");
 });

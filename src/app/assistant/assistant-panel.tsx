@@ -1,31 +1,158 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { askAssistant, type AssistantAnswer } from "./actions";
-import { RouteMap } from "./route-map";
+import { useEffect, useState, type FormEvent } from "react";
+import { askAssistant, recentQuestions, type AssistantAnswer, type RecentQuestion } from "./actions";
+import { parseMarkdown, type InlineToken } from "@/lib/assistant/markdown";
+import type { RouteSuggestion } from "@/lib/assistant/routes";
 
-const EXAMPLES = ["인수봉 위치", "이번 주말 북한산 날씨", "초보자에게 괜찮은 코스 추천해줘"];
+// A place name is part of the question, not decoration: the weather path
+// looks the place up in our own records, so "이번주 날씨" alone would resolve
+// to nowhere and answer 장소를 찾지 못했습니다.
+const EXAMPLES = ["이번 주말 북한산 날씨"];
 
-function mapsLink(lat: number, lng: number): string {
-  return `https://www.google.com/maps?q=${lat},${lng}`;
+function Inline({ tokens }: { tokens: InlineToken[] }) {
+  return (
+    <>
+      {tokens.map((token, i) =>
+        token.bold ? (
+          <strong key={i} className="font-semibold text-neutral-900">
+            {token.text}
+          </strong>
+        ) : (
+          <span key={i}>{token.text}</span>
+        ),
+      )}
+    </>
+  );
 }
 
-export function AssistantPanel() {
+/**
+ * The model's Markdown, rendered as weight and size rather than as the
+ * punctuation it arrived in - `**` and `#` used to reach the screen verbatim.
+ */
+function RichText({ source }: { source: string }) {
+  const blocks = parseMarkdown(source);
+  return (
+    <div className="flex flex-col gap-2">
+      {blocks.map((block, i) => {
+        if (block.kind === "heading") {
+          return (
+            <h3 key={i} className="mt-1 text-[15px] font-bold leading-snug text-neutral-900">
+              <Inline tokens={block.content} />
+            </h3>
+          );
+        }
+        if (block.kind === "list") {
+          const ListTag = block.ordered ? "ol" : "ul";
+          return (
+            <ListTag
+              start={block.ordered ? block.start : undefined}
+              key={i}
+              className={
+                "flex flex-col gap-1 pl-4 text-[13px] leading-relaxed text-neutral-700 " +
+                (block.ordered ? "list-decimal" : "list-disc")
+              }
+            >
+              {block.items.map((item, j) => (
+                <li key={j}>
+                  <Inline tokens={item} />
+                </li>
+              ))}
+            </ListTag>
+          );
+        }
+        if (block.kind === "rule") {
+          return <hr key={i} className="border-neutral-200" />;
+        }
+        if (block.kind === "table") {
+          // The panel is narrow, so a wide comparison table scrolls sideways
+          // in its own box rather than forcing the whole answer to.
+          return (
+            <div key={i} className="-mx-1 overflow-x-auto">
+              <table className="w-full border-collapse text-[12px]">
+                <thead>
+                  <tr>
+                    {block.header.map((cell, j) => (
+                      <th
+                        key={j}
+                        className="whitespace-nowrap border-b border-neutral-300 px-1.5 py-1 text-left font-semibold text-neutral-900"
+                      >
+                        <Inline tokens={cell} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, j) => (
+                    <tr key={j}>
+                      {row.map((cell, k) => (
+                        <td
+                          key={k}
+                          className="border-b border-neutral-100 px-1.5 py-1 align-top text-neutral-700"
+                        >
+                          <Inline tokens={cell} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        return (
+          <p key={i} className="text-[13px] leading-relaxed text-neutral-700">
+            <Inline tokens={block.content} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+export function AssistantPanel({
+  onPreviewRoute,
+  onCreateAlbum,
+  activeRouteName,
+  creatingAlbum,
+}: {
+  /** Draws the course on the site's own map. Absent on the standalone
+      /assistant page, where there is no map beside the panel - the cards then
+      render as plain boxes rather than as buttons that would do nothing. */
+  onPreviewRoute?: (
+    route: RouteSuggestion,
+    place: { name: string | null; center: { lat: number; lng: number } | null },
+  ) => void;
+  onCreateAlbum?: (route: RouteSuggestion) => void;
+  activeRouteName?: string | null;
+  creatingAlbum?: boolean;
+} = {}) {
   const [question, setQuestion] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<AssistantAnswer | null>(null);
+  const [recent, setRecent] = useState<RecentQuestion[]>([]);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = question.trim();
+  // What the club has already paid for. Asking one of these again is free, so
+  // they are offered ahead of the examples.
+  useEffect(() => {
+    let cancelled = false;
+    recentQuestions()
+      .then((rows) => !cancelled && setRecent(rows))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [answer]);
+
+  async function ask(text: string, refresh = false) {
+    const trimmed = text.trim();
     if (!trimmed) return;
-
     setPending(true);
     setError(null);
     setAnswer(null);
     try {
-      setAnswer(await askAssistant(trimmed));
+      setAnswer(await askAssistant(trimmed, refresh));
     } catch (err) {
       setError(err instanceof Error ? err.message : "답을 가져오지 못했습니다.");
     } finally {
@@ -33,14 +160,26 @@ export function AssistantPanel() {
     }
   }
 
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void ask(question);
+  }
+
+  const hasRoutes = (answer?.routes?.length ?? 0) > 0;
+  const place = {
+    name: answer?.routePlaceName ?? null,
+    center: answer?.place ? { lat: answer.place.lat, lng: answer.place.lng } : null,
+  };
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <form onSubmit={submit} className="flex flex-col gap-2">
         <input
+          maxLength={2000}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="예: 인수봉 위치"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-base md:text-sm"
+          placeholder="예: 관악산 등산 코스"
+          className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-base md:text-sm"
         />
         <button
           type="submit"
@@ -51,13 +190,36 @@ export function AssistantPanel() {
         </button>
       </form>
 
+      {recent.length > 0 && (
+        <div>
+          <p className="mb-1 text-[10px] font-medium text-neutral-400">최근 검색 · 다시 보기는 무료</p>
+          <div className="flex flex-wrap gap-1.5">
+            {recent.map((item) => (
+              <button
+                key={item.question}
+                type="button"
+                onClick={() => {
+                  setQuestion(item.question);
+                  void ask(item.question);
+                }}
+                disabled={pending}
+                className="max-w-full truncate rounded-full border border-[#e0cdd1] bg-[#faf5f6] px-2.5 py-1 text-xs text-[#5b1a23] disabled:opacity-50"
+              >
+                {item.question}
+                <span className="ml-1 text-[10px] text-neutral-400">{item.ageLabel}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1.5">
         {EXAMPLES.map((example) => (
           <button
             key={example}
             type="button"
             onClick={() => setQuestion(example)}
-            className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs text-neutral-600 hover:bg-neutral-50"
+            className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs text-neutral-600 hover:bg-white"
           >
             {example}
           </button>
@@ -67,7 +229,7 @@ export function AssistantPanel() {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {answer && (
-        <div className="rounded-lg border border-neutral-200 p-4">
+        <div className="rounded-lg border border-neutral-200 bg-white p-3">
           {/* The intent badge is a debugging window left visible on purpose for
               now: it shows at a glance whether a question stayed free (바로
               답변) or spent a Gemini call, while the club is still watching
@@ -79,54 +241,111 @@ export function AssistantPanel() {
                 ? "바로 답변 · 날씨"
                 : "AI 답변"}
           </span>
-
-          <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-800">{answer.text}</p>
-
-          {answer.place && (
-            <a
-              href={mapsLink(answer.place.lat, answer.place.lng)}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 inline-block text-xs text-neutral-500 underline"
-            >
-              {answer.place.name} · Google 지도에서 보기
-            </a>
+          {answer.cachedAge && (
+            <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-neutral-400">
+              {answer.cachedAge} 검색 결과
+              <button
+                type="button"
+                onClick={() => void ask(question || answer.text, true)}
+                disabled={pending}
+                className="underline disabled:opacity-50"
+              >
+                새로 검색
+              </button>
+            </span>
           )}
 
-          {answer.routes && answer.routes.length > 0 && answer.place && (
-            <>
-              <RouteMap routes={answer.routes} center={{ lat: answer.place.lat, lng: answer.place.lng }} />
-              <ul className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3">
-                {answer.routes.map((route, i) => (
-                  <li key={i} className="rounded border border-neutral-200 p-2">
-                    <p className="text-xs font-semibold">{route.name}</p>
-                    <p className="mt-0.5 text-[11px] text-neutral-600">
-                      {route.waypoints.join(" → ")}
-                    </p>
-                    {(route.distanceText || route.notes) && (
-                      <p className="mt-0.5 text-[11px] text-neutral-500">
-                        {[route.distanceText, route.notes].filter(Boolean).join(" · ")}
-                      </p>
-                    )}
-                    {route.sourceUrls.length > 0 && (
-                      <p className="mt-1 flex flex-wrap gap-2">
-                        {route.sourceUrls.map((url) => (
-                          <a
-                            key={url}
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-[10px] text-neutral-400 underline"
-                          >
-                            출처
-                          </a>
-                        ))}
-                      </p>
+          {/* The prose and the cards used to say the same thing one after the
+              other. When courses were extracted, the cards are the answer:
+              each carries its own description, and only a caveat that covers
+              the whole outing stays outside them. */}
+          {hasRoutes ? (
+            answer.summary && (
+              <p className="mt-2 text-[13px] leading-relaxed text-neutral-700">{answer.summary}</p>
+            )
+          ) : (
+            <div className="mt-2">
+              <RichText source={answer.text} />
+            </div>
+          )}
+
+          {answer.sources && answer.sources.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {answer.sources.map((url, i) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer" className="text-xs underline">
+                  출처 {i + 1}
+                </a>
+              ))}
+            </div>
+          )}
+
+          {answer.routes && answer.routes.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3">
+              {answer.routes.map((route, i) => {
+                const active = activeRouteName === route.name;
+                const meta = [route.distanceText, route.durationText, route.difficulty]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <li
+                    key={i}
+                    className={
+                      "rounded-lg border transition-colors " +
+                      (active ? "border-[#5b1a23] bg-[#faf5f6]" : "border-neutral-200")
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onPreviewRoute?.(route, place)}
+                      disabled={!onPreviewRoute}
+                      className="w-full p-2.5 text-left disabled:cursor-default"
+                    >
+                      <span className="flex items-baseline gap-1.5">
+                        <span className="min-w-0 flex-1 text-[13px] font-bold text-neutral-900">
+                          {route.name}
+                        </span>
+                        {onPreviewRoute && (
+                          <span className="shrink-0 text-[10px] font-medium text-[#5b1a23]">
+                            {active ? "지도에 표시됨" : "지도에서 보기 →"}
+                          </span>
+                        )}
+                      </span>
+                      {route.waypoints.length > 0 && (
+                        <span className="mt-1 block text-[12px] leading-relaxed text-neutral-700">
+                          {route.waypoints.join(" → ")}
+                        </span>
+                      )}
+                      {meta && (
+                        <span className="mt-1 block text-[11px] font-medium text-neutral-600">{meta}</span>
+                      )}
+                      {route.description && (
+                        <span className="mt-1.5 block text-[12px] leading-relaxed text-neutral-700">
+                          {route.description}
+                        </span>
+                      )}
+                      {route.notes && (
+                        <span className="mt-1 block text-[11px] leading-relaxed text-neutral-500">
+                          {route.notes}
+                        </span>
+                      )}
+                    </button>
+
+                    {active && onCreateAlbum && (
+                      <div className="border-t border-[#e8d9dc] px-2.5 py-2">
+                        <button
+                          type="button"
+                          onClick={() => onCreateAlbum(route)}
+                          disabled={creatingAlbum}
+                          className="rounded bg-[#5b1a23] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50"
+                        >
+                          {creatingAlbum ? "만드는 중…" : "이 코스로 앨범 만들기"}
+                        </button>
+                      </div>
                     )}
                   </li>
-                ))}
-              </ul>
-            </>
+                );
+              })}
+            </ul>
           )}
 
           {answer.forecastDays && answer.forecastDays.length > 0 && (

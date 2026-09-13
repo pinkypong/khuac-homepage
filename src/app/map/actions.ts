@@ -124,13 +124,14 @@ export async function renameLocation(locationId: string, name: string) {
   revalidatePath("/map");
 }
 
-export async function renameActivity(hikeId: string, title: string) {
+export async function updateActivity(hikeId: string, title: string, date: string) {
   const { supabase } = await requireApprovedMember();
 
   const trimmed = title.trim();
   if (!trimmed) throw new Error("활동 이름을 입력해주세요.");
+  if (!date) throw new Error("날짜를 선택해주세요.");
 
-  const { error } = await supabase.from("hikes").update({ title: trimmed }).eq("id", hikeId);
+  const { error } = await supabase.from("hikes").update({ title: trimmed, date }).eq("id", hikeId);
   if (error) throw error;
 
   revalidatePath("/map");

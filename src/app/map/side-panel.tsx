@@ -15,6 +15,7 @@ import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import { deleteLocation } from "./admin-actions";
 import { renameLocation } from "./actions";
+import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 export const TYPE_LABEL: Record<LocationType, string> = {
   mountain: "산",
@@ -151,6 +152,10 @@ export function SidePanel({
   pickedPoint,
   onPickingChange,
   onPickPoint,
+  onPreviewRoute,
+  onCreateAlbum,
+  activeRouteName,
+  creatingAlbum,
 }: {
   locations: MapLocation[];
   activeLocation: MapLocation | null;
@@ -172,6 +177,13 @@ export function SidePanel({
   pickedPoint: PickedPoint | null;
   onPickingChange: (picking: boolean) => void;
   onPickPoint: (point: PickedPoint) => void;
+  onPreviewRoute: (
+    route: RouteSuggestion,
+    place: { name: string | null; center: { lat: number; lng: number } | null },
+  ) => void;
+  onCreateAlbum: (route: RouteSuggestion) => void;
+  activeRouteName: string | null;
+  creatingAlbum: boolean;
 }) {
   const router = useRouter();
   const [rootView, setRootView] = useState<"recent" | "places">("recent");
@@ -425,8 +437,12 @@ export function SidePanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Above the tabs, not inside one: asking a question is not a way of
+          browsing albums, and living under 최근 앨범 meant it vanished the
+          moment someone switched to 장소별 앨범. */}
+      <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
       <div className="recent-tabs"><button aria-pressed={rootView === "recent"} onClick={()=>setRootView("recent")}>최근 앨범</button><button aria-pressed={rootView === "places"} onClick={()=>setRootView("places")}>장소별 앨범</button></div>
-      {rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><KhuacAiCard /><RecentAlbums locations={locations} onOpenHike={onOpenHike} onHoverHike={onHoverHike}/></div> : <>
+      {rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><RecentAlbums locations={locations} onOpenHike={onOpenHike} onHoverHike={onHoverHike}/></div> : <>
       <div className="border-b border-neutral-200 px-4 py-3">
         {picking && (
           <div className="mb-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">

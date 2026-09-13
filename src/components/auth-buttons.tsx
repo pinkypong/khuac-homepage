@@ -76,6 +76,8 @@ export function AuthButtons() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Held true from a successful sign-in until the browser leaves this page.
+  const [navigating, setNavigating] = useState(false);
   // Epoch ms, and a ticking clock to compare it against. The interval only runs
   // while a cooldown is live, so an idle login screen is not re-rendering twice
   // a second for nothing.
@@ -248,8 +250,8 @@ export function AuthButtons() {
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setPending(false);
     if (error) {
+      setPending(false);
       setError(
         error.message.includes("Invalid login credentials")
           ? "이메일 또는 비밀번호가 올바르지 않습니다."
@@ -258,7 +260,14 @@ export function AuthButtons() {
       return;
     }
     rememberEmail(email);
-    window.location.assign("/");
+    // Deliberately still pending: the navigation below takes seconds (the map
+    // page loads the whole album tree), and letting the button snap back to
+    // "로그인" in the meantime reads as a failed attempt. It stays disabled
+    // until the new document replaces this one.
+    setNavigating(true);
+    // Straight to /map rather than "/", which only redirects here anyway -
+    // that hop cost a whole extra document load and two more auth round trips.
+    window.location.assign("/map");
   }
 
   // The fallback for anyone who signed up before passwords existed, or who
@@ -385,10 +394,10 @@ export function AuthButtons() {
         )}
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || navigating}
           className="rounded bg-neutral-900 px-4 py-2 font-medium text-white disabled:opacity-50"
         >
-          {pending ? "처리 중…" : isSignup ? "가입하기" : "로그인"}
+          {navigating ? "들어가는 중…" : pending ? "처리 중…" : isSignup ? "가입하기" : "로그인"}
         </button>
       </form>
 

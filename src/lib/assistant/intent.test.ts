@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyQuery, extractTimeframe, isRouteQuestion } from "./intent";
+import { classifyQuery, extractTimeframe, isRouteQuestion, weatherSubject } from "./intent";
 
 describe("classifyQuery", () => {
   it("routes a bare location question without calling anything", () => {
@@ -53,4 +53,44 @@ describe("extractTimeframe", () => {
   it("defaults to unspecified rather than guessing", () => {
     expect(extractTimeframe("인수봉 날씨")).toBe("unspecified");
   });
+});
+
+it.each(["관악산 등산 루트", "관악산 등산 루트 추천해줘", "관악산 초보자가 가기 좋은 코스 있어?", "3시간 정도 걸리는 관악산 등산 추천해줘"])("recognises natural route requests: %s", (question) => {
+  expect(classifyQuery(question)).toBe("complex");
+  expect(isRouteQuestion(question)).toBe(true);
+});
+
+describe("weatherSubject", () => {
+  it("leaves the mountain name once the weather words are gone", () => {
+    expect(weatherSubject("이번주 청계산 날씨")).toBe("청계산");
+    expect(weatherSubject("오늘 관악산 날씨 알려줘")).toBe("관악산");
+    expect(weatherSubject("내일 도봉산 기온")).toBe("도봉산");
+    expect(weatherSubject("청계산 날씨 어때")).toBe("청계산");
+  });
+
+  // "이번 주" is a prefix of "이번 주말"; stripping the short one first used
+  // to leave "말 북한산".
+  it("handles a compound time phrase without stranding a syllable", () => {
+    expect(weatherSubject("이번 주말 북한산 날씨")).toBe("북한산");
+    expect(weatherSubject("이번주말 북한산 날씨")).toBe("북한산");
+  });
+
+  // Removing "가" anywhere would turn 가리산 into 리산.
+  it("keeps a name that starts with a particle-like syllable", () => {
+    expect(weatherSubject("가리산 날씨")).toBe("가리산");
+    expect(weatherSubject("이번주 가리산 날씨")).toBe("가리산");
+  });
+
+  it("trims a trailing particle but not the name", () => {
+    expect(weatherSubject("북한산의 날씨")).toBe("북한산");
+  });
+
+  it("returns null when no place was named", () => {
+    expect(weatherSubject("이번주 날씨")).toBeNull();
+    expect(weatherSubject("날씨")).toBeNull();
+  });
+});
+
+it.each(["북한산 이번주 날씨", "북한산 이번 주 날씨", "북한산 금주 날씨"])("recognizes this week: %s", q => {
+ expect(extractTimeframe(q)).toBe("this_week");
 });

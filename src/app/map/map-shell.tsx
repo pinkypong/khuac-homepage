@@ -18,6 +18,8 @@ import { loadTrails, saveTrailRoute } from "./route-actions";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { formatDistance, trackDistanceMeters } from "@/lib/gps/track";
 import { MapErrorBoundary, MapUnavailable } from "./map-error-boundary";
+import { createAlbumFromRoute, type RouteWaypoint } from "./route-album-actions";
+import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 export interface MapPhoto {
   id: string;
@@ -197,6 +199,17 @@ export function MapShell({
   // lightbox on that photo. Cleared once consumed, otherwise closing the
   // lightbox would immediately reopen it.
   const [focusedPhotoId, setFocusedPhotoId] = useState<string | null>(null);
+  // A course the assistant suggested and the member tapped, drawn on this map
+  // rather than on a second one inside the answer. `resolved` is filled in by
+  // the map layer once the waypoint names have been geocoded - the album that
+  // can be built from the course needs those same coordinates.
+  const [suggestedRoute, setSuggestedRoute] = useState<{
+    route: RouteSuggestion;
+    center: { lat: number; lng: number } | null;
+    placeName: string;
+    resolved: RouteWaypoint[] | null;
+  } | null>(null);
+  const [creatingAlbum, setCreatingAlbum] = useState(false);
   // An in-progress route build: which activity it is for, the paths offered
   // around it, and the ones chosen so far in the order they were tapped.
   const [trailPick, setTrailPick] = useState<{
@@ -332,6 +345,65 @@ export function MapShell({
     setHoveredHikeId(null);
   }
 
+  function previewRoute(
+    route: RouteSuggestion,
+    place: { name: string | null; center: { lat: number; lng: number } | null },
+  ) {
+    // Tapping the course a second time puts the map back rather than leaving
+    // no way to clear a line that covers the folders underneath it.
+    if (suggestedRoute?.route.name === route.name) {
+      setSuggestedRoute(null);
+      return;
+    }
+    setSuggestedRoute({
+      route,
+      center: place.center,
+      // Without a mountain name there is nothing to file an album under, so
+      // the course name stands in - the member can rename the folder after.
+      placeName: place.name ?? route.name,
+      resolved: null,
+    });
+    showMap();
+  }
+
+  async function createAlbum(route: RouteSuggestion) {
+    const current = suggestedRoute;
+    if (!current || current.route.name !== route.name) return;
+    // A waypoint name that Places cannot place should not cost the member
+    // their album: the mountain itself is location enough to file one under,
+    // and they can move the pin afterwards. Only a course with no resolved
+    // point AND no known mountain has nowhere at all to go.
+    const waypoints =
+      current.resolved && current.resolved.length > 0
+        ? current.resolved
+        : current.center
+          ? [{ name: current.placeName, lat: current.center.lat, lng: current.center.lng }]
+          : [];
+    if (waypoints.length === 0) {
+      window.alert("코스 위치를 지도에서 찾지 못했습니다. 지도에서 코스를 먼저 눌러 위치를 불러와주세요.");
+      return;
+    }
+    setCreatingAlbum(true);
+    try {
+      const { locationId, hikeId } = await createAlbumFromRoute({
+        routeName: route.name,
+        placeName: current.placeName,
+        waypoints,
+        distanceText: route.distanceText,
+        notes: route.notes,
+      });
+      setSuggestedRoute(null);
+      setActiveLocationId(locationId);
+      setActiveHikeId(hikeId);
+      setPinnedHikeId(hikeId);
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "앨범을 만들지 못했습니다.");
+    } finally {
+      setCreatingAlbum(false);
+    }
+  }
+
   // Read only at md and above. Left unset until measured so the pane keeps its
   // natural width for the one frame before the effect runs.
   const mapWidthStyle =
@@ -382,6 +454,10 @@ export function MapShell({
                 trailSegments={trailPick?.segments ?? null}
                 chosenTrailIds={trailPick?.chosen ?? []}
                 onToggleTrail={toggleTrail}
+                suggestedRoute={suggestedRoute}
+                onRouteResolved={(points) =>
+                  setSuggestedRoute((current) => (current ? { ...current, resolved: points } : current))
+                }
               /></MapErrorBoundary>
             ) : (
               <div className="p-4">
@@ -447,6 +523,10 @@ export function MapShell({
           onHoverHike={setHoveredHikeId}
           onBackToRoot={goToRoot}
           onShowOnMap={showMap}
+          onPreviewRoute={previewRoute}
+          onCreateAlbum={createAlbum}
+          activeRouteName={suggestedRoute?.route.name ?? null}
+          creatingAlbum={creatingAlbum}
           picking={picking}
           pickedPoint={pickedPoint}
           onPickPoint={pickPoint}

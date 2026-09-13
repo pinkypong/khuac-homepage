@@ -14,6 +14,16 @@
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"
 	},
+	"vars": {
+		// Vertex AI rather than the Gemini Developer API: the Developer API
+		// geo-gates on the calling IP, and a Worker's outbound requests leave
+		// from whichever colo Cloudflare picks, so the same key was rejected
+		// with FAILED_PRECONDITION ("User location is not supported") from
+		// production while working from a developer's own machine. Vertex
+		// authenticates against a Cloud project instead. Local dev leaves this
+		// unset and keeps using GEMINI_API_KEY - see src/lib/gemini/client.ts.
+		"GEMINI_PROVIDER": "vertex"
+	},
 	"services": [
 		{
 			// Self-reference used by OpenNext's cache revalidation; must match "name" above.

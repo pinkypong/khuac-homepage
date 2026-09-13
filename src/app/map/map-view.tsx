@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AdvancedMarker,
   InfoWindow,
@@ -18,6 +18,10 @@ import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import type { TrailSegment } from "@/lib/routes/trails";
+import { availableTileLayers, type TileLayer, type TileLayerId } from "./tile-layers";
+import { SuggestedRoute } from "./suggested-route";
+import type { RouteWaypoint } from "./route-album-actions";
+import type { RouteSuggestion } from "@/lib/assistant/routes";
 import {
   ACTIVITY_COLOR,
   ACTIVITY_HAS_OWN_SPOT,
@@ -232,23 +236,43 @@ function PhotoPin({ storageKey, alt }: { storageKey: string; alt: string }) {
   );
 }
 
-type MapTypeChoice = "roadmap" | "terrain" | "hybrid";
+type MapTypeChoice = "roadmap" | "terrain" | "hybrid" | TileLayerId;
 
-const MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
+const GOOGLE_MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
   { id: "roadmap", label: "지도" },
   { id: "terrain", label: "지형" },
   { id: "hybrid", label: "위성" },
 ];
 
 /** Stands in for the stock 지도/위성 switcher. "hybrid" rather than "satellite"
-    so place names stay on the imagery - finding mountains by name is the point. */
-function MapTypeToggle() {
+    so place names stay on the imagery - finding mountains by name is the point.
+    Third-party layers join the same row: once registered with the map's own
+    type registry, switching to one is the same setMapTypeId call as the rest. */
+function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | null) => void }) {
   const map = useMap();
   const [mapType, setMapType] = useState<MapTypeChoice>("roadmap");
+  const layers = useMemo(() => availableTileLayers(), []);
+
+  useEffect(() => {
+    if (!map || layers.length === 0) return;
+    for (const layer of layers) {
+      map.mapTypes.set(
+        layer.id,
+        new google.maps.ImageMapType({
+          name: layer.label,
+          tileSize: new google.maps.Size(256, 256),
+          maxZoom: layer.maxZoom,
+          getTileUrl: (point, zoom) => layer.tileUrl(point, zoom),
+        }),
+      );
+    }
+  }, [map, layers]);
+
+  const choices = [...GOOGLE_MAP_TYPES, ...layers.map(({ id, label }) => ({ id, label }))];
 
   return (
     <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
-      {MAP_TYPES.map(({ id, label }) => (
+      {choices.map(({ id, label }) => (
         <button
           key={id}
           type="button"
@@ -256,6 +280,7 @@ function MapTypeToggle() {
             if (!map) return;
             map.setMapTypeId(id);
             setMapType(id);
+            onLayerChange(layers.find((layer) => layer.id === id) ?? null);
           }}
           className={
             "border-l border-neutral-300 px-3 py-1.5 first:border-l-0 md:px-2.5 md:py-1 " +
@@ -268,6 +293,16 @@ function MapTypeToggle() {
         </button>
       ))}
     </div>
+  );
+}
+
+/** Both providers require their attribution on screen while their tiles are,
+    so this is tied to the active layer rather than left to a footer. */
+function TileAttribution({ layer }: { layer: TileLayer }) {
+  return (
+    <span className="m-2 rounded bg-white/85 px-1.5 py-0.5 text-[10px] text-neutral-600 shadow-sm">
+      {layer.attribution}
+    </span>
   );
 }
 
@@ -311,6 +346,8 @@ export function MapView({
   trailSegments,
   chosenTrailIds,
   onToggleTrail,
+  suggestedRoute,
+  onRouteResolved,
 }: {
   mapId: string;
   locations: MapLocation[];
@@ -327,10 +364,23 @@ export function MapView({
   trailSegments: TrailSegment[] | null;
   chosenTrailIds: number[];
   onToggleTrail: (id: number) => void;
+  suggestedRoute: {
+    route: RouteSuggestion;
+    center: { lat: number; lng: number } | null;
+    placeName: string;
+    resolved: RouteWaypoint[] | null;
+  } | null;
+  onRouteResolved: (points: RouteWaypoint[]) => void;
 }) {
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  // The boolean rather than the zoom level itself: zoom fires continuously
+  // while pinching, and storing the raw number re-rendered every marker on
+  // every tick for a value only this one comparison ever read. Setting state
+  // to the same boolean lets React bail out, so almost all ticks now cost
+  // nothing.
+  const [showLabels, setShowLabels] = useState(DEFAULT_ZOOM <= LABEL_MAX_ZOOM);
   const [openPhotoGroup, setOpenPhotoGroup] = useState<{hikeId:string;key:string}|null>(null);
-  const showLabels = zoom <= LABEL_MAX_ZOOM;
+  // Null while a Google base map is showing; those carry their own attribution.
+  const [tileLayer, setTileLayer] = useState<TileLayer | null>(null);
 
   // Only preview a hover when it isn't already the pinned route, so the two
   // styles never stack on the same line.
@@ -382,7 +432,7 @@ export function MapView({
       disableDefaultUI={false}
       mapTypeControl={false}
       className="h-full w-full"
-      onZoomChanged={(event) => setZoom(event.detail.zoom)}
+      onZoomChanged={(event) => setShowLabels(event.detail.zoom <= LABEL_MAX_ZOOM)}
       onClick={(event) => {
         if (!picking) return;
         const latLng = event.detail.latLng;
@@ -404,18 +454,34 @@ export function MapView({
       {/* Top-left is where the stock switcher sat, and it stays clear of the
           fullscreen (top-right) and 지도 접기 (left-bottom) controls. */}
       <MapControl position={ControlPosition.TOP_LEFT}>
-        <MapTypeToggle />
+        <MapTypeToggle onLayerChange={setTileLayer} />
       </MapControl>
 
       <MapControl position={ControlPosition.RIGHT_BOTTOM}>
         <ActivityLegend />
       </MapControl>
 
+      {tileLayer && (
+        <MapControl position={ControlPosition.BOTTOM_LEFT}>
+          <TileAttribution layer={tileLayer} />
+        </MapControl>
+      )}
+
       <Camera
         locations={locations}
         activeLocationId={activeLocationId}
         selectedHike={selectedHike}
       />
+
+      {suggestedRoute && (
+        <SuggestedRoute
+          route={suggestedRoute.route}
+          center={suggestedRoute.center}
+          placeName={suggestedRoute.placeName}
+          resolved={suggestedRoute.resolved}
+          onResolved={onRouteResolved}
+        />
+      )}
 
       {previewTrack && (
         <Polyline

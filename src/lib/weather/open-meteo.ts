@@ -8,6 +8,7 @@
  * dependency.
  */
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 
 const TIMEOUT_MS = 8_000;
 
@@ -143,12 +144,10 @@ export function parseForecastResponse(payload: unknown): LocationForecast {
  * is asking it to do date arithmetic it is not reliable at, when Date already
  * does this exactly.
  */
-export type Timeframe = "today" | "tomorrow" | "this_weekend" | "next_week" | "unspecified";
+export type Timeframe = "today" | "tomorrow" | "this_weekend" | "this_week" | "next_week" | "unspecified";
 
 export function resolveTimeframe(timeframe: Timeframe, now: Date = new Date()): DateRange {
-  // getDay() reads the system clock's local time; Workers run in UTC, so this
-  // is only correct because the forecast itself is later filtered by its own
-  // Asia/Seoul-labelled dates, not by comparing Date objects across zones.
+  // All ranges use Korean calendar dates, independent of the server timezone.
   const startOfDay = (d: Date) => {
     const copy = new Date(d);
     copy.setUTCHours(0, 0, 0, 0);
@@ -160,7 +159,8 @@ export function resolveTimeframe(timeframe: Timeframe, now: Date = new Date()): 
     return copy;
   };
 
-  const today = startOfDay(now);
+  // Represent the Korean calendar date as UTC midnight for date-only comparisons.
+  const today = startOfDay(new Date(now.getTime() + 9 * 60 * 60 * 1000));
   const dayOfWeek = today.getUTCDay(); // 0 = Sunday
 
   switch (timeframe) {
@@ -173,7 +173,11 @@ export function resolveTimeframe(timeframe: Timeframe, now: Date = new Date()): 
       // in it, not next week's.
       const daysToSaturday = dayOfWeek === 6 ? 0 : dayOfWeek === 0 ? -1 : 6 - dayOfWeek;
       const saturday = addDays(today, daysToSaturday);
-      return { from: saturday, to: addDays(saturday, dayOfWeek === 0 ? 0 : 1) };
+      return { from: dayOfWeek === 0 ? today : saturday, to: addDays(saturday, 1) };
+    }
+    case "this_week": {
+      const monday = addDays(today, -((dayOfWeek + 6) % 7));
+      return { from: monday, to: addDays(monday, 6) };
     }
     case "next_week": {
       // Days from today to *next* week's Monday (Mon-Sun weeks). Converting to
@@ -216,4 +220,93 @@ export function summarizeForecast(days: DailyForecast[]): string {
         `최대풍속 ${Math.round(d.windSpeedMaxKmh)}km/h`,
     )
     .join("\n");
+}
+
+export interface GeocodedPlace {
+  name: string;
+  lat: number;
+  lng: number;
+  /** "경기도 과천시" - shown with the answer so a wrong match is visible
+      rather than silently producing the weather for the wrong mountain. */
+  region: string | null;
+}
+
+interface RawPlace {
+  name?: string;
+  latitude?: number;
+  longitude?: number;
+  feature_code?: string;
+  admin1?: string;
+  admin2?: string;
+}
+
+/**
+ * Picks the place a member most likely meant.
+ *
+ * Names repeat across the country - 청계산 alone returns three mountains, in
+ * 포천, 양평 and 과천 - and the list does not come back in any order that
+ * corresponds to which one a Seoul climbing club means. Two rules sort it out:
+ * prefer mountains over towns sharing the name, then take whichever is nearest
+ * the places the club actually goes to.
+ *
+ * The bias point is the average of our own locations rather than a hardcoded
+ * Seoul: if the club's centre of gravity moves, this follows it.
+ */
+export function chooseGeocodedPlace(
+  payload: unknown,
+  bias: { lat: number; lng: number } | null,
+): GeocodedPlace | null {
+  const results = (payload as { results?: RawPlace[] } | null)?.results;
+  if (!Array.isArray(results) || results.length === 0) return null;
+
+  const usable = results.filter(
+    (r): r is RawPlace & { latitude: number; longitude: number } =>
+      typeof r.latitude === "number" && typeof r.longitude === "number",
+  );
+  if (usable.length === 0) return null;
+
+  // "MT" is Open-Meteo's feature code for a mountain; anything else sharing
+  // the name (a village, a bus stop) is not what a hiking question meant.
+  const mountains = usable.filter((r) => r.feature_code?.startsWith("MT"));
+  const candidates = mountains.length > 0 ? mountains : usable;
+
+  const best = bias
+    ? candidates.reduce((closest, candidate) => {
+        const distance = (r: typeof candidate) =>
+          (r.latitude - bias.lat) ** 2 + (r.longitude - bias.lng) ** 2;
+        return distance(candidate) < distance(closest) ? candidate : closest;
+      })
+    : candidates[0];
+
+  return {
+    name: best.name ?? "",
+    lat: best.latitude,
+    lng: best.longitude,
+    region: [best.admin1, best.admin2].filter(Boolean).join(" ") || null,
+  };
+}
+
+/**
+ * Finds a place the club has no record of, so the weather answer is not
+ * limited to mountains someone already made a folder for.
+ *
+ * Free and keyless, like the forecast endpoint itself. Our own locations are
+ * still checked first: this gazetteer knows mountains, not the club's crags -
+ * 백운대 resolves to a 90m spot in 경주 rather than the 836m one on 북한산,
+ * and 선인봉 is absent entirely, while both have exact coordinates in our
+ * own rows because a member stood there and placed them.
+ */
+export async function geocodePlace(
+  name: string,
+  bias: { lat: number; lng: number } | null,
+): Promise<GeocodedPlace | null> {
+  const url = new URL(GEOCODING_URL);
+  url.searchParams.set("name", name);
+  url.searchParams.set("count", "10");
+  url.searchParams.set("language", "ko");
+  url.searchParams.set("country", "KR");
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  if (!response.ok) return null;
+  return chooseGeocodedPlace(await response.json(), bias);
 }

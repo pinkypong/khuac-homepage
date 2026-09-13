@@ -12,7 +12,7 @@ import {
 import { PhotoLightbox, type LightboxPhoto } from "@/components/photo-lightbox";
 import { CommentThread } from "@/components/comment-thread";
 import type { MapHike, MapLocation } from "./map-shell";
-import { renameActivity, saveHikeTrack } from "./actions";
+import { saveHikeTrack, updateActivity } from "./actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
 import { ACTIVITY_COLOR, ACTIVITY_LABEL } from "./activity";
@@ -50,7 +50,7 @@ export function HikeDetail({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Keyed by hike id so moving to another activity can't carry a stale draft.
-  const [renaming, setRenaming] = useState<{ hikeId: string; title: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ hikeId: string; title: string; date: string } | null>(null);
   const [savingName, setSavingName] = useState(false);
 
   // Tapping a photo pin on the map asks for that picture, so open it here and
@@ -93,12 +93,12 @@ export function HikeDetail({
     if (!renaming) return;
     setSavingName(true);
     try {
-      await renameActivity(hike.id, renaming.title);
+      await updateActivity(hike.id, renaming.title, renaming.date);
       setRenaming(null);
       router.refresh();
     } catch (err) {
       // The input stays open with what was typed so it can be retried.
-      window.alert(err instanceof Error ? err.message : "활동 이름 수정에 실패했습니다.");
+      window.alert(err instanceof Error ? err.message : "활동 정보 수정에 실패했습니다.");
     } finally {
       setSavingName(false);
     }
@@ -171,32 +171,46 @@ export function HikeDetail({
           </button>
         </div>
         {renaming?.hikeId === hike.id ? (
-          <div className="mt-2 flex items-center gap-1.5">
+          <div className="mt-2 flex flex-col gap-1.5">
             <input
               value={renaming.title}
-              onChange={(e) => setRenaming({ hikeId: hike.id, title: e.target.value })}
+              onChange={(e) => setRenaming({ ...renaming, title: e.target.value })}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submitRename();
                 if (e.key === "Escape") setRenaming(null);
               }}
               autoFocus
-              className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
+              aria-label="활동 이름"
+              className="min-w-0 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
             />
-            <button
-              type="button"
-              onClick={submitRename}
-              disabled={savingName}
-              className="shrink-0 rounded bg-neutral-900 px-2.5 py-1.5 text-xs text-white disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
-            >
-              저장
-            </button>
-            <button
-              type="button"
-              onClick={() => setRenaming(null)}
-              className="shrink-0 rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-600 md:px-2 md:py-1 md:text-[11px]"
-            >
-              취소
-            </button>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={renaming.date}
+                onChange={(e) => setRenaming({ ...renaming, date: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitRename();
+                  if (e.key === "Escape") setRenaming(null);
+                }}
+                aria-label="활동 날짜"
+                className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
+              />
+              <button
+                type="button"
+                onClick={submitRename}
+                disabled={savingName}
+                className="shrink-0 rounded bg-neutral-900 px-2.5 py-1.5 text-xs text-white disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
+              >
+                저장
+              </button>
+              <button
+                type="button"
+                onClick={() => setRenaming(null)}
+                className="shrink-0 rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-600 md:px-2 md:py-1 md:text-[11px]"
+              >
+                취소
+              </button>
+            </div>
           </div>
         ) : (
         <div className="mt-2 flex items-center gap-2">
@@ -209,10 +223,10 @@ export function HikeDetail({
           </span>
           <button
             type="button"
-            onClick={() => setRenaming({ hikeId: hike.id, title: hike.title })}
+            onClick={() => setRenaming({ hikeId: hike.id, title: hike.title, date: hike.date })}
             className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 md:py-0.5 md:text-[11px]"
           >
-            이름 수정
+            수정
           </button>
           {isAdmin && (
             <button

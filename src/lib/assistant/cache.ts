@@ -1,0 +1,42 @@
+/**
+ * Keys for the club-wide answer cache.
+ *
+ * Kept free of `server-only` and of any Supabase import so the normalisation
+ * rule itself can be tested directly - it decides whether two members share an
+ * answer, which is the whole point of the cache.
+ */
+
+/** Two weeks. Long enough that a season's worth of asking about the same
+    mountain is answered once; short enough that a closure notice in a stored
+    answer does not outlive the closure by much. */
+export const CACHE_TTL_DAYS = 14;
+
+/**
+ * Collapses the differences that should not cost a second search: spacing,
+ * case, and the trailing punctuation people add when they are being polite to
+ * a machine. Deliberately conservative - "관악산 코스" and "관악산 겨울 코스"
+ * stay separate questions, because they have different answers.
+ */
+export function cacheKey(question: string): string {
+  return question
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[?!.,～~]+$/u, "")
+    .trim();
+}
+
+export function isFresh(createdAt: string, now: Date = new Date()): boolean {
+  const age = now.getTime() - new Date(createdAt).getTime();
+  return Number.isFinite(age) && age >= 0 && age < CACHE_TTL_DAYS * 86_400_000;
+}
+
+/** "3일 전", for the badge on a reused answer. */
+export function ageLabel(createdAt: string, now: Date = new Date()): string {
+  const minutes = Math.floor((now.getTime() - new Date(createdAt).getTime()) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 1) return "방금";
+  if (minutes < 60) return `${minutes}분 전`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  return `${Math.floor(hours / 24)}일 전`;
+}
