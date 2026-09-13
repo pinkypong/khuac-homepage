@@ -250,8 +250,13 @@ const GOOGLE_MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
     type registry, switching to one is the same setMapTypeId call as the rest. */
 function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | null) => void }) {
   const map = useMap();
-  const [mapType, setMapType] = useState<MapTypeChoice>("roadmap");
   const layers = useMemo(() => availableTileLayers(), []);
+  // The trail layer is what this club opens the map for, so it is both the
+  // first button and the one already selected. Google's own roadmap stands in
+  // only when no trail layer is configured.
+  const defaultLayer = layers[0] ?? null;
+  const [mapType, setMapType] = useState<MapTypeChoice>(defaultLayer?.id ?? "roadmap");
+  const appliedDefault = useRef(false);
 
   useEffect(() => {
     if (!map || layers.length === 0) return;
@@ -266,9 +271,18 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
         }),
       );
     }
-  }, [map, layers]);
+    // Applied here rather than as a <Map> prop: setMapTypeId only works once
+    // the type is in the registry above. The ref keeps a later re-run from
+    // yanking the map back after someone has switched away from it.
+    if (defaultLayer && !appliedDefault.current) {
+      appliedDefault.current = true;
+      map.setMapTypeId(defaultLayer.id);
+      onLayerChange(defaultLayer);
+    }
+  }, [map, layers, defaultLayer, onLayerChange]);
 
-  const choices = [...GOOGLE_MAP_TYPES, ...layers.map(({ id, label }) => ({ id, label }))];
+  // Trail layers first: the leftmost button is the one reached for most.
+  const choices = [...layers.map(({ id, label }) => ({ id, label })), ...GOOGLE_MAP_TYPES];
 
   return (
     <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
