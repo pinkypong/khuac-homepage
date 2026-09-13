@@ -21,7 +21,7 @@ import {
   summarizeForecast,
   type DailyForecast,
 } from "@/lib/weather/open-meteo";
-import { generateText, generateGroundedText } from "@/lib/gemini/client";
+import { generateText, generateGroundedText, type GroundedSource } from "@/lib/gemini/client";
 import { ageLabel, cacheKey, isFresh } from "@/lib/assistant/cache";
 
 const MAX_QUESTION_LENGTH = 2000;
@@ -44,7 +44,7 @@ export interface AssistantAnswer {
   routePlaceName?: string | null;
   /** A caveat covering the whole outing, shown above the course cards. */
   summary?: string | null;
-  sources?: string[];
+  sources?: GroundedSource[];
   /** Set when this answer came from the club cache rather than from a fresh
       pair of Gemini calls, so the panel can say how old it is and offer to
       search again. */

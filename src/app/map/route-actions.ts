@@ -5,6 +5,8 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
+import { snapRouteToTrails, type RouteLeg } from "@/lib/routes/snap";
+import { haversineDistanceMeters } from "@/lib/gps/haversine";
 
 /**
  * The mapped paths around an activity, for the member to pick their route from.
@@ -53,4 +55,49 @@ export async function saveTrailRoute(
 
   revalidatePath("/map");
   return { pointCount: track.length };
+}
+
+/**
+ * Pulls a suggested course onto the trails that actually connect its waypoints.
+ *
+ * The assistant names places; geocoding turns those into points; joining the
+ * points with straight lines draws a route over ground nobody walks. This
+ * fetches the mapped paths around the course and routes between the waypoints
+ * along them, so the line follows switchbacks instead of cutting across them.
+ *
+ * Server-side because Overpass asks callers to identify themselves and behave,
+ * and because the raw response is far larger than the legs it produces.
+ */
+export async function snapSuggestedRoute(
+  waypoints: { lat: number; lng: number }[],
+): Promise<RouteLeg[]> {
+  await requireApprovedMember();
+  if (waypoints.length < 2) return [];
+
+  const lats = waypoints.map((w) => w.lat);
+  const lngs = waypoints.map((w) => w.lng);
+  const centre = {
+    lat: (Math.min(...lats) + Math.max(...lats)) / 2,
+    lng: (Math.min(...lngs) + Math.max(...lngs)) / 2,
+  };
+
+  // Enough to cover the whole course plus the paths leading onto it. A course
+  // longer than the cap simply routes the parts that fall inside it and leaves
+  // the rest dashed, which is visible rather than wrong.
+  const spanM = Math.max(
+    ...waypoints.map((w) => haversineDistanceMeters(centre, w)),
+  );
+
+  try {
+    const segments = await fetchTrailsNear(centre.lat, centre.lng, spanM + 800);
+    return snapRouteToTrails(waypoints, segments);
+  } catch {
+    // Overpass is volunteer-run and does go down. A straight dashed line is
+    // the honest fallback; failing the whole answer over it is not.
+    console.error("[route-actions] trail snapping unavailable; falling back to straight legs");
+    return waypoints.slice(1).map((point, i) => ({
+      points: [[waypoints[i].lat, waypoints[i].lng], [point.lat, point.lng]],
+      onTrail: false,
+    }));
+  }
 }

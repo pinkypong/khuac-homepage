@@ -22,8 +22,10 @@ export const CACHE_TTL_DAYS = 14;
  *
  * v2: climbing questions answer with crag routes, not hiking trails; answers
  * open without a preamble; small practice crags are screened out.
+ * v3: citations are per course and carry the site they came from, and answers
+ * offer up to six courses rather than four.
  */
-export const PROMPT_VERSION = "v2";
+export const PROMPT_VERSION = "v3";
 
 /**
  * Collapses the differences that should not cost a second search: spacing,

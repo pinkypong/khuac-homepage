@@ -110,6 +110,7 @@ function RichText({ source }: { source: string }) {
   );
 }
 
+
 export function AssistantPanel({
   onPreviewRoute,
   onCreateAlbum,
@@ -166,6 +167,10 @@ export function AssistantPanel({
   }
 
   const hasRoutes = (answer?.routes?.length ?? 0) > 0;
+  // Cards carry their own citations now, so the row below the answer is only
+  // for the leftovers - and a long tail of them is noise, not evidence.
+  const citedUrls = new Set((answer?.routes ?? []).flatMap((route) => route.sourceUrls.map((s) => s.url)));
+  const otherSources = (answer?.sources ?? []).filter((source) => !citedUrls.has(source.url)).slice(0, 3);
   const place = {
     name: answer?.routePlaceName ?? null,
     center: answer?.place ? { lat: answer.place.lat, lng: answer.place.lng } : null,
@@ -269,11 +274,18 @@ export function AssistantPanel({
             </div>
           )}
 
-          {answer.sources && answer.sources.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {answer.sources.map((url, i) => (
-                <a key={url} href={url} target="_blank" rel="noreferrer" className="text-xs underline">
-                  출처 {i + 1}
+          {otherSources.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {hasRoutes && <span className="text-[10px] text-neutral-400">그 밖의 출처</span>}
+              {otherSources.map((source) => (
+                <a
+                  key={source.url}
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-neutral-500 underline underline-offset-2 hover:text-neutral-700"
+                >
+                  {source.label}
                 </a>
               ))}
             </div>
@@ -329,6 +341,22 @@ export function AssistantPanel({
                         </span>
                       )}
                     </button>
+
+                    {route.sourceUrls.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 pb-2">
+                        {route.sourceUrls.slice(0, 2).map((source) => (
+                          <a
+                            key={source.url}
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-neutral-400 underline underline-offset-2 hover:text-neutral-600"
+                          >
+                            {source.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
 
                     {active && onCreateAlbum && (
                       <div className="border-t border-[#e8d9dc] px-2.5 py-2">

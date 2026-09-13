@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AdvancedMarker, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
+import { snapSuggestedRoute } from "./route-actions";
+import type { RouteLeg } from "@/lib/routes/snap";
 
 // Distinct from every activity colour and from the red a selected activity's
 // own route uses, so a suggestion is never mistaken for a walked track.
@@ -46,8 +48,12 @@ function thin(waypoints: string[]): string[] {
  * it has no answer for. Places is the service the location search box already
  * uses, so it is known to work on this key, and it is built for named places.
  *
- * The result is still a sketch: points joined by straight lines, drawn dashed
- * so it never reads as a surveyed path, and never written to hikes.track.
+ * The line between them is then pulled onto the real trails: the waypoints go
+ * to OpenStreetMap, which knows where the paths are, and the route is walked
+ * along them. A leg that finds no trail stays a straight join and is drawn
+ * dashed, so what is surveyed and what is guessed are told apart on sight.
+ * None of it is written to hikes.track, which stays for a real GPX or a
+ * member's own tap-picked route.
  */
 export function SuggestedRoute({
   route,
@@ -71,6 +77,7 @@ export function SuggestedRoute({
   const centerLng = center?.lng;
   const routeName = route.name;
   const waypoints = route.waypoints;
+  const [legs, setLegs] = useState<RouteLeg[] | null>(null);
 
   useEffect(() => {
     if (!places || waypoints.length === 0) return;
@@ -118,6 +125,17 @@ export function SuggestedRoute({
       const bounds = new google.maps.LatLngBounds();
       for (const point of found) bounds.extend(point);
       map.fitBounds(bounds, 64);
+
+      // Straight lines between the waypoints go up first so the course is on
+      // screen immediately; the trail-following version replaces them when
+      // Overpass answers, which takes a few seconds.
+      snapSuggestedRoute(found.map(({ lat, lng }) => ({ lat, lng })))
+        .then((snapped) => {
+          if (!cancelled) setLegs(snapped);
+        })
+        .catch((error) => {
+          console.error("[map/suggested-route] snapping failed", error);
+        });
     });
 
     return () => {
@@ -130,23 +148,44 @@ export function SuggestedRoute({
 
   if (!resolved || resolved.length === 0) return null;
 
+  // Before the trails come back there is one straight leg per gap; afterwards
+  // each leg knows whether it follows a mapped path.
+  const drawn: RouteLeg[] =
+    legs ??
+    resolved.slice(1).map((point, i) => ({
+      points: [
+        [resolved[i].lat, resolved[i].lng],
+        [point.lat, point.lng],
+      ],
+      onTrail: false,
+    }));
+
   return (
     <>
-      {resolved.length >= 2 && (
+      {drawn.map((leg, i) => (
         <Polyline
-          path={resolved}
+          key={`leg-${i}-${leg.onTrail}`}
+          path={leg.points.map(([lat, lng]) => ({ lat, lng }))}
           strokeColor={SUGGESTION_COLOR}
-          strokeOpacity={0}
-          strokeWeight={3}
-          icons={[
-            {
-              icon: { path: "M 0,-1 0,1", strokeOpacity: 0.9, strokeWeight: 3, scale: 1 },
-              offset: "0",
-              repeat: "10px",
-            },
-          ]}
+          // Solid means this really is the mapped trail. Dashed means we could
+          // not find one and the line is a straight join - the distinction is
+          // the whole point, so it is carried by the line itself rather than
+          // by a note somewhere off to the side.
+          strokeOpacity={leg.onTrail ? 0.9 : 0}
+          strokeWeight={leg.onTrail ? 4 : 3}
+          icons={
+            leg.onTrail
+              ? undefined
+              : [
+                  {
+                    icon: { path: "M 0,-1 0,1", strokeOpacity: 0.9, strokeWeight: 3, scale: 1 },
+                    offset: "0",
+                    repeat: "10px",
+                  },
+                ]
+          }
         />
-      )}
+      ))}
       {resolved.map((point, i) => (
         <AdvancedMarker key={`${point.name}-${i}`} position={point} title={point.name} zIndex={20}>
           <span

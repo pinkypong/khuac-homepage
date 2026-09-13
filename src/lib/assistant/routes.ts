@@ -1,6 +1,6 @@
 import { CLIMBING_GUIDANCE, CRAG_SCREENING, EQUIPMENT_GUIDANCE, REGION_GUIDANCE, STYLE_GUIDANCE } from "./answer-guidance";
 import "server-only";
-import { generateGroundedText, generateStructured } from "@/lib/gemini/client";
+import { generateGroundedText, generateStructured, type GroundedSource } from "@/lib/gemini/client";
 
 export interface RouteSuggestion {
   name: string;
@@ -13,7 +13,7 @@ export interface RouteSuggestion {
       what the cards already said; it belongs on the card it describes. */
   description: string | null;
   notes: string | null;
-  sourceUrls: string[];
+  sourceUrls: GroundedSource[];
 }
 
 const ROUTE_SCHEMA = {
@@ -39,6 +39,10 @@ const ROUTE_SCHEMA = {
         difficulty: { type: "string", nullable: true },
         description: { type: "string", nullable: true },
         notes: { type: "string", nullable: true },
+        // Which of the numbered grounding sources actually back this course.
+        // The whole list used to be pinned to every card, which told a reader
+        // nothing about where any one course came from.
+        sourceIndexes: { type: "array", items: { type: "integer" } },
       },
       required: ["name", "waypoints"],
     } },
@@ -60,8 +64,20 @@ export function normalizePlaceName(value: unknown): string | null {
   return asText((value as { placeName: unknown }).placeName);
 }
 
+// Sources are numbered from 1 in the prompt, and an index the model invented
+// points at nothing - it is dropped rather than quietly shifted onto some
+// other URL, so a card cites what it was actually read from or nothing at all.
+function pickSources(raw: unknown, sources: GroundedSource[]): GroundedSource[] {
+  if (!Array.isArray(raw)) return [];
+  const picked = raw.flatMap((n) => {
+    const i = typeof n === "number" ? n : Number(n);
+    return Number.isInteger(i) && i >= 1 && i <= sources.length ? [sources[i - 1]] : [];
+  });
+  return [...new Set(picked)].slice(0, 2);
+}
+
 // Structured output enforces syntax, but model values still need validation.
-export function normalizeRoutes(value: unknown, sources: string[]): RouteSuggestion[] {
+export function normalizeRoutes(value: unknown, sources: GroundedSource[]): RouteSuggestion[] {
   if (!value || typeof value !== "object" || !("routes" in value) || !Array.isArray(value.routes)) return [];
   const text = asText;
   return value.routes.flatMap((r: unknown): RouteSuggestion[] => {
@@ -70,7 +86,7 @@ export function normalizeRoutes(value: unknown, sources: string[]): RouteSuggest
     const name = text(row.name);
     if (!name) return [];
     const waypoints = Array.isArray(row.waypoints) ? row.waypoints.flatMap((p) => text(p) ? [text(p)!] : []).slice(0, 12) : [];
-    return [{ name, waypoints, distanceText: text(row.distanceText), durationText: text(row.durationText), difficulty: text(row.difficulty), description: text(row.description), notes: text(row.notes), sourceUrls: sources }];
+    return [{ name, waypoints, distanceText: text(row.distanceText), durationText: text(row.durationText), difficulty: text(row.difficulty), description: text(row.description), notes: text(row.notes), sourceUrls: pickSources(row.sourceIndexes, sources) }];
     // Six rather than four: 도봉산 came back without Y계곡 because the cap cut
   // the list before its best-known scramble, and a member comparing options
   // is better served by one extra card than by a shorter list.
@@ -113,9 +129,17 @@ export async function suggestRoutes(
     "동아리 기록이 없어도 검색 결과를 활용하세요. 최신 통제 정보와 출처도 안내하세요.",
   ].filter(Boolean).join("\n"));
 
+  // Numbered so the extraction call can cite one source per course instead
+  // of being handed the whole list for every one of them.
+  const sourceList = grounded.sources.map((source, i) => `${i + 1}. ${source.label} (${source.url})`).join(String.fromCharCode(10));
+
   try {
     const extracted = await generateStructured<unknown>(
-      `아래 검색 답변에 실제로 나온 코스만 구조화하세요. placeName에는 코스들이 속한 산 이름만, summary에는 코스 전체에 해당하는 주의사항이 있을 때만 한두 문장으로 적으세요. description에는 각 코스의 특징 설명을 그대로 옮기세요. 없는 값은 null, 없는 경유지는 []로 두세요. 추가 검색이나 추측은 하지 마세요.\n\n${grounded.text}`,
+      [
+        `아래 검색 답변에 실제로 나온 코스만 구조화하세요. placeName에는 코스들이 속한 산 이름만, summary에는 코스 전체에 해당하는 주의사항이 있을 때만 한두 문장으로 적으세요. description에는 각 코스의 특징 설명을 그대로 옮기세요. 없는 값은 null, 없는 경유지는 []로 두세요. 추가 검색이나 추측은 하지 마세요.`,
+        sourceList ? `출처 목록:\n${sourceList}\n\n각 코스의 sourceIndexes에는 그 코스를 실제로 뒷받침하는 출처 번호만 최대 2개 고르세요. 어느 출처에서 온 내용인지 확실하지 않으면 추측하지 말고 빈 배열로 두세요.` : null,
+        `검색 답변:\n${grounded.text}`,
+      ].filter(Boolean).join("\n\n"),
       ROUTE_SCHEMA,
     );
     return {

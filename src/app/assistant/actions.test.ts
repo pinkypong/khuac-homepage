@@ -22,10 +22,10 @@ beforeEach(() => {
   query.maybeSingle.mockResolvedValue({ data: null });
   query.upsert.mockResolvedValue({ error: null });
   vi.mocked(requireApprovedMember).mockResolvedValue({ supabase: { from: vi.fn(() => query) }, memberId: "m1", isAdmin: false } as unknown as Awaited<ReturnType<typeof requireApprovedMember>>);
-  vi.mocked(suggestRoutes).mockResolvedValue({ text: "검색 결과", sources: ["https://example.com"], routes: [], placeName: "관악산", summary: null });
+  vi.mocked(suggestRoutes).mockResolvedValue({ text: "검색 결과", sources: [{ url: "https://example.com", label: "example.com" }], routes: [], placeName: "관악산", summary: null });
 });
 it.each(["관악산 등산 루트", "관악산 등산 루트 추천해줘"])("searches routes even without a club record: %s", async (question) => {
-  expect(await askAssistant(question)).toMatchObject({ text: "검색 결과", place: null, sources: ["https://example.com"] });
+  expect(await askAssistant(question)).toMatchObject({ text: "검색 결과", place: null, sources: [{ url: "https://example.com", label: "example.com" }] });
   expect(suggestRoutes).toHaveBeenCalledWith(null, question, null, false);
 });
 it("does not silently truncate detailed questions at 200 characters", async () => {
@@ -39,14 +39,14 @@ it("rejects oversized input explicitly", async () => {
 });
 
 it("answers a venue question with one grounded search", async () => {
- vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: ["https://example.com/facility"] });
+ vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: [{ url: "https://example.com/facility", label: "example.com" }] });
  expect(await askAssistant("경희대 근처 인공암벽 추천")).toMatchObject({ text: "확인된 시설" });
  expect(generateGroundedText).toHaveBeenCalledTimes(1);
 });
 // A crag can be real, nearby and still not worth the trip; the club's own
 // album is the only source that already knows which ones were.
 it("puts places the club has visited in front of the model", async () => {
- vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: ["https://example.com/facility"] });
+ vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: [{ url: "https://example.com/facility", label: "example.com" }] });
  await askAssistant("경희대 근처 암벽장 추천");
  const { supabase } = await requireApprovedMember();
  expect(supabase.from).toHaveBeenCalledWith("locations");
@@ -54,7 +54,7 @@ it("puts places the club has visited in front of the model", async () => {
 // A venue answer costs a grounded search, so re-opening it from the recent
 // list has to come out of the cache - it used to re-run the search every time.
 it("caches a venue answer so reopening it is free", async () => {
- vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: ["https://example.com/facility"] });
+ vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: [{ url: "https://example.com/facility", label: "example.com" }] });
  await askAssistant("경희대 근처 인공암벽 추천");
  const { supabase } = await requireApprovedMember();
  expect(supabase.from).toHaveBeenCalledWith("assistant_cache");

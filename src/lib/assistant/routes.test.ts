@@ -5,9 +5,9 @@ import { generateGroundedText, generateStructured } from "@/lib/gemini/client";
 import { normalizeRoutes, suggestRoutes } from "./routes";
 beforeEach(() => vi.resetAllMocks());
 it("preserves the grounded answer and sources when formatting fails", async () => {
-  vi.mocked(generateGroundedText).mockResolvedValue({ text: "관악산 코스 비교", sources: ["https://example.com"] });
+  vi.mocked(generateGroundedText).mockResolvedValue({ text: "관악산 코스 비교", sources: [{ url: "https://example.com", label: "example.com" }] });
   vi.mocked(generateStructured).mockRejectedValue(new Error("invalid JSON"));
-  expect(await suggestRoutes(null, "관악산 등산 루트 추천해줘", null)).toEqual({ text: "관악산 코스 비교", sources: ["https://example.com"], routes: [], placeName: null, summary: null });
+  expect(await suggestRoutes(null, "관악산 등산 루트 추천해줘", null)).toEqual({ text: "관악산 코스 비교", sources: [{ url: "https://example.com", label: "example.com" }], routes: [], placeName: null, summary: null });
 });
 it("handles malformed and missing optional fields without crashing", () => {
   expect(normalizeRoutes(null, [])).toEqual([]);

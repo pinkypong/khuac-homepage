@@ -10,7 +10,7 @@ interface GeminiResponse {
   candidates?: {
     finishReason?: string;
     content?: { parts?: { text?: string; thought?: boolean }[] };
-    groundingMetadata?: { groundingChunks?: { web?: { uri?: string } }[] };
+    groundingMetadata?: { groundingChunks?: { web?: { uri?: string; title?: string; domain?: string } }[] };
   }[];
   promptFeedback?: { blockReason?: string };
   error?: { status?: string; message?: string; code?: number };
@@ -100,12 +100,25 @@ function thinkingConfig(extraction = false) {
   return { thinkingConfig: { thinkingLevel: extraction && supportsMinimal ? "minimal" : "low" } };
 }
 
-export interface GroundedResult { text: string; sources: string[] }
+/** A grounding citation. The uri is a Google redirect, so the label carries
+    the site the reader is actually being sent to. */
+export interface GroundedSource { url: string; label: string }
+
+export interface GroundedResult { text: string; sources: GroundedSource[] }
 
 export async function generateGroundedText(prompt: string): Promise<GroundedResult> {
   const response = await callGemini({ contents: [{ role: "user", parts: [{ text: prompt }] }], tools: [{ google_search: {} }], generationConfig: thinkingConfig() });
   const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [];
-  const sources = [...new Set(chunks.map((c) => c.web?.uri).filter((uri): uri is string => !!uri && /^https?:\/\//i.test(uri)))];
+  // Every uri is a vertexaisearch.cloud.google.com redirect, so the domain
+  // beside it is the only part that tells a reader where a claim came from.
+  const seen = new Set<string>();
+  const sources: GroundedSource[] = [];
+  for (const chunk of chunks) {
+    const url = chunk.web?.uri;
+    if (!url || !/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    sources.push({ url, label: chunk.web?.domain || chunk.web?.title || "출처" });
+  }
   return { text: extractText(response), sources };
 }
 

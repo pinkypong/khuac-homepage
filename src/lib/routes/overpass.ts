@@ -2,7 +2,14 @@ import "server-only";
 import { downsampleTrack } from "../gps/track";
 import { parseOverpassWays, segmentLengthMeters, type TrailSegment } from "./trails";
 
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+// Overpass is volunteer-run and the main instance does fall over - it answered
+// 504 for every request while this was being built. The mirrors run the same
+// API over the same data, so trying the next one costs nothing but a retry.
+const OVERPASS_URLS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
 
 // A mountain's worth of trails without dragging in a neighbouring one.
 export const MAX_TRAIL_RADIUS_M = 3000;
@@ -19,6 +26,38 @@ const MIN_USEFUL_LENGTH_M = 40;
 // Enough shape to follow a ridge, few enough points that a hundred of them can
 // be drawn at once. hikes.track is downsampled again when it is saved.
 const MAX_POINTS_PER_SEGMENT = 120;
+
+/**
+ * The first mirror that answers with usable JSON.
+ *
+ * An overloaded instance replies 504 with an HTML error page, so a 200 is not
+ * enough on its own - the body has to parse. Each mirror gets its own timeout
+ * rather than sharing one deadline, since the point is to outlast a single
+ * slow server, not to give up sooner.
+ */
+async function fetchFromAnyMirror(query: string): Promise<unknown> {
+  let lastStatus = 0;
+  for (const url of OVERPASS_URLS) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        body: query,
+        headers: {
+          "content-type": "text/plain;charset=UTF-8",
+          // Overpass asks for a contactable identity on automated traffic.
+          "user-agent": "khuac.com hiking album (contact: https://khuac.com)",
+        },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      lastStatus = response.status;
+      if (!response.ok) continue;
+      return await response.json();
+    } catch {
+      // Timed out, refused, or answered with an HTML error page. Next mirror.
+    }
+  }
+  throw new Error(`등산로 정보를 불러오지 못했습니다 (${lastStatus || "응답 없음"})`);
+}
 
 function buildQuery(lat: number, lng: number, radiusM: number) {
   // steps included on purpose: Korean trails are full of stairways, and a route
@@ -42,22 +81,9 @@ export async function fetchTrailsNear(
 ): Promise<TrailSegment[]> {
   const radius = Math.min(Math.max(Math.round(radiusM), 200), MAX_TRAIL_RADIUS_M);
 
-  const response = await fetch(OVERPASS_URL, {
-    method: "POST",
-    body: buildQuery(lat, lng, radius),
-    headers: {
-      "content-type": "text/plain;charset=UTF-8",
-      // Overpass asks for a contactable identity on automated traffic.
-      "user-agent": "khuac.com hiking album (contact: https://khuac.com)",
-    },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  const payload = await fetchFromAnyMirror(buildQuery(lat, lng, radius));
 
-  if (!response.ok) {
-    throw new Error(`등산로 정보를 불러오지 못했습니다 (${response.status})`);
-  }
-
-  return parseOverpassWays(await response.json())
+  return parseOverpassWays(payload)
     .filter((segment) => segmentLengthMeters(segment) >= MIN_USEFUL_LENGTH_M)
     .map((segment) => ({
       ...segment,
