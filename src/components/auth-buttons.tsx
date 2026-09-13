@@ -392,34 +392,17 @@ export function AuthButtons() {
         </button>
       </form>
 
-      <div className="flex flex-col gap-1.5 text-xs text-neutral-500">
-        {!isSignup && (
-          <button
-            type="button"
-            onClick={sendReset}
-            disabled={pending || cooling}
-            className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50"
-          >
+      {!isSignup && (
+        <div className="flex flex-col gap-1.5 text-xs text-neutral-500">
+          <button type="button" onClick={sendReset} disabled={pending || cooling} className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50">
             비밀번호 설정 · 재설정
           </button>
-        )}
-        <button
-          type="button"
-          onClick={sendMagicLink}
-          disabled={pending || cooling}
-          className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50"
-        >
-          비밀번호 없이 메일로 로그인 링크 받기
-        </button>
-        {/* The wait is the same for every address, so one line covers both
-            buttons. Saying how long turns a dead button into an explained one -
-            without it the only feedback is nothing happening. */}
-        {cooling && (
-          <p aria-live="polite" className="text-neutral-400">
-            {secondsLeft}초 후 다시 보낼 수 있습니다.
-          </p>
-        )}
-      </div>
+          <button type="button" onClick={sendMagicLink} disabled={pending || cooling} className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50">
+            비밀번호 없이 메일로 로그인 링크 받기
+          </button>
+          {cooling && <p aria-live="polite" className="text-neutral-400">{secondsLeft}초 후 다시 보낼 수 있습니다.</p>}
+        </div>
+      )}
 
       {notice && <p className="text-sm text-neutral-600">{notice}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
