@@ -1,4 +1,4 @@
-import { EQUIPMENT_GUIDANCE, REGION_GUIDANCE } from "./answer-guidance";
+import { CLIMBING_GUIDANCE, CRAG_SCREENING, EQUIPMENT_GUIDANCE, REGION_GUIDANCE, STYLE_GUIDANCE } from "./answer-guidance";
 import "server-only";
 import { generateGroundedText, generateStructured } from "@/lib/gemini/client";
 
@@ -74,15 +74,30 @@ export function normalizeRoutes(value: unknown, sources: string[]): RouteSuggest
   }).slice(0, 4);
 }
 
-export async function suggestRoutes(placeName: string | null, question: string, clubContext: string | null) {
+export async function suggestRoutes(
+  placeName: string | null,
+  question: string,
+  clubContext: string | null,
+  climbing = false,
+) {
   const grounded = await generateGroundedText([
     EQUIPMENT_GUIDANCE,
     REGION_GUIDANCE,
-    "산행 도우미로서 질문에 맞는 실제 등산/등반 코스를 웹에서 검색해 비교해주세요.",
+    STYLE_GUIDANCE,
+    climbing ? CLIMBING_GUIDANCE : null,
+    climbing ? CRAG_SCREENING : null,
+    climbing
+      // Asking for "등산/등반 코스" got four hiking trails for 불암산 등반루트:
+      // the crag was never searched for, because the word covering both let
+      // the model answer the easier question.
+      ? "암벽등반 루트를 웹에서 검색해 안내해주세요. 정상까지 걸어 오르는 등산로는 답이 아닙니다. 그 산·바위에 실제로 개척된 암벽 루트를 찾으세요."
+      : "산행 도우미로서 질문에 맞는 실제 등산 코스를 웹에서 검색해 비교해주세요.",
     placeName ? `대상 장소: ${placeName}` : "질문에 언급된 산이나 지역을 기준으로 검색하세요. 장소와 지역이 모두 불분명하면 서울·수도권을 기준으로 답하세요.",
     clubContext ? `참고 자료: ${clubContext}` : null,
     `질문: ${question}`,
-    "서로 다른 코스 2~4개를 소개하고, 각 코스마다 이름, 경유지(들머리→정상 순서), 총 거리, 예상 소요시간(편도/왕복 구분), 난이도, 특징 2~3문장을 한국어로 쓰세요.",
+    climbing
+      ? "서로 다른 루트 2~4개를 소개하고, 각 루트마다 이름, 어프로치 경유지(들머리→바위 아래 순서), 등급, 피치 수와 길이, 확보물, 특징 2~3문장을 한국어로 쓰세요."
+      : "서로 다른 코스 2~4개를 소개하고, 각 코스마다 이름, 경유지(들머리→정상 순서), 총 거리, 예상 소요시간(편도/왕복 구분), 난이도, 특징 2~3문장을 한국어로 쓰세요.",
     // Telling the model only to avoid guessing left it with nothing to report:
     // it marked every distance 미확인 without ever looking one up. These
     // figures are published on hiking sites, so searching for them is the
@@ -91,7 +106,6 @@ export async function suggestRoutes(placeName: string | null, question: string, 
     // Every waypoint is looked up by name on the map, so a nickname or a
     // slash-joined pair resolves to nothing and leaves a gap in the line.
     "경유지는 지도에서 찾을 수 있는 실제 지명만 쓰세요. '계곡길/능선길'처럼 둘을 붙여 쓴 이름은 피하고, 역·사찰·봉우리처럼 지점이 하나로 정해지는 이름을 고르세요.",
-    "등반(암장) 질문이면 경유지에 접근로(어프로치)를 순서대로 포함하세요.",
     "동아리 기록이 없어도 검색 결과를 활용하세요. 최신 통제 정보와 출처도 안내하세요.",
   ].filter(Boolean).join("\n"));
 

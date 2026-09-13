@@ -26,24 +26,42 @@ beforeEach(() => {
 });
 it.each(["관악산 등산 루트", "관악산 등산 루트 추천해줘"])("searches routes even without a club record: %s", async (question) => {
   expect(await askAssistant(question)).toMatchObject({ text: "검색 결과", place: null, sources: ["https://example.com"] });
-  expect(suggestRoutes).toHaveBeenCalledWith(null, question, null);
+  expect(suggestRoutes).toHaveBeenCalledWith(null, question, null, false);
 });
 it("does not silently truncate detailed questions at 200 characters", async () => {
   const question = "관악산 등산 루트 " + "상세 조건 ".repeat(40) + "추천해줘";
   await askAssistant(question);
-  expect(suggestRoutes).toHaveBeenCalledWith(null, question, null);
+  expect(suggestRoutes).toHaveBeenCalledWith(null, question, null, false);
 });
 it("rejects oversized input explicitly", async () => {
   await expect(askAssistant("가".repeat(2001))).rejects.toThrow("2,000자");
   expect(suggestRoutes).not.toHaveBeenCalled();
 });
 
-it("skips club records and cache for grounded venue answers", async () => {
+it("answers a venue question with one grounded search", async () => {
  vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: ["https://example.com/facility"] });
  expect(await askAssistant("경희대 근처 인공암벽 추천")).toMatchObject({ text: "확인된 시설" });
- const { supabase } = await requireApprovedMember();
- expect(supabase.from).not.toHaveBeenCalled();
  expect(generateGroundedText).toHaveBeenCalledTimes(1);
+});
+// A crag can be real, nearby and still not worth the trip; the club's own
+// album is the only source that already knows which ones were.
+it("puts places the club has visited in front of the model", async () => {
+ vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: ["https://example.com/facility"] });
+ await askAssistant("경희대 근처 암벽장 추천");
+ const { supabase } = await requireApprovedMember();
+ expect(supabase.from).toHaveBeenCalledWith("locations");
+});
+// A venue answer costs a grounded search, so re-opening it from the recent
+// list has to come out of the cache - it used to re-run the search every time.
+it("caches a venue answer so reopening it is free", async () => {
+ vi.mocked(generateGroundedText).mockResolvedValue({ text: "확인된 시설", sources: ["https://example.com/facility"] });
+ await askAssistant("경희대 근처 인공암벽 추천");
+ const { supabase } = await requireApprovedMember();
+ expect(supabase.from).toHaveBeenCalledWith("assistant_cache");
+});
+it("tells a climbing question apart from a hiking one", async () => {
+ await askAssistant("불암산 등반루트");
+ expect(suggestRoutes).toHaveBeenCalledWith(null, "불암산 등반루트", null, true);
 });
 it("rejects venue answers with no search sources", async () => {
  vi.mocked(generateGroundedText).mockResolvedValue({ text: "더클라임 종로점", sources: [] });

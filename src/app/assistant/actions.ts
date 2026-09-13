@@ -1,10 +1,11 @@
 "use server";
 
-import { EQUIPMENT_GUIDANCE, REGION_GUIDANCE } from "@/lib/assistant/answer-guidance";
+import { CLIMBING_GUIDANCE, CRAG_SCREENING, EQUIPMENT_GUIDANCE, REGION_GUIDANCE, STYLE_GUIDANCE } from "@/lib/assistant/answer-guidance";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import {
   classifyQuery,
   extractTimeframe,
+  isClimbingQuestion,
   isRouteQuestion,
   weatherSubject,
   type QueryIntent,
@@ -108,7 +109,7 @@ export async function askAssistant(question: string, refresh = false): Promise<A
   const venueQuestion = /인공암벽|암벽장|클라이밍장|실내.{0,4}(암벽|등반|클라이밍)|더클라임/.test(trimmed);
   const directQuestion = !clubQuestion && (venueQuestion || (intent === "complex" && !isRouteQuestion(trimmed)));
   const key = cacheKey(trimmed);
-  if (!refresh && intent === "complex" && !directQuestion) {
+  if (!refresh && intent === "complex") {
     const { data: hit } = await supabase
       .from("assistant_cache")
       .select("answer, created_at")
@@ -119,16 +120,30 @@ export async function askAssistant(question: string, refresh = false): Promise<A
   }
 
   if (directQuestion) {
-    const prompt = [EQUIPMENT_GUIDANCE, REGION_GUIDANCE, "한국어로 질문에 직접 답하세요. 불필요한 배경 설명 없이 요청한 내용에 집중하세요.", `질문: ${trimmed}`].join("\n");
+    const climbing = isClimbingQuestion(trimmed);
+    const prompt = [EQUIPMENT_GUIDANCE, REGION_GUIDANCE, STYLE_GUIDANCE, climbing ? CLIMBING_GUIDANCE : null, climbing ? CRAG_SCREENING : null, "한국어로 질문에 직접 답하세요. 불필요한 배경 설명 없이 요청한 내용에 집중하세요.", `질문: ${trimmed}`].filter(Boolean).join("\n");
     if (venueQuestion || /추천|근처|주변|영업|가격/.test(trimmed)) {
+      const visited = await visitedPlaces(supabase);
       const result = await generateGroundedText([prompt,
+        // The club's own album is the one source here that knows whether a
+        // place was worth going to. A crag can be real, close and still be a
+        // 7m practice rock; somewhere the club has actually been has already
+        // passed that judgment, so it leads rather than competing on equal
+        // footing with whatever the search turns up.
+        visited.length > 0
+          ? `동아리가 실제로 다녀온 곳(우선 추천 대상): ${visited.join(", ")}
+질문 조건에 맞는 곳이 이 목록에 있으면 먼저 추천하고 '동아리 방문 기록 있음'이라고 밝히세요. 목록에 없다는 이유로 다른 곳을 배제하지는 마세요.`
+          : null,
         "실제 장소는 반드시 검색으로 확인하세요. 공식 운영자/시설 안내의 정확한 지점명과 주소를 우선 확인하고, 확인되지 않은 장소나 지점명을 만들지 마세요.",
         "각 추천의 근거 출처를 명시하세요. 확인할 수 없는 운영시간, 가격, 거리는 추측하지 마세요. 검색 근거가 없으면 확인하지 못했다고 답하세요.",
         "번호는 1, 2, 3 순서로 작성하세요. 질문에 직접 간결하게 답하세요.",
       ].join("\n"));
-      return { intent: "complex", place: null, text: result.sources.length ? result.text : "검색 출처를 확보하지 못해 실제 운영 중인 장소를 확인할 수 없습니다. 잠시 후 다시 시도하거나 지역을 더 좁혀 질문해주세요.", sources: result.sources };
+      const answer: AssistantAnswer = { intent: "complex", place: null, text: result.sources.length ? result.text : "검색 출처를 확보하지 못해 실제 운영 중인 장소를 확인할 수 없습니다. 잠시 후 다시 시도하거나 지역을 더 좁혀 질문해주세요.", sources: result.sources };
+      // Stored like any other paid answer: without this, re-opening it from
+      // the recent list paid for the same search all over again.
+      return result.sources.length ? store(supabase, key, trimmed, memberId, answer) : answer;
     }
-    return { intent, text: await generateText(prompt), place: null };
+    return store(supabase, key, trimmed, memberId, { intent, text: await generateText(prompt), place: null });
   }
 
   const [{ data: locationRows }, { data: hikeRows }] = await Promise.all([
@@ -229,7 +244,7 @@ export async function askAssistant(question: string, refresh = false): Promise<A
   // there was the wrong instinct: not having gone somewhere is not a reason to
   // withhold what is knowable about it.
   if (isRouteQuestion(trimmed)) {
-    const result = await suggestRoutes(placeSummary?.name ?? null, trimmed, [clubHistory, weatherContext].filter(Boolean).join("\n") || null);
+    const result = await suggestRoutes(placeSummary?.name ?? null, trimmed, [clubHistory, weatherContext].filter(Boolean).join("\n") || null, isClimbingQuestion(trimmed));
     return store(supabase, key, trimmed, memberId, {
       intent,
       text: result.text,
@@ -259,6 +274,24 @@ function averagePoint(rows: LocationRow[]): { lat: number; lng: number } | null 
 }
 
 type Client = Awaited<ReturnType<typeof requireApprovedMember>>["supabase"];
+
+/**
+ * Names of places the club has been to, newest first.
+ *
+ * Deliberately just the names: this is fed to the model as a preference, not
+ * as data to repeat, and a longer payload would only invite it to quote rows
+ * back as if they were search results.
+ */
+async function visitedPlaces(supabase: Client): Promise<string[]> {
+  const { data } = await supabase
+    .from("locations")
+    .select("name, created_at")
+    .order("created_at", { ascending: false })
+    .limit(40);
+  return ((data ?? []) as unknown as { name: string }[])
+    .map((row) => row.name)
+    .filter((name) => !!name);
+}
 
 /**
  * Files a freshly generated answer for the rest of the club, then hands it
@@ -291,6 +324,7 @@ function buildAssistantPrompt(question: string, context: string[]): string {
     "확실하지 않은 사실을 단정하지 마세요.",
     EQUIPMENT_GUIDANCE,
     REGION_GUIDANCE,
+    STYLE_GUIDANCE,
     "한국어로 질문의 각 조건에 충분히 답하세요. 비교는 목록을 활용하고, 불필요한 반복은 피하세요.",
     "",
     context.length > 0 ? context.join("\n\n") : "(동아리 기록 없음)",

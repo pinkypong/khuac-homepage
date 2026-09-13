@@ -114,6 +114,20 @@ export function weatherSubject(query: string): string | null {
   return subject.length >= 2 ? subject : null;
 }
 
+// In a climbing club "등반" means rock, not walking uphill - a member asking
+// for 불암산 등반루트 wants the crag's routes, and answering with the four
+// hiking trails to the summit is answering a different question. "등산",
+// "산행" and "트레킹" stay on the hiking side.
+const CLIMBING_WORDS = [
+  "등반", "암벽", "릿지", "리지", "슬랩", "크랙", "멀티피치", "볼더링",
+  "암장", "빙벽", "퀵드로우", "확보물", "클라이밍", "개념도", "토포",
+];
+
+/** Whether the question is about climbing rather than hiking. */
+export function isClimbingQuestion(query: string): boolean {
+  return containsAny(query, CLIMBING_WORDS);
+}
+
 export type TimeframeWord = "today" | "tomorrow" | "this_weekend" | "this_week" | "next_week" | "unspecified";
 
 /**
