@@ -51,6 +51,14 @@ async function callGemini(body: Record<string, unknown>): Promise<GeminiResponse
   const data = (await response.json().catch(() => null)) as GeminiResponse | null;
 
   if (!response.ok || !data) {
+    // The member sees a short Korean sentence; whoever reads `wrangler tail`
+    // sees what Gemini actually said. mapGeminiError only recognises a
+    // handful of messages by name (see its own comment) - everything else
+    // would otherwise vanish behind a generic line with no way to diagnose it
+    // short of reproducing the exact request by hand, which is what happened
+    // once already (an invalid Worker secret surfaced only as "요청 형식에
+    // 문제가 있습니다" until this line existed).
+    console.error("[gemini/client] request failed:", response.status, data?.error ?? data);
     throw new Error(mapGeminiError(data, response.status));
   }
   return data;
@@ -69,6 +77,16 @@ function mapGeminiError(data: GeminiResponse | null, status: number): string {
   }
   if (/no longer available to new users/i.test(message)) {
     return "AI 모델 설정이 오래되었습니다. 관리자에게 알려주세요.";
+  }
+  if (/API key not valid/i.test(message)) {
+    // Seen once already: a secret set via `wrangler secret put <name>` piped
+    // through `printf` over Git Bash on Windows silently corrupted the value,
+    // and this was the only symptom - Gemini rejects a mangled key as a plain
+    // 400, indistinguishable from a malformed request without reading the
+    // message text specifically. `wrangler secret bulk` with a JSON file, the
+    // same method used for every other secret in this project, did not
+    // reproduce it.
+    return "AI 키 설정에 문제가 있습니다. 관리자에게 알려주세요.";
   }
   if (status === 429) {
     return "AI 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.";
