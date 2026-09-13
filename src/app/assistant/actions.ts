@@ -1,9 +1,15 @@
 "use server";
 
 import { requireApprovedMember } from "@/lib/supabase/require-role";
-import { classifyQuery, extractTimeframe, type QueryIntent } from "@/lib/assistant/intent";
+import {
+  classifyQuery,
+  extractTimeframe,
+  isRouteQuestion,
+  type QueryIntent,
+} from "@/lib/assistant/intent";
 import { findMatchingPlace, type PlaceCandidateHike } from "@/lib/assistant/resolve";
 import { buildClubHistoryContext } from "@/lib/assistant/context";
+import { suggestRoutes, type RouteSuggestion } from "@/lib/assistant/routes";
 import {
   daysInRange,
   fetchForecast,
@@ -23,6 +29,9 @@ export interface AssistantAnswer {
       from the model - an LLM is not asked to relay a figure we already have
       exactly, only to reason about what it means. */
   forecastDays?: DailyForecast[];
+  /** Only set when the question asked for routes. Waypoints are place names,
+      not coordinates - geocoding them into pins happens in the browser. */
+  routes?: RouteSuggestion[];
 }
 
 interface LocationRow {
@@ -108,19 +117,39 @@ export async function askAssistant(question: string): Promise<AssistantAnswer> {
 
   // "complex": the one path that pays for a model call, because this is the
   // one kind of question that needs judgment rather than a lookup.
-  const context: string[] = [];
+  let clubHistory: string | null = null;
+  let weatherContext: string | null = null;
   if (place) {
-    context.push(await buildClubHistoryContext(supabase, place.location.id, place.location.name));
+    clubHistory = await buildClubHistoryContext(supabase, place.location.id, place.location.name);
     try {
       const forecast = await fetchForecast(place.lat, place.lng);
       const range = resolveTimeframe(extractTimeframe(trimmed));
-      context.push(`날씨 예보:\n${summarizeForecast(daysInRange(forecast, range))}`);
+      weatherContext = `날씨 예보:\n${summarizeForecast(daysInRange(forecast, range))}`;
     } catch {
       // Weather is enrichment. Losing it should not block an answer that is
       // otherwise answerable from the club's own history.
     }
   }
 
+  // A route question gets real, current course names via search grounding
+  // rather than the model's own static knowledge - and answers regardless of
+  // whether the club has been there. "동아리 기록이 없습니다" and stopping
+  // there was the wrong instinct: not having gone somewhere is not a reason to
+  // withhold what is knowable about it.
+  if (isRouteQuestion(trimmed) && placeSummary) {
+    const routes = await suggestRoutes(placeSummary.name, trimmed, clubHistory);
+    return {
+      intent,
+      text:
+        routes.length > 0
+          ? `${placeSummary.name} 코스 ${routes.length}개를 찾았습니다.`
+          : `${placeSummary.name}의 코스를 찾지 못했습니다. 다른 표현으로 다시 물어봐주세요.`,
+      place: placeSummary,
+      routes,
+    };
+  }
+
+  const context = [clubHistory, weatherContext].filter((c): c is string => c !== null);
   const text = await generateText(buildAssistantPrompt(trimmed, context));
   return { intent, text, place: placeSummary };
 }
@@ -128,8 +157,8 @@ export async function askAssistant(question: string): Promise<AssistantAnswer> {
 function buildAssistantPrompt(question: string, context: string[]): string {
   return [
     "당신은 대학 산악부 동아리의 산행 도우미입니다. 동아리원의 질문에 답합니다.",
-    "아래에 동아리 자체 활동 기록과 날씨 예보가 있다면 그것을 우선 근거로 답하세요.",
-    "동아리 기록이 없는 장소라면 그렇게 말하고, 일반적인 등산 상식으로 보충하세요.",
+    "아래에 동아리 자체 활동 기록과 날씨 예보가 있다면 그것을 참고하세요.",
+    "동아리 기록이 없더라도 답을 피하지 말고, 일반적인 등산 상식과 알고 있는 정보로 실질적인 답을 주세요.",
     "확실하지 않은 사실을 단정하지 마세요.",
     "한국어로, 3~5문장 정도로 답하세요.",
     "",

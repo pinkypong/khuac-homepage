@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyQuery, extractTimeframe } from "./intent";
+import { classifyQuery, extractTimeframe, isRouteQuestion } from "./intent";
 
 describe("classifyQuery", () => {
   it("routes a bare location question without calling anything", () => {
@@ -28,6 +28,17 @@ describe("classifyQuery", () => {
     // call, and getting that wrong here is the one mistake this module exists
     // to avoid.
     expect(classifyQuery("날씨 고려해서 추천해줘")).toBe("complex");
+  });
+});
+
+describe("isRouteQuestion", () => {
+  it("recognises a question asking for named routes", () => {
+    expect(isRouteQuestion("관악산 등산루트")).toBe(true);
+    expect(isRouteQuestion("초보자에게 괜찮은 코스 추천해줘")).toBe(true);
+  });
+
+  it("is false for a question that never mentions a route", () => {
+    expect(isRouteQuestion("관악산이랑 북한산 중에 어디가 나아")).toBe(false);
   });
 });
 

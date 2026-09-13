@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { askAssistant, type AssistantAnswer } from "./actions";
+import { RouteMap } from "./route-map";
 
 const EXAMPLES = ["인수봉 위치", "이번 주말 북한산 날씨", "초보자에게 괜찮은 코스 추천해줘"];
 
@@ -90,6 +91,42 @@ export function AssistantPanel() {
             >
               {answer.place.name} · Google 지도에서 보기
             </a>
+          )}
+
+          {answer.routes && answer.routes.length > 0 && answer.place && (
+            <>
+              <RouteMap routes={answer.routes} center={{ lat: answer.place.lat, lng: answer.place.lng }} />
+              <ul className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3">
+                {answer.routes.map((route, i) => (
+                  <li key={i} className="rounded border border-neutral-200 p-2">
+                    <p className="text-xs font-semibold">{route.name}</p>
+                    <p className="mt-0.5 text-[11px] text-neutral-600">
+                      {route.waypoints.join(" → ")}
+                    </p>
+                    {(route.distanceText || route.notes) && (
+                      <p className="mt-0.5 text-[11px] text-neutral-500">
+                        {[route.distanceText, route.notes].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                    {route.sourceUrls.length > 0 && (
+                      <p className="mt-1 flex flex-wrap gap-2">
+                        {route.sourceUrls.map((url) => (
+                          <a
+                            key={url}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[10px] text-neutral-400 underline"
+                          >
+                            출처
+                          </a>
+                        ))}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           {answer.forecastDays && answer.forecastDays.length > 0 && (

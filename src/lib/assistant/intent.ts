@@ -65,6 +65,18 @@ export function classifyQuery(query: string): QueryIntent {
   return "complex";
 }
 
+const ROUTE_WORDS = ["루트", "코스", "능선"];
+
+/**
+ * A complex question that is specifically asking for named routes, as opposed
+ * to a comparison or a general "괜찮을까" - this decides whether to spend the
+ * extra grounded search call on real, current course names or answer with a
+ * plain narrative instead.
+ */
+export function isRouteQuestion(query: string): boolean {
+  return containsAny(query, ROUTE_WORDS);
+}
+
 export type TimeframeWord = "today" | "tomorrow" | "this_weekend" | "next_week" | "unspecified";
 
 /**
