@@ -1,19 +1,70 @@
 import "server-only";
 import { requireEnv } from "@/lib/env";
+import { getVertexAccessToken } from "./vertex-auth";
 
-const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const DEVELOPER_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 // Overridable so a future model rename doesn't need a code change - this field
 // moves fast (three renames in the time this project has been running).
 // Confirmed live against this key on 2026-09-13: gemini-2.5-flash and older
 // answer 404 "no longer available to new users", gemini-3.6-flash is the
-// current stable Flash model.
+// current stable Flash model. Vertex's publisher-model catalogue may not track
+// the Developer API's naming exactly; GEMINI_MODEL can be pointed at whatever
+// Vertex actually serves without a code change if this default 404s there.
 const DEFAULT_MODEL = "gemini-3.6-flash";
 
 const TIMEOUT_MS = 30_000;
 
 function model(): string {
   return process.env.GEMINI_MODEL || DEFAULT_MODEL;
+}
+
+interface RequestTarget {
+  url: string;
+  headers: Record<string, string>;
+}
+
+/**
+ * Vertex AI when a service account is configured, the Developer API key
+ * otherwise. The two differ only in how a request authenticates and which
+ * host it goes to - the request and response bodies are the same Gemini
+ * schema on both (confirmed for the tools/google_search shape against
+ * Google's own Vertex grounding examples).
+ *
+ * Vertex is what this project actually needs in production: the Developer
+ * API geo-gates by the calling IP, and Cloudflare Workers scatter outbound
+ * fetches across colos the developer does not choose, so the same key from
+ * the same Worker was rejected as "User location is not supported" on one
+ * invocation and accepted on the next. Vertex bills through a Cloud project
+ * rather than gating by request IP and is not subject to that.
+ *
+ * The API-key path stays as the local-dev fallback: `npm run dev` runs from a
+ * developer's own machine, not a Worker colo, and was never the one hitting
+ * this restriction - setting up a service account is not worth asking of
+ * every contributor just to run the app locally.
+ */
+async function resolveTarget(): Promise<RequestTarget> {
+  const serviceAccountJson = process.env.GEMINI_VERTEX_SERVICE_ACCOUNT;
+  if (serviceAccountJson) {
+    const { accessToken, projectId } = await getVertexAccessToken(serviceAccountJson);
+    // "global" routes to wherever Google has capacity rather than one fixed
+    // region, which its own docs describe as raising availability and cutting
+    // 429s - the same property Vertex is being adopted here for, so it is the
+    // default rather than a specific region picked to save a Korea-to-region
+    // hop that has not been measured.
+    const region = process.env.VERTEX_REGION || "global";
+    const host = region === "global" ? "aiplatform.googleapis.com" : `${region}-aiplatform.googleapis.com`;
+    return {
+      url: `https://${host}/v1/projects/${projectId}/locations/${region}/publishers/google/models/${model()}:generateContent`,
+      headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+    };
+  }
+
+  const key = requireEnv("GEMINI_API_KEY");
+  return {
+    url: `${DEVELOPER_API_BASE}/${model()}:generateContent?key=${key}`,
+    headers: { "content-type": "application/json" },
+  };
 }
 
 interface GeminiPart {
@@ -39,16 +90,16 @@ interface GeminiResponse {
   error?: { status?: string; message?: string; code?: number };
 }
 
-// Cloudflare Workers scatter outbound fetches across edge colos the developer
-// does not choose, and Google's Gemini Developer API geo-gates by the calling
-// IP - so one invocation can be rejected as "User location is not supported"
-// while the next, from the same Worker and the same key, goes through
-// cleanly. Confirmed directly on this deployment: a request failed at 13:45,
-// an equivalent one from the same member succeeded at 13:51. A retry is
-// therefore a real, evidence-backed mitigation here, not a guess - it asks for
-// a different colo, which is the one variable observed to change the outcome.
-// It does not make the restriction disappear; Vertex AI, which is not gated
-// the same way, is the fix that would.
+// Only matters on the local-dev fallback path now that production runs
+// through Vertex (see resolveTarget): the Developer API geo-gates by the
+// calling IP, and Cloudflare Workers scatter outbound fetches across colos the
+// developer does not choose, so one invocation could be rejected as "User
+// location is not supported" while the next, from the same Worker and key,
+// went through cleanly - confirmed directly on this deployment before the
+// Vertex move (a request failed at 13:45, an equivalent one succeeded at
+// 13:51, though a same-invocation retry was separately observed doing nothing
+// - the colo a retry lands on is not something this code controls either
+// way). Left in place since it costs nothing when it never fires.
 const LOCATION_RETRY_ATTEMPTS = 2;
 
 function isLocationRestriction(data: GeminiResponse | null): boolean {
@@ -56,14 +107,14 @@ function isLocationRestriction(data: GeminiResponse | null): boolean {
 }
 
 async function callGemini(body: Record<string, unknown>): Promise<GeminiResponse> {
-  const key = requireEnv("GEMINI_API_KEY");
+  const target = await resolveTarget();
 
   let lastFailure: { data: GeminiResponse | null; status: number } | null = null;
 
   for (let attempt = 0; attempt <= LOCATION_RETRY_ATTEMPTS; attempt++) {
-    const response = await fetch(`${API_BASE}/${model()}:generateContent?key=${key}`, {
+    const response = await fetch(target.url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: target.headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -107,6 +158,15 @@ function mapGeminiError(data: GeminiResponse | null, status: number): string {
   }
   if (/User location is not supported/i.test(message)) {
     return "AI 서버 접속이 일시적으로 제한되었습니다. 잠시 후 다시 시도해주세요.";
+  }
+  if (/PERMISSION_DENIED/i.test(data?.error?.status ?? "") || status === 403) {
+    // The token exchange itself throws its own message before this is ever
+    // reached (see vertex-auth.ts) - a 403 arriving here means the token was
+    // valid but the service account lacks the aiplatform.user role, or the
+    // Vertex AI API is not enabled on the project. A setup gap, not a runtime
+    // fluke, so it is worth naming rather than folding into the generic
+    // 4xx line below.
+    return "AI 서비스 접근 권한이 없습니다. 관리자에게 알려주세요.";
   }
   if (/API key not valid/i.test(message)) {
     // Seen once already: a secret set via `wrangler secret put <name>` piped
