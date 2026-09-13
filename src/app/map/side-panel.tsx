@@ -156,6 +156,7 @@ export function SidePanel({
   onCreateAlbum,
   activeRouteName,
   creatingAlbum,
+  showAlbums,
 }: {
   locations: MapLocation[];
   activeLocation: MapLocation | null;
@@ -184,6 +185,8 @@ export function SidePanel({
   onCreateAlbum: (route: RouteSuggestion) => void;
   activeRouteName: string | null;
   creatingAlbum: boolean;
+  /** False beside the map, where the 앨범 screen already carries these lists. */
+  showAlbums: boolean;
 }) {
   const router = useRouter();
   const [rootView, setRootView] = useState<"recent" | "places">("recent");
@@ -441,8 +444,13 @@ export function SidePanel({
           browsing albums, and living under 최근 앨범 meant it vanished the
           moment someone switched to 장소별 앨범. */}
       <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
+      {/* The album lists belong to the 앨범 screen. Beside the map they were a
+          second copy of it, pushing the one thing this screen is for - asking
+          about what is on the map - up against the top edge. */}
+      {showAlbums && (
       <div className="recent-tabs"><button aria-pressed={rootView === "recent"} onClick={()=>setRootView("recent")}>최근 앨범</button><button aria-pressed={rootView === "places"} onClick={()=>setRootView("places")}>장소별 앨범</button></div>
-      {rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><RecentAlbums locations={locations} onOpenHike={onOpenHike} onHoverHike={onHoverHike}/></div> : <>
+      )}
+      {showAlbums && (rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><RecentAlbums locations={locations} onOpenHike={onOpenHike} onHoverHike={onHoverHike}/></div> : <>
       <div className="border-b border-neutral-200 px-4 py-3">
         {picking && (
           <div className="mb-2 rounded bg-red-50 px-2 py-1.5 text-[11px] text-red-700">
@@ -526,7 +534,7 @@ export function SidePanel({
           </ul>
         )}
       </div>
-      </>}
+      </>)}
     </div>
   );
 }

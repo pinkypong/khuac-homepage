@@ -71,7 +71,10 @@ export function normalizeRoutes(value: unknown, sources: string[]): RouteSuggest
     if (!name) return [];
     const waypoints = Array.isArray(row.waypoints) ? row.waypoints.flatMap((p) => text(p) ? [text(p)!] : []).slice(0, 12) : [];
     return [{ name, waypoints, distanceText: text(row.distanceText), durationText: text(row.durationText), difficulty: text(row.difficulty), description: text(row.description), notes: text(row.notes), sourceUrls: sources }];
-  }).slice(0, 4);
+    // Six rather than four: 도봉산 came back without Y계곡 because the cap cut
+  // the list before its best-known scramble, and a member comparing options
+  // is better served by one extra card than by a shorter list.
+  }).slice(0, 6);
 }
 
 export async function suggestRoutes(
@@ -96,8 +99,8 @@ export async function suggestRoutes(
     clubContext ? `참고 자료: ${clubContext}` : null,
     `질문: ${question}`,
     climbing
-      ? "서로 다른 루트 2~4개를 소개하고, 각 루트마다 이름, 어프로치 경유지(들머리→바위 아래 순서), 등급, 피치 수와 길이, 확보물, 특징 2~3문장을 한국어로 쓰세요."
-      : "서로 다른 코스 2~4개를 소개하고, 각 코스마다 이름, 경유지(들머리→정상 순서), 총 거리, 예상 소요시간(편도/왕복 구분), 난이도, 특징 2~3문장을 한국어로 쓰세요.",
+      ? "서로 다른 루트 3~6개를 소개하고, 각 루트마다 이름, 어프로치 경유지(들머리→바위 아래 순서), 등급, 피치 수와 길이, 확보물, 특징 2~3문장을 한국어로 쓰세요."
+      : "서로 다른 코스 3~6개를 소개하고, 각 코스마다 이름, 경유지(들머리→정상 순서), 총 거리, 예상 소요시간(편도/왕복 구분), 난이도, 특징 2~3문장을 한국어로 쓰세요.",
     // Telling the model only to avoid guessing left it with nothing to report:
     // it marked every distance 미확인 without ever looking one up. These
     // figures are published on hiking sites, so searching for them is the
@@ -106,6 +109,7 @@ export async function suggestRoutes(
     // Every waypoint is looked up by name on the map, so a nickname or a
     // slash-joined pair resolves to nothing and leaves a gap in the line.
     "경유지는 지도에서 찾을 수 있는 실제 지명만 쓰세요. '계곡길/능선길'처럼 둘을 붙여 쓴 이름은 피하고, 역·사찰·봉우리처럼 지점이 하나로 정해지는 이름을 고르세요.",
+    "널리 알려진 대표 코스를 빠뜨리지 마세요. 그 산을 검색하면 반드시 나오는 코스는 목록에 포함하세요.",
     "동아리 기록이 없어도 검색 결과를 활용하세요. 최신 통제 정보와 출처도 안내하세요.",
   ].filter(Boolean).join("\n"));
 

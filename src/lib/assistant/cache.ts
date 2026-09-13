@@ -12,18 +12,33 @@
 export const CACHE_TTL_DAYS = 14;
 
 /**
+ * Bumped whenever the prompts change in a way that should produce a different
+ * answer to the same question.
+ *
+ * Without this, a fix to the prompt was invisible: "도봉산 등반루트" had been
+ * asked before 등반 and 등산 were told apart, and every later ask replayed the
+ * old hiking answer from the cache. Versioning the key retires those rows
+ * instead of leaving the club reading yesterday's mistake for two weeks.
+ *
+ * v2: climbing questions answer with crag routes, not hiking trails; answers
+ * open without a preamble; small practice crags are screened out.
+ */
+export const PROMPT_VERSION = "v2";
+
+/**
  * Collapses the differences that should not cost a second search: spacing,
  * case, and the trailing punctuation people add when they are being polite to
  * a machine. Deliberately conservative - "관악산 코스" and "관악산 겨울 코스"
  * stay separate questions, because they have different answers.
  */
 export function cacheKey(question: string): string {
-  return question
+  const normalised = question
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ")
     .replace(/[?!.,～~]+$/u, "")
     .trim();
+  return `${PROMPT_VERSION}:${normalised}`;
 }
 
 export function isFresh(createdAt: string, now: Date = new Date()): boolean {

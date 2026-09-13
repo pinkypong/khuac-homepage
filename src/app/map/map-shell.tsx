@@ -527,6 +527,7 @@ export function MapShell({
           onCreateAlbum={createAlbum}
           activeRouteName={suggestedRoute?.route.name ?? null}
           creatingAlbum={creatingAlbum}
+          showAlbums={!mapOpen || mobileTab === "album"}
           picking={picking}
           pickedPoint={pickedPoint}
           onPickPoint={pickPoint}
