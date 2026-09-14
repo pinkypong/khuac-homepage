@@ -272,6 +272,16 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
   const [mapType, setMapType] = useState<MapTypeChoice>(defaultLayer?.id ?? "roadmap");
   const appliedDefault = useRef(false);
 
+  // Applied whenever the mode changes rather than only on the click that
+  // changed it: the cap has to hold while someone keeps zooming, and setting
+  // it once in the handler left the zoom free the moment they pinched again.
+  useEffect(() => {
+    if (!map) return;
+    const cap = MAX_ZOOM[mapType] ?? null;
+    map.setOptions({ maxZoom: cap ?? undefined });
+    if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
+  }, [map, mapType]);
+
   useEffect(() => {
     if (!map || layers.length === 0) return;
     for (const layer of layers) {
@@ -309,9 +319,6 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
             map.setMapTypeId(id);
             // Applied before the type takes effect so the view never lands on
             // upscaled tiles for a frame. Null restores the map's own limit.
-            const cap = MAX_ZOOM[id] ?? null;
-            map.setOptions({ maxZoom: cap ?? undefined });
-            if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
             setMapType(id);
             onLayerChange(layers.find((layer) => layer.id === id) ?? null);
           }}
