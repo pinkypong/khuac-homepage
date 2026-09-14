@@ -20,8 +20,12 @@ export const DEFAULT_TRAIL_RADIUS_M = 1500;
 const TIMEOUT_MS = 20_000;
 
 // Anything shorter is a driveway stub or a staircase between two switchbacks;
-// as a thing to pick off a map it is noise.
-const MIN_USEFUL_LENGTH_M = 40;
+// as a thing to pick off a map it is noise. It is emphatically not noise to a
+// router: measured against real data for 밤골 to 도선사, dropping the 114 ways
+// under 40m disconnected the graph across 북한산 and the course fell back to a
+// straight line, while keeping them routed the whole 8.3km along real trail.
+// So this applies to the picker and never to routing.
+const MIN_PICKABLE_LENGTH_M = 40;
 
 // Enough shape to follow a ridge, few enough points that a hundred of them can
 // be drawn at once. hikes.track is downsampled again when it is saved.
@@ -93,7 +97,7 @@ export async function fetchTrailsInBounds(bounds: TrailBounds): Promise<TrailSeg
 way(${south},${west},${north},${east})["highway"~"^(path|footway|track|steps)$"];
 out geom;`;
 
-  return prepare(await fetchFromAnyMirror(query));
+  return prepare(await fetchFromAnyMirror(query), 0);
 }
 
 function buildQuery(lat: number, lng: number, radiusM: number) {
@@ -120,12 +124,12 @@ export async function fetchTrailsNear(
 
   const payload = await fetchFromAnyMirror(buildQuery(lat, lng, radius));
 
-  return prepare(payload);
+  return prepare(payload, MIN_PICKABLE_LENGTH_M);
 }
 
-function prepare(payload: unknown): TrailSegment[] {
+function prepare(payload: unknown, minLengthM: number): TrailSegment[] {
   return parseOverpassWays(payload)
-    .filter((segment) => segmentLengthMeters(segment) >= MIN_USEFUL_LENGTH_M)
+    .filter((segment) => segmentLengthMeters(segment) >= minLengthM)
     .map((segment) => ({
       ...segment,
       points: downsampleTrack(segment.points, MAX_POINTS_PER_SEGMENT),

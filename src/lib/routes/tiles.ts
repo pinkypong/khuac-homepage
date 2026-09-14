@@ -12,12 +12,20 @@ import type { TrailSegment } from "./trails";
  */
 export const TILE_DEG = 0.02;
 
+/**
+ * Bumped when a change makes already-stored tiles wrong rather than merely
+ * old. v2: tiles written before this held only ways over 40m, which left out
+ * the short connectors that join trails at a junction - a graph built from
+ * them could not cross 북한산. Old rows are simply never read again.
+ */
+const TILE_VERSION = "v2";
+
 /** Tiles are keyed by their south-west corner, which is what makes the key
     derivable from any coordinate inside them. */
 export function tileKey(lat: number, lng: number): string {
   const south = Math.floor(lat / TILE_DEG) * TILE_DEG;
   const west = Math.floor(lng / TILE_DEG) * TILE_DEG;
-  return `${south.toFixed(2)},${west.toFixed(2)}`;
+  return `${TILE_VERSION}:${south.toFixed(2)},${west.toFixed(2)}`;
 }
 
 /** Every tile a bounding box touches, including the partly covered edges. */
@@ -86,15 +94,20 @@ export function tilesFullyInside(bounds: TrailBounds): Set<string> {
   const west = Math.min(bounds.west, bounds.east);
   const east = Math.max(bounds.west, bounds.east);
 
-  return new Set(
-    tilesForBounds(bounds).filter((key) => {
-      const [tileSouth, tileWest] = key.split(",").map(Number);
-      return (
-        tileSouth >= south - 1e-9 &&
-        tileWest >= west - 1e-9 &&
-        tileSouth + TILE_DEG <= north + 1e-9 &&
-        tileWest + TILE_DEG <= east + 1e-9
-      );
-    }),
-  );
+  const keys = new Set<string>();
+  // Walked from the grid rather than parsed back out of the keys, which carry
+  // a version prefix and are not meant to be read as coordinates.
+  const firstSouth = Math.floor(south / TILE_DEG) * TILE_DEG;
+  const firstWest = Math.floor(west / TILE_DEG) * TILE_DEG;
+  for (let lat = firstSouth; lat < north - 1e-9; lat += TILE_DEG) {
+    for (let lng = firstWest; lng < east - 1e-9; lng += TILE_DEG) {
+      const inside =
+        lat >= south - 1e-9 &&
+        lng >= west - 1e-9 &&
+        lat + TILE_DEG <= north + 1e-9 &&
+        lng + TILE_DEG <= east + 1e-9;
+      if (inside) keys.add(tileKey(lat + TILE_DEG / 2, lng + TILE_DEG / 2));
+    }
+  }
+  return keys;
 }
