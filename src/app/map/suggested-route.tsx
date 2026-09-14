@@ -97,6 +97,10 @@ export function SuggestedRoute({
   useEffect(() => {
     if (!places || waypoints.length === 0) return;
     let cancelled = false;
+    // Cleared for the new course. Without this the previous course's legs stay
+    // on screen - drawn against the new course's waypoints - for the seconds
+    // the lookup and the snap take.
+    setLegs(null);
 
     async function resolveOne(name: string, pois: ClubPoi[]): Promise<RouteWaypoint | null> {
       // The club's own gazetteer first. These names are local usage - 해골바위,
