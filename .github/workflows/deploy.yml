@@ -1,0 +1,72 @@
+name: 검사 및 배포
+
+# Pushes to main deploy; pull requests only get the checks. Deploying from a
+# laptop meant the deployed code was whatever happened to be in that working
+# tree - which is how a fix sat uncommitted for a day while the live site ran
+# the version before it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A second push while the first is deploying would race it to the same Worker.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+
+  deploy:
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      # NEXT_PUBLIC_ values are read at build time and baked into the browser
+      # bundle, so they have to be here - unlike the server-side secrets, which
+      # live in Cloudflare and are untouched by a deploy.
+      - name: 빌드
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID }}
+          NEXT_PUBLIC_TILE_OUTDOORS: ${{ secrets.NEXT_PUBLIC_TILE_OUTDOORS }}
+          NEXT_PUBLIC_VWORLD_API_KEY: ${{ secrets.NEXT_PUBLIC_VWORLD_API_KEY }}
+        run: npm run cf:build
+
+      - name: 배포
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      # A successful `wrangler deploy` has uploaded a version; it has not
+      # always been the version serving traffic. This reads back what the edge
+      # actually runs and fails the job if it is not what was just built.
+      - name: 배포본 확인
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          sleep 30
+          npx wrangler deployments status
