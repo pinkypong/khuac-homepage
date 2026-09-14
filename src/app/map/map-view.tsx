@@ -244,6 +244,20 @@ const GOOGLE_MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
   { id: "hybrid", label: "위성" },
 ];
 
+/**
+ * How far each mode can be zoomed before it stops showing anything real.
+ *
+ * Google's aerial imagery over Korean mountains runs out around zoom 19 and
+ * the map keeps going by scaling the last tiles up, which reads as the picture
+ * breaking rather than as the map having reached its limit. Terrain gives up
+ * earlier still. Capping the zoom stops the viewer at the point where what
+ * they see is still real.
+ */
+const MAX_ZOOM: Partial<Record<MapTypeChoice, number>> = {
+  hybrid: 19,
+  terrain: 17,
+};
+
 /** Stands in for the stock 지도/위성 switcher. "hybrid" rather than "satellite"
     so place names stay on the imagery - finding mountains by name is the point.
     Third-party layers join the same row: once registered with the map's own
@@ -293,6 +307,11 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
           onClick={() => {
             if (!map) return;
             map.setMapTypeId(id);
+            // Applied before the type takes effect so the view never lands on
+            // upscaled tiles for a frame. Null restores the map's own limit.
+            const cap = MAX_ZOOM[id] ?? null;
+            map.setOptions({ maxZoom: cap ?? undefined });
+            if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
             setMapType(id);
             onLayerChange(layers.find((layer) => layer.id === id) ?? null);
           }}

@@ -32,13 +32,16 @@ const SNAP_TOLERANCE_M = 400;
 const JUNCTION_TOLERANCE_M = 30;
 
 /**
- * How far a trail route may wander before it is not believable as the way
- * between two points. Trails switchback, so three times the straight line is
- * ordinary; ten times means the search crossed the mountain to get around
- * something and the line would mislead more than it informs.
+ * How far a trail route may wander before it stops being believable.
+ *
+ * The ratio alone was written for flat ground and rejected real mountain
+ * routes: 구기 to 대남문 is 411m apart in a straight line and 3,206m of path,
+ * because the way between them goes around a cliff. A short gap in steep
+ * terrain routinely costs kilometres, so the slack matters more than the
+ * multiple, and it is the slack that was too small.
  */
-const MAX_DETOUR_RATIO = 3.5;
-const MAX_DETOUR_SLACK_M = 1500;
+const MAX_DETOUR_RATIO = 4;
+const MAX_DETOUR_SLACK_M = 3500;
 
 /** Grid cell for the spatial index, ~33m at Korean latitudes. */
 const CELL = 0.0003;
