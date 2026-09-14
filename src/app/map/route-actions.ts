@@ -5,7 +5,7 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
-import { snapRouteToTrails, type RouteLeg } from "@/lib/routes/snap";
+import { snapRouteToTrails, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
 import type { ClubPoi } from "@/lib/routes/poi";
 import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
@@ -113,7 +113,17 @@ export async function snapSuggestedRoute(
       trailsLoaded: false,
     };
   }
-  return { legs: snapRouteToTrails(waypoints, segments), trailsLoaded: true };
+  // Logged because none of this is visible from the map: a dashed leg looks
+  // the same whether a waypoint was 500m from the nearest path or the path
+  // simply does not connect.
+  const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
+  const legs = snapRouteToTrails(waypoints, segments, diagnostics);
+  console.log("[route-actions] snap", JSON.stringify({
+    ways: segments.length,
+    snapM: diagnostics.snapDistances,
+    legs: diagnostics.legs,
+  }));
+  return { legs, trailsLoaded: true };
 }
 
 /**

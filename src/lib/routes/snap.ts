@@ -203,15 +203,29 @@ function shortestPath(graph: Graph, from: number, to: number): { path: number[];
   return null;
 }
 
+export interface SnapDiagnostics {
+  /** Metres from each waypoint to the nearest mapped path, or null when none
+      was within reach. This is the number that decides whether a leg can be
+      routed at all, and it is invisible from a screenshot. */
+  snapDistances: (number | null)[];
+  legs: { onTrail: boolean; straightM: number; routedM: number | null }[];
+}
+
 export function snapRouteToTrails(
   waypoints: { lat: number; lng: number }[],
   segments: TrailSegment[],
+  diagnostics?: SnapDiagnostics,
 ): RouteLeg[] {
   const points: TrackPoint[] = waypoints.map((w) => [w.lat, w.lng]);
   if (points.length < 2) return [];
 
   const graph = buildTrailGraph(segments);
   const snapped = points.map((point) => (graph.nodes.length > 0 ? nearestNode(graph, point) : null));
+  if (diagnostics) {
+    diagnostics.snapDistances = snapped.map((id, i) =>
+      id === null ? null : Math.round(metres(graph.nodes[id], points[i])),
+    );
+  }
   const legs: RouteLeg[] = [];
 
   for (let i = 1; i < points.length; i++) {
@@ -220,6 +234,7 @@ export function snapRouteToTrails(
     const straight: RouteLeg = { points: [points[i - 1], points[i]], onTrail: false };
 
     if (from === null || to === null) {
+      diagnostics?.legs.push({ onTrail: false, straightM: Math.round(metres(points[i - 1], points[i])), routedM: null });
       legs.push(straight);
       continue;
     }
@@ -230,6 +245,12 @@ export function snapRouteToTrails(
     // something rather than along it, so the honest answer is the dashed line.
     const believable =
       result !== null && result.cost <= Math.max(direct * MAX_DETOUR_RATIO, direct + MAX_DETOUR_SLACK_M);
+
+    diagnostics?.legs.push({
+      onTrail: believable && !!result,
+      straightM: Math.round(direct),
+      routedM: result ? Math.round(result.cost) : null,
+    });
 
     if (!believable || !result) {
       legs.push(straight);
