@@ -157,6 +157,7 @@ export function SidePanel({
   activeRouteName,
   creatingAlbum,
   showAlbums,
+  showAi,
 }: {
   locations: MapLocation[];
   activeLocation: MapLocation | null;
@@ -187,6 +188,8 @@ export function SidePanel({
   creatingAlbum: boolean;
   /** False beside the map, where the 앨범 screen already carries these lists. */
   showAlbums: boolean;
+  /** False on the phone's 앨범 tab, which is the album list on its own. */
+  showAi: boolean;
 }) {
   const router = useRouter();
   const [rootView, setRootView] = useState<"recent" | "places">("recent");
@@ -443,7 +446,9 @@ export function SidePanel({
       {/* Above the tabs, not inside one: asking a question is not a way of
           browsing albums, and living under 최근 앨범 meant it vanished the
           moment someone switched to 장소별 앨범. */}
+      {showAi && (
       <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
+      )}
       {/* The album lists belong to the 앨범 screen. Beside the map they were a
           second copy of it, pushing the one thing this screen is for - asking
           about what is on the map - up against the top edge. */}

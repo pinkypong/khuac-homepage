@@ -62,6 +62,7 @@ export function SuggestedRoute({
   placeName,
   resolved,
   onResolved,
+  onMissing,
 }: {
   route: RouteSuggestion;
   center: { lat: number; lng: number } | null;
@@ -71,6 +72,9 @@ export function SuggestedRoute({
   placeName: string;
   resolved: RouteWaypoint[] | null;
   onResolved: (points: RouteWaypoint[]) => void;
+  /** Names this course could not place, handed up so the shell can offer to
+      record one. Reported from here because this is where the lookups happen. */
+  onMissing: (names: string[]) => void;
 }) {
   const places = useMapsLibrary("places");
   const map = useMap();
@@ -136,7 +140,9 @@ export function SuggestedRoute({
       const resolvedPoints = points.filter((p): p is RouteWaypoint => p !== null);
       const found = dropOutlierWaypoints(resolvedPoints);
       const placed = new Set(found.map((p) => p.name));
-      setMissing(thin(waypoints).filter((name) => !placed.has(name)));
+      const absent = thin(waypoints).filter((name) => !placed.has(name));
+      setMissing(absent);
+      onMissing(absent);
       onResolved(found);
       if (!map || found.length === 0) return;
       if (found.length === 1) {

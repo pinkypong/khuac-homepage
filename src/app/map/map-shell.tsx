@@ -18,6 +18,7 @@ import { loadTrails, saveTrailRoute } from "./route-actions";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { formatDistance, trackDistanceMeters } from "@/lib/gps/track";
 import { MapErrorBoundary, MapUnavailable } from "./map-error-boundary";
+import { PoiForm } from "./poi-form";
 import { createAlbumFromRoute, type RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
@@ -85,10 +86,15 @@ const DEFAULT_MAP_WIDTH = 0.58;
  * here measures the viewport - so this state is simply inert at md and above,
  * where both halves are on screen at once.
  */
-type MobileTab = "map" | "album";
+type MobileTab = "map" | "ai" | "album";
 
+// KHUAC AI gets its own tab rather than sitting on top of the album list. On
+// a phone the panel is one column, so an answer several paragraphs long left
+// the albums somewhere below the fold - the two were competing for the same
+// screen rather than sharing it.
 const MOBILE_TABS: { id: MobileTab; label: string }[] = [
   { id: "map", label: "지도" },
+  { id: "ai", label: "KHUAC AI" },
   { id: "album", label: "앨범" },
 ];
 
@@ -97,8 +103,8 @@ export interface PickedPoint {
   lng: number;
 }
 
-function NavIcon({kind}: {kind: "map" | "album" | "upload" | "profile"}) {
- const paths = {map: "M12 21s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z M12 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6", album:"M4 3h16v18H4Z M7 7h10 M7 11h4 M7 17l4-4 3 3 3-2", upload:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 7v10 M7 12h10", profile:"M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M4 21v-3a8 6 0 0 1 16 0v3Z"};
+function NavIcon({kind}: {kind: "map" | "ai" | "album" | "upload" | "profile"}) {
+ const paths = {map: "M12 21s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z M12 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6", ai:"M4 19l5-13 5 13 M6 15h6 M17 6v13", album:"M4 3h16v18H4Z M7 7h10 M7 11h4 M7 17l4-4 3 3 3-2", upload:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 7v10 M7 12h10", profile:"M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M4 21v-3a8 6 0 0 1 16 0v3Z"};
  return <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]}/></svg>;
 }
 
@@ -190,6 +196,7 @@ export function MapShell({
   const [mapOpen, setMapOpen] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("map");
+  const panelTab: MobileTab = mapOpen ? mobileTab : "album";
 
   const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
   const [activeHikeId, setActiveHikeId] = useState<string | null>(null);
@@ -210,6 +217,12 @@ export function MapShell({
     resolved: RouteWaypoint[] | null;
   } | null>(null);
   const [creatingAlbum, setCreatingAlbum] = useState(false);
+  // A course waypoint nothing could place, and the point a member is putting
+  // on the map for it. Null unless they asked to record one, so the map stays
+  // clear the rest of the time.
+  const [missingNames, setMissingNames] = useState<string[]>([]);
+  const [namingPoi, setNamingPoi] = useState<string | null>(null);
+  const [poiPoint, setPoiPoint] = useState<PickedPoint | null>(null);
   // An in-progress route build: which activity it is for, the paths offered
   // around it, and the ones chosen so far in the order they were tapped.
   const [trailPick, setTrailPick] = useState<{
@@ -281,6 +294,14 @@ export function MapShell({
   }
 
   function pickPoint(point: PickedPoint) {
+    // Naming a waypoint keeps the member on the map: the form for it sits over
+    // the map itself, so sending them to the album tab would hide the thing
+    // they just tapped.
+    if (namingPoi) {
+      setPoiPoint(point);
+      setPicking(false);
+      return;
+    }
     setPickedPoint(point);
     // The form waiting on this point is in the other tab, so a phone goes back
     // to it rather than leaving the member on a map that looks unchanged.
@@ -458,6 +479,7 @@ export function MapShell({
                 onRouteResolved={(points) =>
                   setSuggestedRoute((current) => (current ? { ...current, resolved: points } : current))
                 }
+                onRouteMissing={setMissingNames}
               /></MapErrorBoundary>
             ) : (
               <div className="p-4">
@@ -465,6 +487,45 @@ export function MapShell({
                 <p className="mt-1 text-sm text-neutral-600">
                   <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>가 설정되지 않았습니다.
                 </p>
+              </div>
+            )}
+            {/* Only while a course has a name nothing could place. The club's
+                own point for it is the fix, and this is the moment the member
+                both knows the answer and has a reason to give it. */}
+            {missingNames.length > 0 && !trailPick && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+                {namingPoi ? (
+                  <PoiForm
+                    name={namingPoi}
+                    picked={poiPoint}
+                    onPickRequest={() => {
+                      setPicking(true);
+                      setPoiPoint(null);
+                    }}
+                    onDone={() => {
+                      setNamingPoi(null);
+                      setPoiPoint(null);
+                      setPicking(false);
+                      // The course redraws from our own table on the next
+                      // preview, so the name it just learned is used at once.
+                      setMissingNames((names) => names.filter((n) => n !== namingPoi));
+                      router.refresh();
+                    }}
+                    onCancel={() => {
+                      setNamingPoi(null);
+                      setPoiPoint(null);
+                      setPicking(false);
+                    }}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setNamingPoi(missingNames[0])}
+                    className="pointer-events-auto m-2 rounded-full border border-neutral-300 bg-white/95 px-3 py-1.5 text-[11px] text-neutral-700 shadow-lg backdrop-blur"
+                  >
+                    &lsquo;{missingNames[0]}&rsquo; 위치 지정
+                  </button>
+                )}
               </div>
             )}
             {trailPick && (
@@ -496,7 +557,7 @@ export function MapShell({
           "club-album absolute inset-0 flex min-w-0 flex-col bg-white md:relative md:inset-auto md:flex-1 " +
           // A collapsed map leaves the 지도 tab with nothing in it, so on a
           // phone the panel stays up until 지도 is tapped and re-opens it.
-          (mobileTab === "album" || !mapOpen ? "" : "invisible md:visible")
+          (mobileTab === "album" || mobileTab === "ai" || !mapOpen ? "" : "invisible md:visible")
         }
       >
         {!mapOpen && (
@@ -527,7 +588,11 @@ export function MapShell({
           onCreateAlbum={createAlbum}
           activeRouteName={suggestedRoute?.route.name ?? null}
           creatingAlbum={creatingAlbum}
-          showAlbums={!mapOpen || mobileTab === "album"}
+          // Desktop keeps both in one column; a phone shows whichever tab is
+          // open, which is what stops the answer and the album list from
+          // fighting over the fold.
+          showAlbums={!mapOpen || panelTab === "album"}
+          showAi={!mapOpen ? false : panelTab !== "album"}
           picking={picking}
           pickedPoint={pickedPoint}
           onPickPoint={pickPoint}
@@ -553,7 +618,13 @@ export function MapShell({
             key={id}
             type="button"
             aria-pressed={mobileTab === id}
-            onClick={() => (id === "map" ? showMap() : setMobileTab("album"))}
+            onClick={() => {
+              if (id === "map") showMap();
+              else {
+                setMapOpen(true);
+                setMobileTab(id);
+              }
+            }}
             className={
               "flex-1 py-3 text-sm " +
               (mobileTab === id
@@ -564,7 +635,6 @@ export function MapShell({
             <NavIcon kind={id}/>{label}
           </button>
         ))}
-        <Link href="/photos/upload"><NavIcon kind="upload"/>업로드</Link>
         <button aria-expanded={accountOpen} onClick={()=>setAccountOpen(!accountOpen)}><NavIcon kind="profile"/>내 정보</button>
       </nav>
     </div>

@@ -74,7 +74,12 @@ body {
 @media(max-width:767px) {
  .club-header { padding:12px 16px; padding-top:max(12px,env(safe-area-inset-top)); gap:12px; }
  .club-brand { gap:9px; }.club-brand img { width:52px; }.club-brand strong { font-size:21px; }.club-brand small { font-size:11px; }
- .club-desktop-nav,.club-upload { display:none; }
+ .club-desktop-nav { display:none; }
+ /* Upload moved out of the bottom bar and up here: the bottom row now carries
+    지도/AI/앨범, and a fourth destination competing with them made every one of
+    them narrower. As an icon button it costs almost no width. */
+ .club-upload { gap:0; padding:10px 12px; font-size:0; border-radius:8px; }
+ .club-upload span { font-size:19px; line-height:1; }
  .club-toolbar { flex-direction:column; gap:10px; padding:10px 16px 12px; }
  .club-search { background:#f3f3f1; border-color:transparent; }.club-search input { font-size:16px; }
  .club-filters { gap:6px; }.club-filters button { flex:1; padding:0 13px; font-size:12px; }
