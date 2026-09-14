@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AdvancedMarker, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
+import { AdvancedMarker, ControlPosition, MapControl, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
-import { snapSuggestedRoute } from "./route-actions";
+import { loadClubPois, snapSuggestedRoute } from "./route-actions";
+import { findClubPoi, type ClubPoi } from "@/lib/routes/poi";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
 
 // Distinct from every activity colour and from the red a selected activity's
@@ -78,12 +79,22 @@ export function SuggestedRoute({
   const routeName = route.name;
   const waypoints = route.waypoints;
   const [legs, setLegs] = useState<RouteLeg[] | null>(null);
+  // Names no lookup could place. Shown rather than swallowed: these are the
+  // local terms - 해골바위, 밤골 - that a member can fix once by hand, and they
+  // cannot do that if the course simply appears one waypoint short.
+  const [missing, setMissing] = useState<string[]>([]);
 
   useEffect(() => {
     if (!places || waypoints.length === 0) return;
     let cancelled = false;
 
-    async function resolveOne(name: string): Promise<RouteWaypoint | null> {
+    async function resolveOne(name: string, pois: ClubPoi[]): Promise<RouteWaypoint | null> {
+      // The club's own gazetteer first. These names are local usage - 해골바위,
+      // 밤골, 깔딱고개 - and a search engine has no reliable answer for them,
+      // so a point a member recorded outranks anything a lookup returns.
+      const known = findClubPoi(name, pois);
+      if (known) return { name, lat: known.lat, lng: known.lng };
+
       const cached = cache.get(name);
       if (cached !== undefined) return cached;
       try {
@@ -110,15 +121,22 @@ export function SuggestedRoute({
       }
     }
 
-    Promise.all(thin(waypoints).map(resolveOne)).then((points) => {
+    // An unresolved name is left out rather than guessed at: a pin in the
+    // wrong place is worse than a course drawn without it, and the member can
+    // put it on the map by hand once, after which it resolves from our table.
+    loadClubPois()
+      .catch(() => [] as ClubPoi[])
+      .then((pois) => Promise.all(thin(waypoints).map((name) => resolveOne(name, pois))))
+      .then((points) => {
       if (cancelled) return;
       // A name can resolve to the wrong place entirely - 해골바위 on 숨은벽
       // came back on the far side of 북한산 - and one bad lookup dragged the
       // whole course into a straight line across the massif. Dropping it here
       // rather than server-side keeps its pin off the map too.
-      const found = dropOutlierWaypoints(
-        points.filter((p): p is RouteWaypoint => p !== null),
-      );
+      const resolvedPoints = points.filter((p): p is RouteWaypoint => p !== null);
+      const found = dropOutlierWaypoints(resolvedPoints);
+      const placed = new Set(found.map((p) => p.name));
+      setMissing(thin(waypoints).filter((name) => !placed.has(name)));
       onResolved(found);
       if (!map || found.length === 0) return;
       if (found.length === 1) {
@@ -192,6 +210,13 @@ export function SuggestedRoute({
           }
         />
       ))}
+      {missing.length > 0 && (
+        <MapControl position={ControlPosition.BOTTOM_CENTER}>
+          <span className="m-2 block rounded bg-white/90 px-2 py-1 text-[10px] text-neutral-600 shadow-sm">
+            지도에서 찾지 못해 제외: {missing.join(", ")}
+          </span>
+        </MapControl>
+      )}
       {resolved.map((point, i) => (
         <AdvancedMarker key={`${point.name}-${i}`} position={point} title={point.name} zIndex={20}>
           <span

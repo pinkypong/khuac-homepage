@@ -6,6 +6,8 @@ import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { snapRouteToTrails, type RouteLeg } from "@/lib/routes/snap";
+import type { ClubPoi } from "@/lib/routes/poi";
+import { isValidGps } from "@/lib/gps/validate";
 
 /**
  * The mapped paths around an activity, for the member to pick their route from.
@@ -100,4 +102,70 @@ export async function snapSuggestedRoute(
       onTrail: false,
     }));
   }
+}
+
+/**
+ * The club's own points for a set of waypoint names.
+ *
+ * Consulted before any search: route answers name places the way climbers do,
+ * and those names are local usage rather than map labels. Looking 해골바위 up
+ * by name put it on the far side of 북한산; a row here is the club saying
+ * where it actually is, and it keeps saying so.
+ */
+export async function loadClubPois(): Promise<ClubPoi[]> {
+  const { supabase } = await requireApprovedMember();
+  const { data } = await supabase.from("route_pois").select("name, aliases, lat, lng");
+  return ((data ?? []) as unknown as ClubPoi[]).map((row) => ({
+    name: row.name,
+    aliases: row.aliases ?? [],
+    lat: row.lat,
+    lng: row.lng,
+  }));
+}
+
+/**
+ * Records where a named place actually is.
+ *
+ * Any approved member, not just an admin: the person who walked the route is
+ * the one who knows, and making them file a request is how the table stays
+ * empty. Saving the same name again moves the existing point rather than
+ * creating a rival row, so a name never becomes ambiguous.
+ */
+export async function saveClubPoi(input: {
+  name: string;
+  lat: number;
+  lng: number;
+  aliases?: string[];
+  kind?: string | null;
+  note?: string | null;
+}): Promise<void> {
+  const { supabase, memberId } = await requireApprovedMember();
+
+  const name = input.name.trim();
+  if (!name) throw new Error("이름을 입력해주세요.");
+  if (!isValidGps(input.lat, input.lng)) throw new Error("지도에서 위치를 지정해주세요.");
+
+  const existing = await supabase
+    .from("route_pois")
+    .select("id")
+    .ilike("name", name)
+    .maybeSingle();
+
+  const row = {
+    name,
+    aliases: (input.aliases ?? []).map((a) => a.trim()).filter(Boolean),
+    lat: input.lat,
+    lng: input.lng,
+    kind: input.kind ?? null,
+    note: input.note ?? null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const id = (existing.data as { id: string } | null)?.id;
+  const { error } = id
+    ? await supabase.from("route_pois").update(row).eq("id", id)
+    : await supabase.from("route_pois").insert({ ...row, created_by: memberId });
+  if (error) throw error;
+
+  revalidatePath("/map");
 }
