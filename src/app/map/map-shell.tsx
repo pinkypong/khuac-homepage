@@ -139,7 +139,7 @@ function TrailPickBar({
   const dropped = chosenSegments.length - 1 > 0 && stitched.length < 2;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-3 pb-[calc(2.4rem+env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-neutral-300 bg-white/95 p-3 shadow-lg backdrop-blur">
         <p className="text-xs font-medium">
           {pick.chosen.length === 0
@@ -493,7 +493,7 @@ export function MapShell({
                 own point for it is the fix, and this is the moment the member
                 both knows the answer and has a reason to give it. */}
             {missingNames.length > 0 && !trailPick && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(2.4rem+env(safe-area-inset-bottom))]">
                 {namingPoi ? (
                   <PoiForm
                     name={namingPoi}

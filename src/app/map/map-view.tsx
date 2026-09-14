@@ -447,6 +447,10 @@ export function MapView({
       gestureHandling="greedy"
       disableDefaultUI={false}
       mapTypeControl={false}
+      // Google puts a "키보드 단축키" button in the bottom-left corner. On a
+      // phone there is no keyboard to shortcut and it only crowds the
+      // attribution line it sits beside.
+      keyboardShortcuts={false}
       className="h-full w-full"
       onZoomChanged={(event) => setShowLabels(event.detail.zoom <= LABEL_MAX_ZOOM)}
       onClick={(event) => {
@@ -478,7 +482,10 @@ export function MapView({
       </MapControl>
 
       {tileLayer && (
-        <MapControl position={ControlPosition.BOTTOM_LEFT}>
+        // Under the layer buttons rather than along the bottom edge, which
+        // belongs to Google's own logo and terms line - ours landed on top of
+        // it. It also reads better here, next to the choice it describes.
+        <MapControl position={ControlPosition.TOP_LEFT}>
           <TileAttribution layer={tileLayer} />
         </MapControl>
       )}
