@@ -1,16 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AdvancedMarker, ControlPosition, MapControl, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
+import { AdvancedMarker, CollisionBehavior, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
 import { loadClubPois, snapSuggestedRoute } from "./route-actions";
 import { findClubPoi, type ClubPoi } from "@/lib/routes/poi";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
 
-// Distinct from every activity colour and from the red a selected activity's
-// own route uses, so a suggestion is never mistaken for a walked track.
-const SUGGESTION_COLOR = "#5b1a23";
+// The outdoor layer draws its own paths in red-brown dashes over brown
+// contours, and the club burgundy this used to be sank straight into them.
+// Violet appears nowhere on that map - not in the water blue, the forest
+// green or the path brown - so the suggested line reads as ours at a glance.
+const SUGGESTION_COLOR = "#6B21A8";
+// Drawn underneath and thicker: a casing is what keeps a thin line legible
+// over a busy topographic map, and white is the one shade the layer never uses
+// for anything but paper.
+const SUGGESTION_CASING = "#FFFFFF";
 
 /**
  * How many named waypoints are looked up per course.
@@ -83,10 +89,6 @@ export function SuggestedRoute({
   const routeName = route.name;
   const waypoints = route.waypoints;
   const [legs, setLegs] = useState<RouteLeg[] | null>(null);
-  // Names no lookup could place. Shown rather than swallowed: these are the
-  // local terms - 해골바위, 밤골 - that a member can fix once by hand, and they
-  // cannot do that if the course simply appears one waypoint short.
-  const [missing, setMissing] = useState<string[]>([]);
 
   useEffect(() => {
     if (!places || waypoints.length === 0) return;
@@ -140,9 +142,11 @@ export function SuggestedRoute({
       const resolvedPoints = points.filter((p): p is RouteWaypoint => p !== null);
       const found = dropOutlierWaypoints(resolvedPoints);
       const placed = new Set(found.map((p) => p.name));
-      const absent = thin(waypoints).filter((name) => !placed.has(name));
-      setMissing(absent);
-      onMissing(absent);
+      // Reported rather than swallowed: these are the local terms - 해골바위,
+      // 밤골 - that a member can fix once by hand, and they cannot do that if
+      // the course simply appears one waypoint short. The shell owns the
+      // notice so it sits with the button that acts on it.
+      onMissing(thin(waypoints).filter((name) => !placed.has(name)));
       onResolved(found);
       if (!map || found.length === 0) return;
       if (found.length === 1) {
@@ -192,41 +196,51 @@ export function SuggestedRoute({
 
   return (
     <>
-      {drawn.map((leg, i) => (
-        <Polyline
-          key={`leg-${i}-${leg.onTrail}`}
-          path={leg.points.map(([lat, lng]) => ({ lat, lng }))}
-          strokeColor={SUGGESTION_COLOR}
+      {drawn.flatMap((leg, i) => {
+        const path = leg.points.map(([lat, lng]) => ({ lat, lng }));
+        const dashes = [
+          { icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeWeight: 3, scale: 1 }, offset: "0", repeat: "10px" },
+        ];
+        return [
+          // Casing first so the coloured line sits on top of it.
+          <Polyline
+            key={`casing-${i}`}
+            path={path}
+            strokeColor={SUGGESTION_CASING}
+            strokeOpacity={leg.onTrail ? 0.95 : 0.8}
+            strokeWeight={leg.onTrail ? 8 : 7}
+          />,
           // Solid means this really is the mapped trail. Dashed means we could
           // not find one and the line is a straight join - the distinction is
           // the whole point, so it is carried by the line itself rather than
           // by a note somewhere off to the side.
-          strokeOpacity={leg.onTrail ? 0.9 : 0}
-          strokeWeight={leg.onTrail ? 4 : 3}
-          icons={
-            leg.onTrail
-              ? undefined
-              : [
-                  {
-                    icon: { path: "M 0,-1 0,1", strokeOpacity: 0.9, strokeWeight: 3, scale: 1 },
-                    offset: "0",
-                    repeat: "10px",
-                  },
-                ]
-          }
-        />
-      ))}
-      {missing.length > 0 && (
-        <MapControl position={ControlPosition.BOTTOM_CENTER}>
-          <span className="m-2 block rounded bg-white/90 px-2 py-1 text-[10px] text-neutral-600 shadow-sm">
-            지도에서 찾지 못해 제외: {missing.join(", ")}
-          </span>
-        </MapControl>
-      )}
+          <Polyline
+            key={`leg-${i}-${leg.onTrail}`}
+            path={path}
+            strokeColor={SUGGESTION_COLOR}
+            strokeOpacity={leg.onTrail ? 1 : 0}
+            strokeWeight={leg.onTrail ? 4 : 3}
+            icons={leg.onTrail ? undefined : dashes}
+          />,
+        ];
+      })}
       {resolved.map((point, i) => (
-        <AdvancedMarker key={`${point.name}-${i}`} position={point} title={point.name} zIndex={20}>
+        <AdvancedMarker
+          key={`${point.name}-${i}`}
+          position={point}
+          title={point.name}
+          zIndex={20}
+          // Labels piled on top of each other at the zoom a whole course fits
+          // into; the ends matter most, so the middle ones give way rather
+          // than covering the line they describe.
+          collisionBehavior={
+            i === 0 || i === resolved.length - 1
+              ? CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL
+              : CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
+          }
+        >
           <span
-            className="rounded-full border-2 border-white px-1.5 py-0.5 text-[10px] font-medium text-white shadow"
+            className="rounded-full border border-white/90 px-1.5 py-px text-[9px] font-semibold leading-tight text-white shadow"
             style={{ backgroundColor: SUGGESTION_COLOR }}
           >
             {point.name}

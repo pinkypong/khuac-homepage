@@ -523,7 +523,7 @@ export function MapShell({
                     onClick={() => setNamingPoi(missingNames[0])}
                     className="pointer-events-auto m-2 rounded-full border border-neutral-300 bg-white/95 px-3 py-1.5 text-[11px] text-neutral-700 shadow-lg backdrop-blur"
                   >
-                    &lsquo;{missingNames[0]}&rsquo; 위치 지정
+                    지도에 없는 &lsquo;{missingNames[0]}&rsquo; · 위치 지정
                   </button>
                 )}
               </div>

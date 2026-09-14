@@ -314,7 +314,7 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
     so this is tied to the active layer rather than left to a footer. */
 function TileAttribution({ layer }: { layer: TileLayer }) {
   return (
-    <span className="m-2 rounded bg-white/85 px-1.5 py-0.5 text-[10px] text-neutral-600 shadow-sm">
+    <span className="m-2 whitespace-nowrap rounded bg-white/80 px-1.5 py-0.5 text-[9px] leading-tight text-neutral-500 shadow-sm">
       {layer.attribution}
     </span>
   );
@@ -482,10 +482,12 @@ export function MapView({
       </MapControl>
 
       {tileLayer && (
-        // Under the layer buttons rather than along the bottom edge, which
-        // belongs to Google's own logo and terms line - ours landed on top of
-        // it. It also reads better here, next to the choice it describes.
-        <MapControl position={ControlPosition.TOP_LEFT}>
+        // LEFT_TOP, not TOP_LEFT: the latter shares a row with the layer
+        // buttons, and being pushed along it landed this in the top-right
+        // corner over the map. The left column puts it under them, which is
+        // where it belongs - beside the choice it describes, and clear of
+        // Google's own logo and terms line along the bottom.
+        <MapControl position={ControlPosition.LEFT_TOP}>
           <TileAttribution layer={tileLayer} />
         </MapControl>
       )}

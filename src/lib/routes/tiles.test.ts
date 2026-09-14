@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupSegmentsByTile, mergeTileSegments, tileKey, tilesForBounds } from "./tiles";
+import { groupSegmentsByTile, mergeTileSegments, tileKey, tilesForBounds, tilesFullyInside } from "./tiles";
 import type { TrailSegment } from "./trails";
 import type { TrackPoint } from "../gps/track";
 
@@ -60,5 +60,20 @@ describe("mergeTileSegments", () => {
     const shared = seg(7, [[37.665, 126.965], [37.685, 126.965]]);
     const other = seg(8, [[37.661, 126.961], [37.662, 126.962]]);
     expect(mergeTileSegments([[shared, other], [shared]]).map((s) => s.id).sort()).toEqual([7, 8]);
+  });
+});
+
+describe("tilesFullyInside", () => {
+  it("keeps only the tiles the fetch saw all of", () => {
+    // Exactly two tiles wide and one tall, aligned to the grid.
+    const aligned = { south: 37.66, west: 126.96, north: 37.68, east: 127.00 };
+    expect(tilesFullyInside(aligned).size).toBe(2);
+  });
+
+  it("excludes the edge tiles a box only clips", () => {
+    // Straddles four tiles but fully contains none of them.
+    const clipping = { south: 37.665, west: 126.965, north: 37.685, east: 126.985 };
+    expect(tilesFullyInside(clipping).size).toBe(0);
+    expect(tilesForBounds(clipping).length).toBe(4);
   });
 });

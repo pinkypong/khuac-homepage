@@ -7,7 +7,7 @@ import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { snapRouteToTrails, type RouteLeg } from "@/lib/routes/snap";
 import type { ClubPoi } from "@/lib/routes/poi";
-import { groupSegmentsByTile, mergeTileSegments, tilesForBounds } from "@/lib/routes/tiles";
+import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
 import { isValidGps } from "@/lib/gps/validate";
 
@@ -135,16 +135,23 @@ async function trailsForBounds(
   try {
     const fetched = await fetchTrailsInBounds(bounds);
     const byTile = groupSegmentsByTile(fetched);
-    // Every requested tile is written, including the empty ones: a tile with
-    // no paths is an answer too, and without the row it would be re-fetched
-    // on every preview of a course that happens to clip it.
-    const rows = keys.map((key) => ({
-      tile_key: key,
-      segments: byTile.get(key) ?? [],
-      fetched_at: new Date().toISOString(),
-    }));
-    const { error } = await supabase.from("trail_tiles").upsert(rows, { onConflict: "tile_key" });
-    if (error) console.error("[route-actions] trail tile write failed", error.message);
+    // Only the tiles this box fully contained. An empty tile is a real answer
+    // worth keeping - "no paths here" saves the next preview a fetch - but a
+    // tile the box merely clipped would be cached with the ways that fell
+    // inside and none of the ones continuing past the edge, which is a hole a
+    // later course would read as fact.
+    const complete = tilesFullyInside(bounds);
+    const rows = keys
+      .filter((key) => complete.has(key))
+      .map((key) => ({
+        tile_key: key,
+        segments: byTile.get(key) ?? [],
+        fetched_at: new Date().toISOString(),
+      }));
+    if (rows.length > 0) {
+      const { error } = await supabase.from("trail_tiles").upsert(rows, { onConflict: "tile_key" });
+      if (error) console.error("[route-actions] trail tile write failed", error.message);
+    }
     return fetched;
   } catch {
     console.error("[route-actions] Overpass unavailable; drawing from cached tiles only");

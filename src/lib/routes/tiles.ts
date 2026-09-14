@@ -69,3 +69,32 @@ export function mergeTileSegments(tiles: TrailSegment[][]): TrailSegment[] {
   }
   return [...byId.values()];
 }
+
+/**
+ * Only the tiles a fetch actually saw all of.
+ *
+ * A query returns the ways inside its box, so a tile straddling the edge gets
+ * the part that fell inside and nothing of the path continuing beyond it.
+ * Writing that as the tile's answer would cache a hole: a later course
+ * approaching from the other side would read "no paths here" and draw a
+ * straight line across ground that is covered in them. Edge tiles are left
+ * unwritten instead, for a fetch that contains them properly.
+ */
+export function tilesFullyInside(bounds: TrailBounds): Set<string> {
+  const south = Math.min(bounds.south, bounds.north);
+  const north = Math.max(bounds.south, bounds.north);
+  const west = Math.min(bounds.west, bounds.east);
+  const east = Math.max(bounds.west, bounds.east);
+
+  return new Set(
+    tilesForBounds(bounds).filter((key) => {
+      const [tileSouth, tileWest] = key.split(",").map(Number);
+      return (
+        tileSouth >= south - 1e-9 &&
+        tileWest >= west - 1e-9 &&
+        tileSouth + TILE_DEG <= north + 1e-9 &&
+        tileWest + TILE_DEG <= east + 1e-9
+      );
+    }),
+  );
+}
