@@ -131,16 +131,22 @@ async function trailsForBounds(
   const keys = tilesForBounds(bounds);
   const cached = new Map<string, TrailSegment[]>();
 
-  const { data } = await supabase
-    .from("trail_tiles")
-    .select("tile_key, segments")
-    .in("tile_key", keys);
-  for (const row of (data ?? []) as unknown as { tile_key: string; segments: TrailSegment[] }[]) {
+  // Both sources at once. 산림청 and 국립공원공단 surveyed these routes and OSM
+  // volunteers walked them, and neither is reliably the better record - the
+  // forest service data has documented gaps of its own - so a path missing
+  // from one is supplied by the other rather than argued with.
+  const [osm, official] = await Promise.all([
+    supabase.from("trail_tiles").select("tile_key, segments").in("tile_key", keys),
+    supabase.from("official_trails").select("segments").in("tile_key", keys),
+  ]);
+  for (const row of (osm.data ?? []) as unknown as { tile_key: string; segments: TrailSegment[] }[]) {
     cached.set(row.tile_key, row.segments ?? []);
   }
+  const officialSegments = ((official.data ?? []) as unknown as { segments: TrailSegment[] }[])
+    .flatMap((row) => row.segments ?? []);
 
   const missing = keys.filter((key) => !cached.has(key));
-  if (missing.length === 0) return mergeTileSegments([...cached.values()]);
+  if (missing.length === 0) return mergeTileSegments([...cached.values(), officialSegments]);
 
   try {
     const fetched = await fetchTrailsInBounds(bounds);
@@ -162,10 +168,10 @@ async function trailsForBounds(
       const { error } = await supabase.from("trail_tiles").upsert(rows, { onConflict: "tile_key" });
       if (error) console.error("[route-actions] trail tile write failed", error.message);
     }
-    return fetched;
+    return mergeTileSegments([[...fetched], officialSegments]);
   } catch {
-    console.error("[route-actions] Overpass unavailable; drawing from cached tiles only");
-    return mergeTileSegments([...cached.values()]);
+    console.error("[route-actions] Overpass unavailable; drawing from what we hold");
+    return mergeTileSegments([...cached.values(), officialSegments]);
   }
 }
 
