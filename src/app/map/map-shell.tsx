@@ -222,6 +222,9 @@ export function MapShell({
   // clear the rest of the time.
   const [missingNames, setMissingNames] = useState<string[]>([]);
   const [namingPoi, setNamingPoi] = useState<string | null>(null);
+  // Told apart from "this stretch has no path": one is our problem, the other
+  // is the mountain's, and a dashed line alone cannot say which.
+  const [trailsUnavailable, setTrailsUnavailable] = useState(false);
   const [poiPoint, setPoiPoint] = useState<PickedPoint | null>(null);
   // An in-progress route build: which activity it is for, the paths offered
   // around it, and the ones chosen so far in the order they were tapped.
@@ -480,6 +483,7 @@ export function MapShell({
                   setSuggestedRoute((current) => (current ? { ...current, resolved: points } : current))
                 }
                 onRouteMissing={setMissingNames}
+                onTrailsUnavailable={setTrailsUnavailable}
               /></MapErrorBoundary>
             ) : (
               <div className="p-4">
@@ -492,6 +496,13 @@ export function MapShell({
             {/* Only while a course has a name nothing could place. The club's
                 own point for it is the fix, and this is the moment the member
                 both knows the answer and has a reason to give it. */}
+            {trailsUnavailable && !trailPick && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(4.2rem+env(safe-area-inset-bottom))]">
+                <span className="rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-[11px] text-amber-800 shadow backdrop-blur">
+                  등산로 정보를 불러오지 못했습니다 · 점선은 직선 연결입니다
+                </span>
+              </div>
+            )}
             {missingNames.length > 0 && !trailPick && (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(2.4rem+env(safe-area-inset-bottom))]">
                 {namingPoi ? (

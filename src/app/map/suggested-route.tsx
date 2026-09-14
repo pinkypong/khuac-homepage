@@ -69,6 +69,7 @@ export function SuggestedRoute({
   resolved,
   onResolved,
   onMissing,
+  onTrailsUnavailable,
 }: {
   route: RouteSuggestion;
   center: { lat: number; lng: number } | null;
@@ -81,6 +82,9 @@ export function SuggestedRoute({
   /** Names this course could not place, handed up so the shell can offer to
       record one. Reported from here because this is where the lookups happen. */
   onMissing: (names: string[]) => void;
+  /** True when no trail data could be loaded at all, which is a different
+      thing from a course that genuinely has no path along part of it. */
+  onTrailsUnavailable: (unavailable: boolean) => void;
 }) {
   const places = useMapsLibrary("places");
   const map = useMap();
@@ -165,7 +169,9 @@ export function SuggestedRoute({
       // Overpass answers, which takes a few seconds.
       snapSuggestedRoute(found.map(({ lat, lng }) => ({ lat, lng })))
         .then((snapped) => {
-          if (!cancelled) setLegs(snapped);
+          if (cancelled) return;
+          setLegs(snapped.legs);
+          onTrailsUnavailable(!snapped.trailsLoaded);
         })
         .catch((error) => {
           console.error("[map/suggested-route] snapping failed", error);

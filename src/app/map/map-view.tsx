@@ -363,6 +363,7 @@ export function MapView({
   suggestedRoute,
   onRouteResolved,
   onRouteMissing,
+  onTrailsUnavailable,
 }: {
   mapId: string;
   locations: MapLocation[];
@@ -387,6 +388,7 @@ export function MapView({
   } | null;
   onRouteResolved: (points: RouteWaypoint[]) => void;
   onRouteMissing: (names: string[]) => void;
+  onTrailsUnavailable: (unavailable: boolean) => void;
 }) {
   // The boolean rather than the zoom level itself: zoom fires continuously
   // while pinching, and storing the raw number re-rendered every marker on
@@ -506,6 +508,7 @@ export function MapView({
           resolved={suggestedRoute.resolved}
           onResolved={onRouteResolved}
           onMissing={onRouteMissing}
+          onTrailsUnavailable={onTrailsUnavailable}
         />
       )}
 

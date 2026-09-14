@@ -71,11 +71,18 @@ export async function saveTrailRoute(
  * Server-side because Overpass asks callers to identify themselves and behave,
  * and because the raw response is far larger than the legs it produces.
  */
+export interface SnapResult {
+  legs: RouteLeg[];
+  /** Why a leg might be dashed, so the map can say rather than leave the
+      member guessing between "no trail here" and "could not look". */
+  trailsLoaded: boolean;
+}
+
 export async function snapSuggestedRoute(
   waypoints: { lat: number; lng: number }[],
-): Promise<RouteLeg[]> {
+): Promise<SnapResult> {
   const { supabase } = await requireApprovedMember();
-  if (waypoints.length < 2) return [];
+  if (waypoints.length < 2) return { legs: [], trailsLoaded: true };
 
   // A box around the whole course rather than a circle around its middle. The
   // circle was capped at a 3km radius, so a 6km course from 밤골 to 도선사 had
@@ -98,12 +105,15 @@ export async function snapSuggestedRoute(
   if (segments.length === 0) {
     // Nothing to route along, from cache or from Overpass. Straight legs say
     // so honestly rather than the map pretending it looked.
-    return waypoints.slice(1).map((point, i) => ({
-      points: [[waypoints[i].lat, waypoints[i].lng], [point.lat, point.lng]] as [number, number][],
-      onTrail: false,
-    }));
+    return {
+      legs: waypoints.slice(1).map((point, i) => ({
+        points: [[waypoints[i].lat, waypoints[i].lng], [point.lat, point.lng]] as [number, number][],
+        onTrail: false,
+      })),
+      trailsLoaded: false,
+    };
   }
-  return snapRouteToTrails(waypoints, segments);
+  return { legs: snapRouteToTrails(waypoints, segments), trailsLoaded: true };
 }
 
 /**
