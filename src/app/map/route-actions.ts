@@ -7,6 +7,8 @@ import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { snapRouteToTrails, type RouteLeg } from "@/lib/routes/snap";
 import type { ClubPoi } from "@/lib/routes/poi";
+import { groupSegmentsByTile, mergeTileSegments, tilesForBounds } from "@/lib/routes/tiles";
+import type { TrailBounds } from "@/lib/routes/overpass";
 import { isValidGps } from "@/lib/gps/validate";
 
 /**
@@ -72,7 +74,7 @@ export async function saveTrailRoute(
 export async function snapSuggestedRoute(
   waypoints: { lat: number; lng: number }[],
 ): Promise<RouteLeg[]> {
-  await requireApprovedMember();
+  const { supabase } = await requireApprovedMember();
   if (waypoints.length < 2) return [];
 
   // A box around the whole course rather than a circle around its middle. The
@@ -85,22 +87,68 @@ export async function snapSuggestedRoute(
   // the path leading onto it.
   const margin = 0.008;
 
-  try {
-    const segments = await fetchTrailsInBounds({
-      south: Math.min(...lats) - margin,
-      west: Math.min(...lngs) - margin,
-      north: Math.max(...lats) + margin,
-      east: Math.max(...lngs) + margin,
-    });
-    return snapRouteToTrails(waypoints, segments);
-  } catch {
-    // Overpass is volunteer-run and does go down. A straight dashed line is
-    // the honest fallback; failing the whole answer over it is not.
-    console.error("[route-actions] trail snapping unavailable; falling back to straight legs");
+  const bounds: TrailBounds = {
+    south: Math.min(...lats) - margin,
+    west: Math.min(...lngs) - margin,
+    north: Math.max(...lats) + margin,
+    east: Math.max(...lngs) + margin,
+  };
+
+  const segments = await trailsForBounds(supabase, bounds);
+  if (segments.length === 0) {
+    // Nothing to route along, from cache or from Overpass. Straight legs say
+    // so honestly rather than the map pretending it looked.
     return waypoints.slice(1).map((point, i) => ({
-      points: [[waypoints[i].lat, waypoints[i].lng], [point.lat, point.lng]],
+      points: [[waypoints[i].lat, waypoints[i].lng], [point.lat, point.lng]] as [number, number][],
       onTrail: false,
     }));
+  }
+  return snapRouteToTrails(waypoints, segments);
+}
+
+/**
+ * The club's trail geometry for a box, filling any gaps from Overpass.
+ *
+ * Cached tiles answer first. Overpass is asked only about ground nobody has
+ * looked at yet, and if it refuses - which it does; the main instance returned
+ * 504 twice in one day while this was written - whatever tiles we already hold
+ * are used anyway. Stale trail data is still trail data: paths do not move.
+ */
+async function trailsForBounds(
+  supabase: Awaited<ReturnType<typeof requireApprovedMember>>["supabase"],
+  bounds: TrailBounds,
+): Promise<TrailSegment[]> {
+  const keys = tilesForBounds(bounds);
+  const cached = new Map<string, TrailSegment[]>();
+
+  const { data } = await supabase
+    .from("trail_tiles")
+    .select("tile_key, segments")
+    .in("tile_key", keys);
+  for (const row of (data ?? []) as unknown as { tile_key: string; segments: TrailSegment[] }[]) {
+    cached.set(row.tile_key, row.segments ?? []);
+  }
+
+  const missing = keys.filter((key) => !cached.has(key));
+  if (missing.length === 0) return mergeTileSegments([...cached.values()]);
+
+  try {
+    const fetched = await fetchTrailsInBounds(bounds);
+    const byTile = groupSegmentsByTile(fetched);
+    // Every requested tile is written, including the empty ones: a tile with
+    // no paths is an answer too, and without the row it would be re-fetched
+    // on every preview of a course that happens to clip it.
+    const rows = keys.map((key) => ({
+      tile_key: key,
+      segments: byTile.get(key) ?? [],
+      fetched_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase.from("trail_tiles").upsert(rows, { onConflict: "tile_key" });
+    if (error) console.error("[route-actions] trail tile write failed", error.message);
+    return fetched;
+  } catch {
+    console.error("[route-actions] Overpass unavailable; drawing from cached tiles only");
+    return mergeTileSegments([...cached.values()]);
   }
 }
 
