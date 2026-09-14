@@ -3,10 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
-import { fetchTrailsNear } from "@/lib/routes/overpass";
+import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { snapRouteToTrails, type RouteLeg } from "@/lib/routes/snap";
-import { haversineDistanceMeters } from "@/lib/gps/haversine";
 
 /**
  * The mapped paths around an activity, for the member to pick their route from.
@@ -74,22 +73,23 @@ export async function snapSuggestedRoute(
   await requireApprovedMember();
   if (waypoints.length < 2) return [];
 
+  // A box around the whole course rather than a circle around its middle. The
+  // circle was capped at a 3km radius, so a 6km course from 밤골 to 도선사 had
+  // the middle of the mountain outside the query and came back entirely dashed
+  // for want of data rather than for want of a path.
   const lats = waypoints.map((w) => w.lat);
   const lngs = waypoints.map((w) => w.lng);
-  const centre = {
-    lat: (Math.min(...lats) + Math.max(...lats)) / 2,
-    lng: (Math.min(...lngs) + Math.max(...lngs)) / 2,
-  };
-
-  // Enough to cover the whole course plus the paths leading onto it. A course
-  // longer than the cap simply routes the parts that fall inside it and leaves
-  // the rest dashed, which is visible rather than wrong.
-  const spanM = Math.max(
-    ...waypoints.map((w) => haversineDistanceMeters(centre, w)),
-  );
+  // Roughly 900m of margin, so a trailhead just outside the course still has
+  // the path leading onto it.
+  const margin = 0.008;
 
   try {
-    const segments = await fetchTrailsNear(centre.lat, centre.lng, spanM + 800);
+    const segments = await fetchTrailsInBounds({
+      south: Math.min(...lats) - margin,
+      west: Math.min(...lngs) - margin,
+      north: Math.max(...lats) + margin,
+      east: Math.max(...lngs) + margin,
+    });
     return snapRouteToTrails(waypoints, segments);
   } catch {
     // Overpass is volunteer-run and does go down. A straight dashed line is

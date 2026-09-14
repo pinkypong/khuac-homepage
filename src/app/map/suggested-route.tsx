@@ -5,7 +5,7 @@ import { AdvancedMarker, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
 import { snapSuggestedRoute } from "./route-actions";
-import type { RouteLeg } from "@/lib/routes/snap";
+import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
 
 // Distinct from every activity colour and from the red a selected activity's
 // own route uses, so a suggestion is never mistaken for a walked track.
@@ -112,7 +112,13 @@ export function SuggestedRoute({
 
     Promise.all(thin(waypoints).map(resolveOne)).then((points) => {
       if (cancelled) return;
-      const found = points.filter((p): p is RouteWaypoint => p !== null);
+      // A name can resolve to the wrong place entirely - 해골바위 on 숨은벽
+      // came back on the far side of 북한산 - and one bad lookup dragged the
+      // whole course into a straight line across the massif. Dropping it here
+      // rather than server-side keeps its pin off the map too.
+      const found = dropOutlierWaypoints(
+        points.filter((p): p is RouteWaypoint => p !== null),
+      );
       onResolved(found);
       if (!map || found.length === 0) return;
       if (found.length === 1) {

@@ -246,3 +246,46 @@ export function snapRouteToTrails(
 
   return legs;
 }
+
+/**
+ * Drops a waypoint that sits nowhere near the rest of the course.
+ *
+ * Waypoint names are looked up one at a time, and a lookup can land on the
+ * wrong place entirely: 해골바위 on 숨은벽 능선 came back eight kilometres east
+ * of the ridge, on the far side of the massif, and the course was drawn as a
+ * straight line across 북한산 to reach it. One bad name should cost its own pin,
+ * not the whole route's shape.
+ *
+ * The test is relative rather than a fixed distance, because a ridge traverse
+ * and a short crag approach have legitimately different strides: a point is
+ * only dropped when it is far from its neighbours by the standard of the other
+ * gaps on this same course.
+ */
+// Three rather than four: the 해골바위 lookup that prompted this landed 7.8km
+// from a course whose points were otherwise 2.1km apart, and four times the
+// median let it through by six hundred metres. The 3km floor keeps a short
+// crag approach from having its own waypoints judged against a tiny median.
+const OUTLIER_GAP_RATIO = 3;
+const OUTLIER_MIN_GAP_M = 3000;
+
+export function dropOutlierWaypoints<T extends { lat: number; lng: number }>(points: T[]): T[] {
+  if (points.length < 3) return points;
+
+  // Distance to the nearest other waypoint, rather than to the ones either
+  // side in the list. A course of three with one bad name has that bad name in
+  // both of the sequential gaps, which drags the median up until nothing looks
+  // unusual; every good point still has a close neighbour somewhere.
+  const nearest = points.map((point, i) =>
+    Math.min(
+      ...points.flatMap((other, j) => (i === j ? [] : [haversineDistanceMeters(point, other)])),
+    ),
+  );
+  const sorted = [...nearest].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (median <= 0) return points;
+
+  const limit = Math.max(median * OUTLIER_GAP_RATIO, OUTLIER_MIN_GAP_M);
+  const kept = points.filter((_, i) => nearest[i] <= limit);
+  // Never strip a course down to nothing on the strength of this heuristic.
+  return kept.length >= 2 ? kept : points;
+}

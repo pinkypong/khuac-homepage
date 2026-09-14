@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { snapRouteToTrails } from "./snap";
+import { dropOutlierWaypoints, snapRouteToTrails } from "./snap";
 import type { TrailSegment } from "./trails";
 import type { TrackPoint } from "../gps/track";
 
@@ -114,5 +114,45 @@ describe("snapRouteToTrails", () => {
       [bulging],
     );
     expect(legs).toHaveLength(2);
+  });
+});
+
+describe("dropOutlierWaypoints", () => {
+  // 숨은벽: 밤골 → 해골바위 → 백운대, with 해골바위 mislooked-up far to the east.
+  const course = [
+    { lat: 37.669, lng: 126.956 },
+    { lat: 37.660, lng: 127.060 },
+    { lat: 37.655, lng: 126.972 },
+  ];
+
+  it("drops a waypoint that landed on the far side of the mountain", () => {
+    const kept = dropOutlierWaypoints(course);
+    expect(kept).toHaveLength(2);
+    expect(kept.map((p) => p.lng)).toEqual([126.956, 126.972]);
+  });
+
+  it("keeps a course whose points are simply spread out evenly", () => {
+    const traverse = [
+      { lat: 37.60, lng: 127.00 },
+      { lat: 37.62, lng: 127.02 },
+      { lat: 37.64, lng: 127.04 },
+      { lat: 37.66, lng: 127.06 },
+    ];
+    expect(dropOutlierWaypoints(traverse)).toHaveLength(4);
+  });
+
+  it("leaves two points alone - there is nothing to compare against", () => {
+    const pair = [{ lat: 37.6, lng: 127.0 }, { lat: 38.2, lng: 127.9 }];
+    expect(dropOutlierWaypoints(pair)).toHaveLength(2);
+  });
+
+  it("drops a misplaced endpoint too", () => {
+    const withBadEnd = [
+      { lat: 37.650, lng: 126.960 },
+      { lat: 37.655, lng: 126.968 },
+      { lat: 37.660, lng: 126.975 },
+      { lat: 37.900, lng: 127.400 },
+    ];
+    expect(dropOutlierWaypoints(withBadEnd)).toHaveLength(3);
   });
 });

@@ -59,6 +59,43 @@ async function fetchFromAnyMirror(query: string): Promise<unknown> {
   throw new Error(`등산로 정보를 불러오지 못했습니다 (${lastStatus || "응답 없음"})`);
 }
 
+export interface TrailBounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+// A circle big enough to hold a long ridge traverse would also drag in half a
+// province, so a route asks for its own bounding box instead. This cap is a
+// guard against a bad waypoint stretching the box across the country: roughly
+// 28km, wider than any single course the club walks.
+const MAX_BOUNDS_SPAN_DEG = 0.25;
+
+/**
+ * Mapped paths inside a box, which is the shape a route actually has.
+ *
+ * fetchTrailsNear takes a circle centred on one point, and a course from 밤골
+ * to 도선사 is 6km end to end - the radius cap left the middle of the mountain
+ * outside the query and every leg came back dashed for want of data rather
+ * than for want of a path.
+ */
+export async function fetchTrailsInBounds(bounds: TrailBounds): Promise<TrailSegment[]> {
+  const south = Math.min(bounds.south, bounds.north);
+  const north = Math.max(bounds.south, bounds.north);
+  const west = Math.min(bounds.west, bounds.east);
+  const east = Math.max(bounds.west, bounds.east);
+  if (north - south > MAX_BOUNDS_SPAN_DEG || east - west > MAX_BOUNDS_SPAN_DEG) {
+    throw new Error("등산로를 찾기에는 경로가 너무 넓습니다.");
+  }
+
+  const query = `[out:json][timeout:${Math.floor(TIMEOUT_MS / 1000)}];
+way(${south},${west},${north},${east})["highway"~"^(path|footway|track|steps)$"];
+out geom;`;
+
+  return prepare(await fetchFromAnyMirror(query));
+}
+
 function buildQuery(lat: number, lng: number, radiusM: number) {
   // steps included on purpose: Korean trails are full of stairways, and a route
   // that omitted them would have holes exactly where the climbing happens.
@@ -83,6 +120,10 @@ export async function fetchTrailsNear(
 
   const payload = await fetchFromAnyMirror(buildQuery(lat, lng, radius));
 
+  return prepare(payload);
+}
+
+function prepare(payload: unknown): TrailSegment[] {
   return parseOverpassWays(payload)
     .filter((segment) => segmentLengthMeters(segment) >= MIN_USEFUL_LENGTH_M)
     .map((segment) => ({
