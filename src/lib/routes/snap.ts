@@ -50,6 +50,9 @@ interface Graph {
   edges: Map<number, { to: number; cost: number }[]>;
   /** Grid cell key -> node ids, so a nearest-node lookup stays local. */
   cells: Map<string, number[]>;
+  /** Which ways each node belongs to, which is what tells a junction from a
+      switchback passing close to itself. */
+  ways: Map<number, Set<number>>;
 }
 
 const cellKey = (lat: number, lng: number) =>
@@ -68,7 +71,7 @@ function addEdge(graph: Graph, from: number, to: number, cost: number) {
 }
 
 export function buildTrailGraph(segments: TrailSegment[]): Graph {
-  const graph: Graph = { nodes: [], edges: new Map(), cells: new Map() };
+  const graph: Graph = { nodes: [], edges: new Map(), cells: new Map(), ways: new Map() };
   // Identical coordinates are one node, which is how a way that branches off
   // another stays connected to it: OSM shares the junction node between them.
   const byCoord = new Map<string, number>();
@@ -93,6 +96,9 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
     let previous: number | null = null;
     for (const point of segment.points) {
       const id = nodeFor(point);
+      const owners = graph.ways.get(id);
+      if (owners) owners.add(segment.id);
+      else graph.ways.set(id, new Set([segment.id]));
       if (previous !== null) addEdge(graph, previous, id, metres(graph.nodes[previous], point));
       previous = id;
     }
@@ -102,6 +108,11 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
   // the downsampling that keeps these segments drawable can drop the shared
   // point even when they did. Without this the graph is a pile of disconnected
   // paths and almost nothing routes.
+  //
+  // Only across different ways, though. A switchback doubles back within a few
+  // metres of itself, so linking any two nearby points let the router step
+  // straight across the zigzag and skip it - which is how a mountain trail came
+  // back barely longer than the straight line between its ends.
   for (const [key, ids] of graph.cells) {
     const [cy, cx] = key.split(":").map(Number);
     for (let dy = -1; dy <= 1; dy++) {
@@ -109,8 +120,11 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
         const neighbours = graph.cells.get(`${cy + dy}:${cx + dx}`);
         if (!neighbours) continue;
         for (const a of ids) {
+          const aWays = graph.ways.get(a);
           for (const b of neighbours) {
             if (b <= a) continue;
+            const bWays = graph.ways.get(b);
+            if (aWays && bWays && [...aWays].some((w) => bWays.has(w))) continue;
             const gap = metres(graph.nodes[a], graph.nodes[b]);
             if (gap <= JUNCTION_TOLERANCE_M) addEdge(graph, a, b, gap);
           }
