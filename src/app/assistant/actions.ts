@@ -12,7 +12,7 @@ import {
 } from "@/lib/assistant/intent";
 import { findMatchingPlace, type PlaceCandidateHike } from "@/lib/assistant/resolve";
 import { buildClubHistoryContext } from "@/lib/assistant/context";
-import { extractRoutes, searchRoutes, type RouteSuggestion } from "@/lib/assistant/routes";
+import { extractRoutes, searchRoutes, selectFromLibrary, type LibraryCourse, type RouteSuggestion } from "@/lib/assistant/routes";
 import {
   daysInRange,
   fetchForecast,
@@ -268,6 +268,33 @@ export async function askAssistant(question: string, refresh = false): Promise<A
   // there was the wrong instinct: not having gone somewhere is not a reason to
   // withhold what is knowable about it.
   if (isRouteQuestion(trimmed)) {
+    // What we already hold, read against the question instead of searched for.
+    // A grounded search costs 27 seconds and is spent again on every
+    // rephrasing; the courses themselves barely change, so only the reading is
+    // worth paying for once we know the mountain.
+    const held = await libraryFor(supabase, trimmed, place?.location.name ?? placeSummary?.name ?? null);
+    if (held) {
+      const picked = await selectFromLibrary(
+        held.mountain,
+        trimmed,
+        held.courses,
+        [clubHistory, weatherContext].filter(Boolean).join("\n") || null,
+      );
+      // An empty answer means nothing we hold fits the question, which is a
+      // reason to go and look rather than to say there is nothing.
+      if (picked.routes.length > 0) {
+        return store(supabase, key, trimmed, memberId, {
+          intent,
+          text: "",
+          place: placeSummary,
+          routes: picked.routes,
+          routePlaceName: place?.location.name ?? picked.placeName,
+          summary: picked.summary,
+          sources: picked.sources,
+        });
+      }
+    }
+
     // Returned as soon as the search answer exists. Turning it into cards is a
     // second model call that cannot start until this one has finished, and
     // waiting for both before showing anything is what made a slow answer feel
@@ -325,6 +352,9 @@ export async function finishRouteAnswer(question: string): Promise<AssistantAnsw
   if (!stored || !stored.routesPending) return stored;
 
   const result = await extractRoutes(stored.text, stored.sources ?? [], stored.routePlaceName ?? null);
+  // Filed while we have it, so the next question about this mountain reads the
+  // list instead of searching for it again.
+  await rememberCourses(supabase, stored.routePlaceName ?? result.placeName, result.routes);
   return store(supabase, key, trimmed, memberId, {
     ...stored,
     routes: result.routes,
@@ -335,6 +365,89 @@ export async function finishRouteAnswer(question: string): Promise<AssistantAnsw
     summary: result.summary,
     routesPending: false,
   });
+}
+
+/** Enough of a mountain held that asking the web again is not worth 27 seconds. */
+const LIBRARY_ENOUGH = 3;
+
+interface LibraryRow {
+  mountain: string;
+  name: string;
+  waypoints: string[];
+  distance_text: string | null;
+  duration_text: string | null;
+  difficulty: string | null;
+  description: string | null;
+  notes: string | null;
+  sources: string[];
+}
+
+/**
+ * The mountain a route question is about, when we hold courses for one.
+ *
+ * Named outright in most questions. Not in "도선사로 하산하는 코스", which
+ * names only a place on the way - so the waypoints we already hold are read
+ * too, and the mountain whose courses mention it wins.
+ */
+async function libraryFor(
+  supabase: Client,
+  question: string,
+  placeName: string | null,
+): Promise<{ mountain: string; courses: LibraryCourse[] } | null> {
+  const { data } = await supabase
+    .from("course_library")
+    .select("mountain, name, waypoints, distance_text, duration_text, difficulty, description, notes, sources");
+  const rows = (data ?? []) as unknown as LibraryRow[];
+  if (rows.length === 0) return null;
+
+  const score = new Map<string, number>();
+  for (const row of rows) {
+    let hit = 0;
+    if (placeName && row.mountain === placeName) hit += 100;
+    if (question.includes(row.mountain)) hit += 50;
+    for (const waypoint of row.waypoints) {
+      if (waypoint.length >= 2 && question.includes(waypoint)) hit += 5;
+    }
+    if (hit > 0) score.set(row.mountain, (score.get(row.mountain) ?? 0) + hit);
+  }
+  const best = [...score].sort((a, b) => b[1] - a[1])[0];
+  if (!best) return null;
+
+  const courses = rows.filter((row) => row.mountain === best[0]).map((row) => ({
+    name: row.name,
+    waypoints: row.waypoints ?? [],
+    distanceText: row.distance_text,
+    durationText: row.duration_text,
+    difficulty: row.difficulty,
+    description: row.description,
+    notes: row.notes,
+    sources: row.sources ?? [],
+  }));
+  return courses.length >= LIBRARY_ENOUGH ? { mountain: best[0], courses } : null;
+}
+
+/** Files what a search found, so the next question about this mountain is fast. */
+async function rememberCourses(
+  supabase: Client,
+  mountain: string | null,
+  routes: RouteSuggestion[],
+): Promise<void> {
+  if (!mountain || routes.length === 0) return;
+  const rows = routes.map((route) => ({
+    mountain,
+    name: route.name,
+    waypoints: route.waypoints,
+    distance_text: route.distanceText,
+    duration_text: route.durationText,
+    difficulty: route.difficulty,
+    description: route.description,
+    notes: route.notes,
+    sources: route.sourceUrls ?? [],
+    origin: "search",
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await supabase.from("course_library").upsert(rows, { onConflict: "mountain,name" });
+  if (error) console.error("[assistant/library] store failed", error.message);
 }
 
 /** Where the club's activity sits, used to settle same-named mountains. */

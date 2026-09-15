@@ -190,3 +190,80 @@ export async function extractRoutes(
     return { ...grounded, routes: [] as RouteSuggestion[], placeName, summary: null };
   }
 }
+
+export interface LibraryCourse {
+  name: string;
+  waypoints: string[];
+  distanceText: string | null;
+  durationText: string | null;
+  difficulty: string | null;
+  description: string | null;
+  notes: string | null;
+  sources: string[];
+}
+
+/**
+ * The courses we already hold, read against the question instead of searched.
+ *
+ * A grounded search for one mountain took 26.7 seconds and sixteen sources,
+ * and it was spent again for every rephrasing - the answer cache is keyed by
+ * the question, so "북한산 코스 추천" and "도선사로 하산하는 코스" each paid in
+ * full for the same handful of courses.
+ *
+ * The courses barely change. What changes is what is being asked of them, and
+ * that is the part worth a model: this call does no searching at all, only the
+ * reading of a question against a list we already have. It is the difference
+ * between twenty-seven seconds and a few.
+ */
+export async function selectFromLibrary(
+  mountain: string,
+  question: string,
+  courses: LibraryCourse[],
+  clubContext: string | null,
+) {
+  const listed = courses.map((course, i) => [
+    `${i + 1}. ${course.name}`,
+    course.waypoints.length ? `   경유지: ${course.waypoints.join(" → ")}` : null,
+    `   거리 ${course.distanceText ?? "미확인"} · 소요 ${course.durationText ?? "미확인"} · 난이도 ${course.difficulty ?? "미확인"}`,
+    course.description ? `   설명: ${course.description}` : null,
+    course.notes ? `   참고: ${course.notes}` : null,
+  ].filter(Boolean).join("\n")).join("\n");
+
+  const extracted = await generateStructured<unknown>(
+    [
+      STYLE_GUIDANCE,
+      `아래는 ${mountain}의 등산 코스 목록입니다. 질문에 맞는 코스만 골라 구조화하세요.`,
+      // The library is the only source here. Inventing a course would put a
+      // line on the map through ground nobody has checked.
+      "목록에 없는 코스를 새로 만들지 마세요. 목록에 있는 내용만 쓰고, 거리·소요시간·난이도·경유지는 그대로 옮기세요.",
+      "질문의 조건(소요시간, 난이도, 들머리·날머리 등)에 맞지 않는 코스는 빼세요. 조건에 맞는 코스가 하나도 없으면 routes를 빈 배열로 두세요.",
+      "같은 코스가 이름만 다르게 여러 번 있으면 하나로 합치고, 가장 구체적인 이름을 쓰세요.",
+      "질문과 가장 잘 맞는 순서로 정렬하세요.",
+      `placeName에는 '${mountain}'을 그대로 쓰세요.`,
+      "summary에는 고른 코스들에 공통으로 해당하는 주의사항이 있을 때만 한두 문장으로 적으세요.",
+      clubContext ? `참고 자료: ${clubContext}` : null,
+      `질문: ${question}`,
+      `코스 목록:\n${listed}`,
+    ].filter(Boolean).join("\n\n"),
+    ROUTE_SCHEMA,
+  );
+
+  const sources = courses.flatMap((course) => course.sources).filter((url, i, all) => all.indexOf(url) === i)
+    .map((url) => ({ url, label: hostOf(url) }));
+  return {
+    text: "",
+    sources,
+    routes: normalizeRoutes(extracted, sources),
+    placeName: normalizePlaceName(extracted) ?? mountain,
+    summary: normalizeSummary(extracted),
+  };
+}
+
+/** The site a source came from, which is the only part worth showing. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
