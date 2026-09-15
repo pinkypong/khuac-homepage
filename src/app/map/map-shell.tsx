@@ -192,6 +192,34 @@ export function MapShell({
   const [mapFailed, setMapFailed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const visibleLocations = useMemo(() => locations.filter((l) => (!search.trim() || [l.name, l.region, ...l.hikes.map(h => h.title)].join(" ").toLowerCase().includes(search.trim().toLowerCase())) && (activity === "all" || l.hikes.some(h => h.activityType === activity))), [locations, search, activity]);
+  /**
+   * What the typed text matches, as rows to jump to rather than only as a
+   * filter on the list.
+   *
+   * Filtering alone answered "which folders mention this" and left finding the
+   * course itself to scrolling. Typing 숨은벽 should offer the 숨은벽 능선
+   * course and go to it - and offer both when two courses share the name,
+   * which is why this is a list and not a jump to the first hit.
+   */
+  const searchMatches = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return [];
+    const rows: { hike: MapHike; location: MapLocation }[] = [];
+    for (const location of locations) {
+      for (const hike of location.hikes) {
+        if (activity !== "all" && hike.activityType !== activity) continue;
+        const haystack = [hike.title, location.name, location.region].join(" ").toLowerCase();
+        if (haystack.includes(term)) rows.push({ hike, location });
+      }
+    }
+    // The course whose own title matches is what was being looked for; one
+    // that matched only through its mountain's name comes after.
+    return rows
+      .sort((a, b) =>
+        Number(b.hike.title.toLowerCase().includes(term)) - Number(a.hike.title.toLowerCase().includes(term)))
+      .slice(0, 8);
+  }, [locations, search, activity]);
+
   const [mapWidth, setMapWidth] = useState<number | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -449,7 +477,20 @@ export function MapShell({
         <div className="club-header-actions"><Link className="club-upload" href="/photos/upload">사진 업로드 <span>＋</span></Link><button className="club-profile" aria-label="내 정보" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}><NavIcon kind="profile"/></button></div>
       </header>
       {accountOpen && <section className="club-account" aria-label="내 정보">{viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}<Link href="/members">부원</Link>{isAdmin && <Link href="/admin/members">관리자 <PendingBadge count={pendingCount}/></Link>}<SignOutButton/><button onClick={() => setAccountOpen(false)}>닫기</button></section>}
-      <div className="club-toolbar"><label className="club-search"><span aria-hidden="true">⌕</span><input aria-label="장소·활동 검색" placeholder="장소·활동 검색" value={search} onChange={e=>{setSearch(e.target.value);goToRoot();}} /></label><div className="club-filters" aria-label="활동 종류">{(["all", ...ACTIVITY_TYPES] as const).map(type=><button key={type} aria-pressed={activity===type} onClick={()=>{setActivity(type);goToRoot();}}>{type==="all"?"전체":ACTIVITY_LABEL[type]}</button>)}</div></div>
+      <div className="club-toolbar"><label className="club-search"><span aria-hidden="true">⌕</span><input aria-label="장소·활동 검색" placeholder="장소·활동 검색" value={search} onChange={e=>{setSearch(e.target.value);goToRoot();}} />
+        {searchMatches.length > 0 && (
+          <ul className="club-search-results" role="listbox" aria-label="검색 결과">
+            {searchMatches.map(({ hike, location }) => (
+              <li key={hike.id}>
+                <button type="button" onClick={() => { setSearch(""); openHike(hike); setMapOpen(true); }}>
+                  <strong>{hike.title}</strong>
+                  <span>{location.name}{hike.date ? ` · ${hike.date}` : ""}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </label><div className="club-filters" aria-label="활동 종류">{(["all", ...ACTIVITY_TYPES] as const).map(type=><button key={type} aria-pressed={activity===type} onClick={()=>{setActivity(type);goToRoot();}}>{type==="all"?"전체":ACTIVITY_LABEL[type]}</button>)}</div></div>
 
     <div ref={containerRef} className="relative flex min-h-0 w-full flex-1 overflow-hidden">
       {mapOpen && (
