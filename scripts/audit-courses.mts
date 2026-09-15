@@ -28,6 +28,19 @@ const NOT_A_WAYPOINT = new Set([
   "subway_station", "train_station", "light_rail_station", "transit_station",
   "transit_depot", "bus_station", "bus_stop", "airport", "transportation_service",
 ]);
+/** Kept in step with ASKING_FOR_TRANSIT there too. */
+const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
+
+/**
+ * A name ending in 역 has to come back as a station.
+ *
+ * Letting transit through for those let the temple answer for the station:
+ * 망월사역 resolved to 망월사, because the name rule reasonably sees 망월사
+ * inside 망월사역 and the temple is the more famous of the two. The station is
+ * a kilometre away down the hill, which is where the course actually starts.
+ */
+const STATION_NAME = /역$|역\s/;
+
 /** Kept in step with SAME_PLACE_M there too. */
 const SAME_PLACE_M = 60;
 
@@ -43,20 +56,28 @@ const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
 const mapsKey = env("NEXT_PUBLIC_GOOGLE_MAPS_API_KEY");
 const headers = { apikey: serviceKey, authorization: `Bearer ${serviceKey}` };
 
-const PLACE = "북한산";
-const centre = { latitude: 37.64, longitude: 126.98 };
-
-/** The four courses offered for "도선사 하산, 5-6시간 중급". */
-const COURSES: string[][] = [
-  ["북한산성탐방지원센터", "대서문", "북한동역사관", "백운봉암문", "백운대", "위문", "하루재", "백운대탐방지원센터(도선사)"],
-  ["밤골탐방지원센터", "해골바위", "숨은벽능선", "백운봉암문", "백운대", "위문", "하루재", "백운대탐방지원센터(도선사)"],
-  ["정릉탐방지원센터", "영추사", "대성문", "보국문", "대동문", "동장대", "용암문", "도선사"],
-  ["구기탐방지원센터", "구기계곡", "대남문", "대성문", "대동문", "용암문", "도선사"],
+/** Courses the assistant has actually offered, as it offered them. */
+const COURSES: { place: string; centre: { latitude: number; longitude: number }; names: string[] }[] = [
+  ...[
+    ["북한산성탐방지원센터", "대서문", "북한동역사관", "백운봉암문", "백운대", "위문", "하루재", "백운대탐방지원센터(도선사)"],
+    ["밤골탐방지원센터", "해골바위", "숨은벽능선", "백운봉암문", "백운대", "위문", "하루재", "백운대탐방지원센터(도선사)"],
+    ["정릉탐방지원센터", "영추사", "대성문", "보국문", "대동문", "동장대", "용암문", "도선사"],
+    ["구기탐방지원센터", "구기계곡", "대남문", "대성문", "대동문", "용암문", "도선사"],
+  ].map((names) => ({ place: "북한산", centre: { latitude: 37.64, longitude: 126.98 }, names })),
+  ...[
+    ["도봉산역", "도봉탐방지원센터", "광륜사", "천축사", "마당바위", "신선대"],
+    ["도봉탐방지원센터", "도봉사", "보문능선", "천진사", "우이암"],
+    ["도봉탐방지원센터", "광륜사", "다락능선", "망월사 갈림길", "포대정상", "신선대"],
+    ["망월사역", "원도봉탐방지원센터", "덕제샘", "망월사", "포대정상", "신선대"],
+  ].map((names) => ({ place: "도봉산", centre: { latitude: 37.695, longitude: 127.015 }, names })),
+  ...[
+    ["사당역", "관음사", "연주대"],
+  ].map((names) => ({ place: "관악산", centre: { latitude: 37.445, longitude: 126.964 }, names })),
 ];
 
 const lookups = new Map<string, { name: string; lat: number; lng: number } | null>();
 
-async function search(textQuery: string, asked: string) {
+async function search(textQuery: string, asked: string, place: string, centre: { latitude: number; longitude: number }) {
   const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
@@ -73,8 +94,12 @@ async function search(textQuery: string, asked: string) {
   const body = await response.json() as {
     places?: { displayName: { text: string }; location: { latitude: number; longitude: number }; types: string[] }[];
   };
-  return (body.places ?? []).find((p) => !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t))
-    && isPlausibleMatch(asked, p.displayName.text, PLACE));
+  const transitWanted = ASKING_FOR_TRANSIT.test(asked);
+  const mustBeStation = STATION_NAME.test(asked);
+  return (body.places ?? []).find((p) =>
+    (transitWanted || !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
+    && (!mustBeStation || STATION_NAME.test(p.displayName.text))
+    && isPlausibleMatch(asked, p.displayName.text, place));
 }
 
 const clubPois: ClubPoi[] = await (async () => {
@@ -83,22 +108,22 @@ const clubPois: ClubPoi[] = await (async () => {
 })();
 console.log(`동아리 지명 ${clubPois.length}개`);
 
-async function resolve(name: string) {
-  const cached = lookups.get(name);
+async function resolve(name: string, place: string, centre: { latitude: number; longitude: number }) {
+  const cached = lookups.get(`${place}:${name}`);
   if (cached !== undefined) return cached;
   // The club's own gazetteer first, exactly as the browser does.
   const known = findClubPoi(name, clubPois);
   if (known) {
     const point = { name: `${known.name} (동아리 등록)`, lat: known.lat, lng: known.lng };
-    lookups.set(name, point);
+    lookups.set(`${place}:${name}`, point);
     return point;
   }
-  let best = await search(`${PLACE} ${name}`, name);
-  if (!best) best = await search(name, name);
+  let best = await search(`${place} ${name}`, name, place, centre);
+  if (!best) best = await search(name, name, place, centre);
   const point = best
     ? { name: best.displayName.text, lat: best.location.latitude, lng: best.location.longitude }
     : null;
-  lookups.set(name, point);
+  lookups.set(`${place}:${name}`, point);
   return point;
 }
 
@@ -134,11 +159,11 @@ function strayMetres(path: TrackPoint[]): number {
   return worst;
 }
 
-for (const [index, names] of COURSES.entries()) {
+for (const [index, { place, centre, names }] of COURSES.entries()) {
   const resolved: { name: string; lat: number; lng: number; asked: string }[] = [];
   const missing: string[] = [];
   for (const name of names) {
-    const point = await resolve(name);
+    const point = await resolve(name, place, centre);
     if (point) resolved.push({ ...point, asked: name });
     else missing.push(name);
   }

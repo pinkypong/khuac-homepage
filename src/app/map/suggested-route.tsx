@@ -67,6 +67,26 @@ function collapseRepeats<T extends { lat: number; lng: number }>(points: T[]): T
 }
 
 /**
+ * Names that are asking for a station, so the rule below does not apply.
+ *
+ * Plenty of courses start at one - 사당역, 도봉산역, 망월사역, 우이동 버스종점 -
+ * and refusing transit for those found nothing, then took whatever was left:
+ * 사당역 resolved to 사당역포차, a bar named after the station, because the
+ * name check quite correctly saw 사당역 inside it.
+ */
+const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
+
+/**
+ * A name ending in 역 has to come back as a station.
+ *
+ * Letting transit through for those let the temple answer for the station:
+ * 망월사역 resolved to 망월사, because the name rule reasonably sees 망월사
+ * inside 망월사역 and the temple is the more famous of the two. The station is
+ * a kilometre away down the hill, which is where the course actually starts.
+ */
+const STATION_NAME = /역$|역\s/;
+
+/**
  * Place types a hiking waypoint is never one of.
  *
  * 보국문 is a gate on the 북한산성 ridge. 북한산보국문 is a station on the
@@ -190,8 +210,11 @@ export function SuggestedRoute({
           maxResultCount: 5,
           ...bias,
         });
+        const transitWanted = ASKING_FOR_TRANSIT.test(name);
+        const mustBeStation = STATION_NAME.test(name);
         return found.find((place) =>
-          !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type))
+          (transitWanted || !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)))
+          && (!mustBeStation || STATION_NAME.test(place.displayName ?? ""))
           // Places always answers with its best guess and never says how good
           // it was: asked for 밤골탐방지원센터, which it does not carry, it
           // returned 북한산성탐방지원센터 on the far side of the ridge and the
