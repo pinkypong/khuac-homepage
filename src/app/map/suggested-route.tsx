@@ -8,6 +8,7 @@ import { loadClubPois, snapSuggestedRoute } from "./route-actions";
 import { findClubPoi, type ClubPoi } from "@/lib/routes/poi";
 import { recoverFromStaleDeployment } from "../stale-deployment";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
+import { haversineDistanceMeters } from "@/lib/gps/haversine";
 
 // The outdoor layer draws its own paths in red-brown dashes over brown
 // contours, and the club burgundy this used to be sank straight into them.
@@ -39,6 +40,29 @@ function thin(waypoints: string[]): string[] {
   const step = (middle.length - 1) / (MAX_LOOKUPS - 3);
   const picked = Array.from({ length: MAX_LOOKUPS - 2 }, (_, i) => middle[Math.round(i * step)]);
   return [waypoints[0], ...picked, waypoints[waypoints.length - 1]];
+}
+
+/** Two waypoints closer than this are one place under two names. */
+const SAME_PLACE_M = 60;
+
+/**
+ * Drops a waypoint that resolved to where the one before it already is.
+ *
+ * Gates on 북한산 carry two names each - 위문 was renamed 백운봉암문 in 2015 -
+ * and a course that names the summit between them reads 백운봉암문, 백운대,
+ * 위문. Places answers 백운대 for 위문, so the course arrived with the summit
+ * twice and a leg of exactly zero metres: two pins on one pixel, and a line
+ * that appeared to stop at the top and restart somewhere else.
+ *
+ * Only consecutive ones. A real out-and-back returns to the gate it came
+ * through, and that return is the course, not a duplicate.
+ */
+function collapseRepeats<T extends { lat: number; lng: number }>(points: T[]): T[] {
+  return points.filter((point, i) => {
+    if (i === 0) return true;
+    const previous = points[i - 1];
+    return haversineDistanceMeters(previous, point) > SAME_PLACE_M;
+  });
 }
 
 /**
@@ -168,11 +192,17 @@ export function SuggestedRoute({
         // bias toward, the mountain's name has to carry the disambiguation.
         let best = await search(`${placeName} ${name}`.trim());
         // That same prefix is what found the station: "북한산 보국문" matches
-        // 북한산보국문역 exactly and the gate not at all. Asked plainly, with
-        // the map's own centre to bias it, Places puts the gate first - so a
-        // course that only turned up transit is worth asking again, and only
-        // then, because the bare name alone could be a 보국문 in another city.
-        if (!best && placeName && (bias.locationBias ?? null)) best = await search(name);
+        // 북한산보국문역 exactly and the gate not at all. Asked plainly, Places
+        // puts the gate first, so a name that turned up nothing but transit is
+        // worth asking again without it.
+        //
+        // Asked whether or not the map has a centre to bias toward. Requiring
+        // one read as caution and behaved as a silent drop: on a course opened
+        // without a centre, 보국문 was rejected as a station, never asked again,
+        // and vanished from the map entirely. A bare name can land in another
+        // city, but that is what dropOutlierWaypoints is for, and a waypoint in
+        // the wrong province is caught while a missing one is not.
+        if (!best && placeName) best = await search(name);
         const location = best?.location;
         const point = location ? { name, lat: location.lat(), lng: location.lng() } : null;
         if (point) cache.set(cacheKey, point);
@@ -196,7 +226,7 @@ export function SuggestedRoute({
       // came back on the far side of 북한산 - and one bad lookup dragged the
       // whole course into a straight line across the massif. Dropping it here
       // rather than server-side keeps its pin off the map too.
-      const found = dropOutlierWaypoints(points.flatMap((point) => point ? [point] : []));
+      const found = dropOutlierWaypoints(collapseRepeats(points.flatMap((point) => point ? [point] : [])));
       const placed = new Set(found.map((p) => p.name));
       // Reported rather than swallowed: these are the local terms - 해골바위,
       // 밤골 - that a member can fix once by hand, and they cannot do that if
