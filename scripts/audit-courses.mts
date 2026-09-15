@@ -32,12 +32,13 @@ const NOT_A_WAYPOINT = new Set([
 const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
 
 /**
- * A name ending in 역 has to come back as a station.
+ * A name ending in 역 has to come back as an actual station.
  *
- * Letting transit through for those let the temple answer for the station:
- * 망월사역 resolved to 망월사, because the name rule reasonably sees 망월사
- * inside 망월사역 and the temple is the more famous of the two. The station is
- * a kilometre away down the hill, which is where the course actually starts.
+ * Not as a name containing 역, which was the first attempt and failed on the
+ * data: Google lists Korean stations without the suffix, so 망월사역 comes back
+ * as "망월사" and 북한산보국문역 as "북한산보국문". Requiring the word threw
+ * the stations away; not requiring anything let the temple 망월사 answer for
+ * the station a kilometre below it. The place type is what actually knows.
  */
 const STATION_NAME = /역$|역\s/;
 
@@ -98,7 +99,7 @@ async function search(textQuery: string, asked: string, place: string, centre: {
   const mustBeStation = STATION_NAME.test(asked);
   return (body.places ?? []).find((p) =>
     (transitWanted || !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
-    && (!mustBeStation || STATION_NAME.test(p.displayName.text))
+    && (!mustBeStation || (p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
     && isPlausibleMatch(asked, p.displayName.text, place));
 }
 

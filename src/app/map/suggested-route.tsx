@@ -77,12 +77,13 @@ function collapseRepeats<T extends { lat: number; lng: number }>(points: T[]): T
 const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
 
 /**
- * A name ending in 역 has to come back as a station.
+ * A name ending in 역 has to come back as an actual station.
  *
- * Letting transit through for those let the temple answer for the station:
- * 망월사역 resolved to 망월사, because the name rule reasonably sees 망월사
- * inside 망월사역 and the temple is the more famous of the two. The station is
- * a kilometre away down the hill, which is where the course actually starts.
+ * Not as a name containing 역, which was the first attempt and failed on the
+ * data: Google lists Korean stations without the suffix, so 망월사역 comes back
+ * as "망월사" and 북한산보국문역 as "북한산보국문". Requiring the word threw
+ * the stations away; not requiring anything let the temple 망월사 answer for
+ * the station a kilometre below it. The place type is what actually knows.
  */
 const STATION_NAME = /역$|역\s/;
 
@@ -214,7 +215,7 @@ export function SuggestedRoute({
         const mustBeStation = STATION_NAME.test(name);
         return found.find((place) =>
           (transitWanted || !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)))
-          && (!mustBeStation || STATION_NAME.test(place.displayName ?? ""))
+          && (!mustBeStation || (place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)))
           // Places always answers with its best guess and never says how good
           // it was: asked for 밤골탐방지원센터, which it does not carry, it
           // returned 북한산성탐방지원센터 on the far side of the ridge and the
