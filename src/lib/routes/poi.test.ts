@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findClubPoi, normalisePoiName, type ClubPoi } from "./poi";
+import { findClubPoi, isPlausibleMatch, normalisePoiName, type ClubPoi } from "./poi";
 
 const pois: ClubPoi[] = [
   {
@@ -49,5 +49,35 @@ describe("findClubPoi", () => {
     expect(findClubPoi("해골바위 능선", pois)).toBeNull();
     expect(findClubPoi("백운대", pois)).toBeNull();
     expect(findClubPoi("", pois)).toBeNull();
+  });
+});
+
+describe("isPlausibleMatch", () => {
+  it("rejects a different trailhead on the same mountain", () => {
+    // What Places answered for a name it does not carry.
+    expect(isPlausibleMatch("밤골탐방지원센터", "북한산성탐방지원센터", "북한산")).toBe(false);
+  });
+
+  it("accepts the same trailhead written differently", () => {
+    expect(isPlausibleMatch("구기탐방지원센터", "구기 탐방지원센터", "북한산")).toBe(true);
+    expect(isPlausibleMatch("정릉탐방지원센터", "북한산국립공원 정릉탐방지원센터", "북한산")).toBe(true);
+    expect(isPlausibleMatch("백운대탐방지원센터(도선사)", "백운대 탐방지원센터", "북한산")).toBe(true);
+  });
+
+  it("accepts the mountain's name being added or dropped", () => {
+    expect(isPlausibleMatch("대남문", "북한산 대남문", "북한산")).toBe(true);
+    expect(isPlausibleMatch("도선사", "대한불교조계종 도선사", "북한산")).toBe(true);
+  });
+
+  it("accepts a name spelled one character differently", () => {
+    // The same temple; answers write it both ways.
+    expect(isPlausibleMatch("영추사", "영취사", "북한산")).toBe(true);
+  });
+
+  it("leaves a station named after the gate to the type rule", () => {
+    // 북한산보국문역 really is named after 보국문, so the name alone cannot
+    // tell them apart and should not pretend to. What rejects the station is
+    // its place type, in suggested-route.tsx.
+    expect(isPlausibleMatch("보국문", "북한산보국문역", "북한산")).toBe(true);
   });
 });

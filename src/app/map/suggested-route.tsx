@@ -5,7 +5,7 @@ import { AdvancedMarker, CollisionBehavior, Polyline, useMap, useMapsLibrary } f
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
 import { loadClubPois, snapSuggestedRoute } from "./route-actions";
-import { findClubPoi, type ClubPoi } from "@/lib/routes/poi";
+import { findClubPoi, isPlausibleMatch, type ClubPoi } from "@/lib/routes/poi";
 import { recoverFromStaleDeployment } from "../stale-deployment";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
 import { haversineDistanceMeters } from "@/lib/gps/haversine";
@@ -176,7 +176,7 @@ export function SuggestedRoute({
           textQuery,
           // types costs nothing extra: location already puts this on the Pro
           // SKU, which is billed per request rather than per field or result.
-          fields: ["location", "types"],
+          fields: ["location", "types", "displayName"],
           language: "ko",
           region: "KR",
           // Asked five deep rather than one so that rejecting a station leaves
@@ -184,7 +184,13 @@ export function SuggestedRoute({
           maxResultCount: 5,
           ...bias,
         });
-        return found.find((place) => !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)));
+        return found.find((place) =>
+          !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type))
+          // Places always answers with its best guess and never says how good
+          // it was: asked for 밤골탐방지원센터, which it does not carry, it
+          // returned 북한산성탐방지원센터 on the far side of the ridge and the
+          // course began in the wrong valley.
+          && isPlausibleMatch(name, place.displayName ?? "", placeName));
       }
 
       try {
