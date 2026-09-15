@@ -30,8 +30,32 @@ const MAX_PAGES = 20;
 const CHUNK_DEG = 0.04;
 const CHUNK_OVERLAP_DEG = 0.004;
 
-/** How near a track has to pass an end to be talking about this stretch. */
-const END_TOLERANCE_M = 120;
+/**
+ * How near a track has to pass an end to be talking about this stretch.
+ *
+ * A hundred and twenty metres is right when the ends are places people walk
+ * through. It is wrong where the gap itself is why we are here: on 밤골 the
+ * tracks that climb the valley stop 469m short of 숨은벽능선, because that last
+ * stretch is mapped and they were recorded for the part that is not. Held to
+ * 120m they were all refused and the course stayed 4.54km around the mountain.
+ *
+ * --reach loosens it deliberately. Be careful what it buys: on 밤골 it did
+ * find the valley climb, and the line was useless anyway. A line whose far end
+ * stops 469m short joins nothing there - that last stretch is unmapped too -
+ * so the router sees a spur into a dead end and rightly ignores it, while the
+ * extra geometry moved the snapping enough to make the next leg worse
+ * (숨은벽능선 to 백운봉암문, 0.84km to 1.30km). It was removed again.
+ *
+ * So this is for a stretch whose far end is on the mapped network, not for
+ * reaching further into a gap. When both ends of the gap are unmapped, no
+ * amount of reach helps and only a GPX of the whole thing will.
+ */
+const DEFAULT_END_TOLERANCE_M = 120;
+const END_TOLERANCE_M = (() => {
+  const flag = process.argv.find((a) => a.startsWith("--reach="));
+  const value = flag ? Number(flag.slice("--reach=".length)) : NaN;
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_END_TOLERANCE_M;
+})();
 
 /**
  * How far apart two people can be and still be on the same path.
@@ -60,7 +84,18 @@ const MATCH_RATIO = 0.75;
  * the archive has since done better and replace it if so.
  */
 const PREFERRED_WITNESSES = 3;
-const MIN_WITNESSES = 2;
+/**
+ * Zero, meaning one person's track on its own is accepted when it is all there
+ * is. On 밤골 it is: one identifiable trace walks that approach and the next
+ * nearest passes 467m from its far end, so holding out for a second witness
+ * left the course routed 4.54km south and back for a 2.25km line - a wrong
+ * line rather than a lonely one.
+ *
+ * What makes it safe enough is that it is not final. The count is stored with
+ * the line, and a later run replaces it the moment the archive can do better,
+ * so this is the worst the stretch will ever be rather than what it settles at.
+ */
+const MIN_WITNESSES = 0;
 
 /** References to try before giving up. Shuffled, so this is not the same one. */
 const MAX_REFERENCES = 40;
@@ -233,7 +268,7 @@ const candidates = tracks.flatMap((track) => {
   return stretch ? [stretch] : [];
 });
 console.log(`양 끝을 모두 지나는 트랙 ${candidates.length}개`);
-if (candidates.length < MIN_WITNESSES + 1) {
+if (candidates.length === 0) {
   // Which end nobody came near is the whole diagnosis: a tolerance that is too
   // tight looks exactly like a point in the wrong place.
   const starts = tracks.map((t) => closest(t, from).distance).sort((a, b) => a - b);
@@ -241,8 +276,8 @@ if (candidates.length < MIN_WITNESSES + 1) {
   console.log(`  시작점에 가장 가까이 지난 거리: ${starts.slice(0, 5).map((d) => Math.round(d)).join(", ")}m`);
   console.log(`  끝점에 가장 가까이 지난 거리: ${ends.slice(0, 5).map((d) => Math.round(d)).join(", ")}m`);
 }
-if (candidates.length < MIN_WITNESSES + 1) {
-  console.log(`증인이 ${MIN_WITNESSES}명은 있어야 합니다. 이 구간은 그리지 않습니다.`);
+if (candidates.length === 0) {
+  console.log("양 끝을 지나는 트랙이 없습니다. 이 구간은 그리지 않습니다.");
   process.exit(0);
 }
 
@@ -324,7 +359,7 @@ const order = sorted.flatMap(([bin, members]) =>
 let chosen: { stretch: TrackPoint[]; votes: number[] } | null = null;
 // Asked for three first and settled for two only if three is not on offer, so
 // a quiet stretch is drawn without a busy one being drawn on weaker evidence.
-for (const wanted of [PREFERRED_WITNESSES, MIN_WITNESSES]) {
+for (const wanted of [PREFERRED_WITNESSES, 2, 1, MIN_WITNESSES]) {
   for (const index of order.slice(0, MAX_REFERENCES)) {
     const reference = candidates[index];
     const votes: number[] = [];
@@ -347,7 +382,7 @@ for (const wanted of [PREFERRED_WITNESSES, MIN_WITNESSES]) {
 }
 
 if (!chosen) {
-  console.log(`${MIN_WITNESSES}명 이상이 동의하는 경로가 없습니다. 이 구간은 그리지 않습니다.`);
+  console.log("쓸 만한 경로가 없습니다. 이 구간은 그리지 않습니다.");
   process.exit(0);
 }
 
