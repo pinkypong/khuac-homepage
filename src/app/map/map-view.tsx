@@ -549,6 +549,7 @@ export function MapView({
           onResolved={onRouteResolved}
           onMissing={onRouteMissing}
           onTrack={onRouteTrack}
+          pins={!selectedHike}
           onTrailsUnavailable={onTrailsUnavailable}
         />
       )}

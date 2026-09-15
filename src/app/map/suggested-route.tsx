@@ -145,6 +145,7 @@ export function SuggestedRoute({
   onMissing,
   onTrack,
   onTrailsUnavailable,
+  pins,
 }: {
   route: RouteSuggestion;
   center: { lat: number; lng: number } | null;
@@ -162,6 +163,9 @@ export function SuggestedRoute({
   onTrack: (track: TrackPoint[] | null) => void;
   /** True when any part of the course cannot be resolved onto mapped trails. */
   onTrailsUnavailable: (unavailable: boolean) => void;
+  /** False once an album is open: then the line is the subject and labels for
+      places the reader is no longer choosing between only cover it. */
+  pins: boolean;
 }) {
   const places = useMapsLibrary("places");
   const map = useMap();
@@ -357,26 +361,25 @@ export function SuggestedRoute({
           />,
         ];
       })}
-      {resolved.map((point, i) => (
+      {/* The two ends, and only while the course is what is being looked at.
+          Every waypoint used to get a label, which at the zoom a whole course
+          fits into is a row of violet pills lying across the line they are
+          describing - and the line is the thing worth seeing. Where it starts
+          and where it comes out are what a reader needs; the rest is on the
+          card beside the map. */}
+      {pins && [resolved[0], resolved[resolved.length - 1]].map((point, i) => (
         <AdvancedMarker
           key={`${point.name}-${i}`}
           position={point}
           title={point.name}
           zIndex={20}
-          // Labels piled on top of each other at the zoom a whole course fits
-          // into; the ends matter most, so the middle ones give way rather
-          // than covering the line they describe.
-          collisionBehavior={
-            i === 0 || i === resolved.length - 1
-              ? CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL
-              : CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
-          }
+          collisionBehavior={CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL}
         >
           <span
             className="rounded-full border border-white/90 px-1.5 py-px text-[9px] font-semibold leading-tight text-white shadow"
             style={{ backgroundColor: SUGGESTION_COLOR }}
           >
-            {point.name}
+            {i === 0 ? "출발 " : "도착 "}{point.name}
           </span>
         </AdvancedMarker>
       ))}
