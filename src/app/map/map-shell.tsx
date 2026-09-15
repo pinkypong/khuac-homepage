@@ -368,8 +368,8 @@ export function MapShell({
       // The paths are on the map, which on a phone is the other tab.
       setMobileTab("map");
       setMapOpen(true);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "등산로를 불러오지 못했습니다.");
+    } catch {
+      window.alert("등산로를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setTrailBusy(false);
     }
@@ -389,11 +389,15 @@ export function MapShell({
     if (!trailPick) return;
     setTrailBusy(true);
     try {
-      await saveTrailRoute(trailPick.hikeId, trailPick.lat, trailPick.lng, trailPick.chosen);
+      const result = await saveTrailRoute(trailPick.hikeId, trailPick.lat, trailPick.lng, trailPick.chosen);
+      if (!result.ok) {
+        window.alert(result.reason);
+        return;
+      }
       setTrailPick(null);
       router.refresh();
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "경로 저장에 실패했습니다.");
+    } catch {
+      window.alert("경로를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setTrailBusy(false);
     }
@@ -459,12 +463,14 @@ export function MapShell({
         return;
       }
       setSuggestedRoute(null);
-      setActiveLocationId(result.locationId);
-      setActiveHikeId(result.hikeId);
-      setPinnedHikeId(result.hikeId);
+      setActiveLocationId(result.value.locationId);
+      setActiveHikeId(result.value.hikeId);
+      setPinnedHikeId(result.value.hikeId);
       router.refresh();
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "앨범을 만들지 못했습니다.");
+    } catch {
+      // Only a fault reaches here: every refusal comes back as a value above,
+      // and a thrown message is replaced by the production build anyway.
+      window.alert("앨범을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setCreatingAlbum(false);
     }

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { isValidGps } from "@/lib/gps/validate";
+import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
 import { sanitizeTrack } from "@/lib/gps/track";
 import type { TrackPoint } from "@/lib/gps/track";
 
@@ -10,36 +11,6 @@ export interface RouteWaypoint {
   name: string;
   lat: number;
   lng: number;
-}
-
-/** Made, or the reason it was not. */
-export type AlbumResult =
-  | { ok: true; locationId: string; hikeId: string }
-  | { ok: false; reason: string };
-
-/**
- * A refusal, said in a way that survives the trip back.
- *
- * Two things were swallowing the reason. Supabase hands back a plain
- * `{ message, code, details, hint }` object rather than an Error, and thrown
- * out of a server action it serialised to nothing - a bare 500, with
- * `err instanceof Error` false on the other side, so even the fallback text
- * lost it. And a built Worker is a production build, where Next replaces any
- * message thrown from a server action with a generic one before it reaches the
- * browser; the reason would have been hidden even from a proper Error.
- *
- * So the failure is returned rather than thrown. It is an ordinary outcome of
- * pressing the button - the row policy may refuse, the mountain may already be
- * filed under a different spelling - and a member who cannot make an album
- * should be told which.
- *
- * Logged too, because the code is the part that identifies it - 42501 is the
- * row policy, 23502 a missing column, 23505 a duplicate - and the member does
- * not need to read it.
- */
-function refuse(step: string, error: { message: string; code?: string; details?: string; hint?: string }): AlbumResult {
-  console.error(`[route-album] ${step} 실패`, error.code, error.message, error.details, error.hint);
-  return { ok: false, reason: `${step}에 실패했습니다: ${error.message}` };
 }
 
 /**
@@ -69,17 +40,17 @@ export async function createAlbumFromRoute(input: {
   track: TrackPoint[] | null;
   distanceText: string | null;
   notes: string | null;
-}): Promise<AlbumResult> {
+}): Promise<ActionResult<{ locationId: string; hikeId: string }>> {
   const { supabase, memberId } = await requireApprovedMember();
 
   const routeName = input.routeName.trim();
   const placeName = input.placeName.trim();
-  if (!routeName) return { ok: false, reason: "코스 이름이 없습니다." };
-  if (!placeName) return { ok: false, reason: "장소 이름이 없습니다." };
+  if (!routeName) return refused("코스 이름이 없습니다.");
+  if (!placeName) return refused("장소 이름이 없습니다.");
 
   const points = input.waypoints.filter((p) => isValidGps(p.lat, p.lng));
   if (points.length === 0) {
-    return { ok: false, reason: "코스 위치를 지도에서 찾지 못해 앨범을 만들 수 없습니다." };
+    return refused("코스 위치를 지도에서 찾지 못해 앨범을 만들 수 없습니다.");
   }
 
   const { data: existing, error: lookupError } = await supabase
@@ -88,7 +59,7 @@ export async function createAlbumFromRoute(input: {
     .eq("name", placeName)
     .limit(1)
     .maybeSingle();
-  if (lookupError) return refuse("장소 조회", lookupError);
+  if (lookupError) return refusedByDatabase("장소 조회", lookupError);
 
   let locationId = (existing as { id: string } | null)?.id ?? null;
 
@@ -108,7 +79,7 @@ export async function createAlbumFromRoute(input: {
       })
       .select("id")
       .single();
-    if (createError) return refuse("장소 등록", createError);
+    if (createError) return refusedByDatabase("장소 등록", createError);
     locationId = (created as { id: string }).id;
   }
 
@@ -148,8 +119,8 @@ export async function createAlbumFromRoute(input: {
     })
     .select("id")
     .single();
-  if (hikeError) return refuse("앨범 등록", hikeError);
+  if (hikeError) return refusedByDatabase("앨범 등록", hikeError);
 
   revalidatePath("/map");
-  return { ok: true, locationId, hikeId: (hike as { id: string }).id };
+  return { ok: true, value: { locationId, hikeId: (hike as { id: string }).id } };
 }

@@ -45,10 +45,17 @@ export function PoiForm({
     setSaving(true);
     setError(null);
     try {
-      await saveClubPoi({ name, lat: point.lat, lng: point.lng });
+      const result = await saveClubPoi({ name, lat: point.lat, lng: point.lng });
+      // A refusal arrives as a value; only a genuine fault throws, and in a
+      // production build its message is replaced before it gets here.
+      if (!result.ok) {
+        setError(result.reason);
+        setSaving(false);
+        return;
+      }
       onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "저장하지 못했습니다.");
+    } catch {
+      setError("저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
       setSaving(false);
     }
   }

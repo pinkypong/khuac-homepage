@@ -10,6 +10,7 @@ import { SAME_PLACE_M, type ClubPoi } from "@/lib/routes/poi";
 import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside, TILE_DEG } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
 import { isValidGps } from "@/lib/gps/validate";
+import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
 import { haversineDistanceMeters } from "@/lib/gps/haversine";
 
 /**
@@ -65,10 +66,10 @@ export async function saveTrailRoute(
   lat: number,
   lng: number,
   segmentIds: number[],
-): Promise<{ pointCount: number }> {
+): Promise<ActionResult<{ pointCount: number }>> {
   const { supabase } = await requireApprovedMember();
 
-  if (segmentIds.length === 0) throw new Error("구간을 하나 이상 선택해주세요.");
+  if (segmentIds.length === 0) return refused("구간을 하나 이상 선택해주세요.");
 
   const available = await pickableTrailsNear(supabase, lat, lng);
   const byId = new Map(available.map((segment) => [segment.id, segment]));
@@ -76,16 +77,16 @@ export async function saveTrailRoute(
     .map((id) => byId.get(id))
     .filter((segment): segment is TrailSegment => segment !== undefined);
 
-  if (chosen.length === 0) throw new Error("선택한 구간을 찾지 못했습니다. 다시 시도해주세요.");
+  if (chosen.length === 0) return refused("선택한 구간을 찾지 못했습니다. 다시 시도해주세요.");
 
   const track = sanitizeTrack(stitchSegments(chosen));
-  if (!track) throw new Error("이어지는 경로를 만들지 못했습니다.");
+  if (!track) return refused("이어지는 경로를 만들지 못했습니다.");
 
   const { error } = await supabase.from("hikes").update({ track }).eq("id", hikeId);
-  if (error) throw error;
+  if (error) return refusedByDatabase("경로 저장", error);
 
   revalidatePath("/map");
-  return { pointCount: track.length };
+  return { ok: true, value: { pointCount: track.length } };
 }
 
 /**
@@ -362,12 +363,12 @@ export async function saveClubPoi(input: {
   aliases?: string[];
   kind?: string | null;
   note?: string | null;
-}): Promise<void> {
+}): Promise<ActionResult> {
   const { supabase, memberId } = await requireApprovedMember();
 
   const name = input.name.trim();
-  if (!name) throw new Error("이름을 입력해주세요.");
-  if (!isValidGps(input.lat, input.lng)) throw new Error("지도에서 위치를 지정해주세요.");
+  if (!name) return refused("이름을 입력해주세요.");
+  if (!isValidGps(input.lat, input.lng)) return refused("지도에서 위치를 지정해주세요.");
 
   const existing = await supabase
     .from("route_pois")
@@ -389,7 +390,8 @@ export async function saveClubPoi(input: {
   const { error } = id
     ? await supabase.from("route_pois").update(row).eq("id", id)
     : await supabase.from("route_pois").insert({ ...row, created_by: memberId });
-  if (error) throw error;
+  if (error) return refusedByDatabase("지명 저장", error);
 
   revalidatePath("/map");
+  return { ok: true };
 }
