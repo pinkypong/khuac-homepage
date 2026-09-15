@@ -275,12 +275,27 @@ function covers(reference: TrackPoint[], other: TrackPoint[]): number {
   return hit / reference.length;
 }
 
-// Shuffled, so a bad first track is not tried first every time this is run.
-const order = candidates.map((_, i) => i);
-for (let i = order.length - 1; i > 0; i--) {
-  const j = Math.floor(Math.random() * (i + 1));
-  [order[i], order[j]] = [order[j], order[i]];
-}
+/**
+ * Candidates in the order they deserve to be asked about, not at random.
+ *
+ * Shuffling meant two runs over one stretch chose different people and stored
+ * different lines - 3.98km one time and 3.73km the next, both with three
+ * witnesses at a hundred per cent. A stored line ought not to depend on when it
+ * was stored.
+ *
+ * The middle-length one is asked first. The shortest candidate is usually
+ * somebody who cut a corner the recorder did not see, the longest is somebody
+ * who stopped to look at something, and the median is the walk.
+ */
+const lengthOf = (track: TrackPoint[]) => {
+  let total = 0;
+  for (let i = 1; i < track.length; i++) total += metres(track[i - 1], track[i]);
+  return total;
+};
+const median = [...candidates].map(lengthOf).sort((a, b) => a - b)[Math.floor(candidates.length / 2)];
+const order = candidates
+  .map((_, i) => i)
+  .sort((a, b) => Math.abs(lengthOf(candidates[a]) - median) - Math.abs(lengthOf(candidates[b]) - median));
 
 let chosen: { stretch: TrackPoint[]; votes: number[] } | null = null;
 // Asked for three first and settled for two only if three is not on offer, so
