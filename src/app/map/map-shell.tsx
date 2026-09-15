@@ -236,6 +236,9 @@ export function MapShell({
     chosen: number[];
   } | null>(null);
   const [trailBusy, setTrailBusy] = useState(false);
+  // The drawn line for the course being previewed, kept so an album made from
+  // it opens with the route on the map rather than as a bare pin.
+  const [routeTrack, setRouteTrack] = useState<TrackPoint[] | null>(null);
   // When the "new location" form is open the map turns into a coordinate
   // picker - far easier than asking anyone to type lat/lng.
   const [picking, setPicking] = useState(false);
@@ -413,6 +416,7 @@ export function MapShell({
         routeName: route.name,
         placeName: current.placeName,
         waypoints,
+        track: routeTrack,
         distanceText: route.distanceText,
         notes: route.notes,
       });
@@ -483,6 +487,7 @@ export function MapShell({
                   setSuggestedRoute((current) => (current ? { ...current, resolved: points } : current))
                 }
                 onRouteMissing={setMissingNames}
+                onRouteTrack={setRouteTrack}
                 onTrailsUnavailable={setTrailsUnavailable}
               /></MapErrorBoundary>
             ) : (

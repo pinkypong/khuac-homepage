@@ -20,7 +20,34 @@ import { isValidGps } from "@/lib/gps/validate";
  * across it.
  */
 export async function loadTrails(lat: number, lng: number): Promise<TrailSegment[]> {
-  await requireApprovedMember();
+  const { supabase } = await requireApprovedMember();
+  return pickableTrailsNear(supabase, lat, lng);
+}
+
+/** Roughly 1.5km around a point, as a box our own tiles can answer. */
+const PICK_SPAN_DEG = 0.014;
+
+/**
+ * Paths to choose from, from our own tables before Overpass.
+ *
+ * This asked Overpass directly, which is why the button answered "등산로를
+ * 불러오지 못했습니다" - it is volunteer-run, it is often down, and it is given
+ * eight seconds because a member is waiting on it. Meanwhile the same trails
+ * were already sitting in trail_tiles and official_trails, prefetched for
+ * every mountain the club visits. Overpass stays as the fallback for somewhere
+ * nobody has looked at yet.
+ */
+async function pickableTrailsNear(
+  supabase: Awaited<ReturnType<typeof requireApprovedMember>>["supabase"],
+  lat: number,
+  lng: number,
+): Promise<TrailSegment[]> {
+  const bounds: TrailBounds = {
+    south: lat - PICK_SPAN_DEG, north: lat + PICK_SPAN_DEG,
+    west: lng - PICK_SPAN_DEG, east: lng + PICK_SPAN_DEG,
+  };
+  const held = await trailsForBounds(supabase, bounds);
+  if (held.length > 0) return held;
   return fetchTrailsNear(lat, lng);
 }
 
@@ -42,7 +69,7 @@ export async function saveTrailRoute(
 
   if (segmentIds.length === 0) throw new Error("구간을 하나 이상 선택해주세요.");
 
-  const available = await fetchTrailsNear(lat, lng);
+  const available = await pickableTrailsNear(supabase, lat, lng);
   const byId = new Map(available.map((segment) => [segment.id, segment]));
   const chosen = segmentIds
     .map((id) => byId.get(id))

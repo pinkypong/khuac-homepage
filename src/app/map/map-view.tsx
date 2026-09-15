@@ -396,6 +396,7 @@ export function MapView({
   suggestedRoute,
   onRouteResolved,
   onRouteMissing,
+  onRouteTrack,
   onTrailsUnavailable,
 }: {
   mapId: string;
@@ -421,6 +422,7 @@ export function MapView({
   } | null;
   onRouteResolved: (points: RouteWaypoint[]) => void;
   onRouteMissing: (names: string[]) => void;
+  onRouteTrack: (track: TrackPoint[] | null) => void;
   onTrailsUnavailable: (unavailable: boolean) => void;
 }) {
   // The boolean rather than the zoom level itself: zoom fires continuously
@@ -546,6 +548,7 @@ export function MapView({
           resolved={suggestedRoute.resolved}
           onResolved={onRouteResolved}
           onMissing={onRouteMissing}
+          onTrack={onRouteTrack}
           onTrailsUnavailable={onTrailsUnavailable}
         />
       )}

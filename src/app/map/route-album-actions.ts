@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { isValidGps } from "@/lib/gps/validate";
+import { sanitizeTrack } from "@/lib/gps/track";
+import type { TrackPoint } from "@/lib/gps/track";
 
 export interface RouteWaypoint {
   name: string;
@@ -18,16 +20,23 @@ export interface RouteWaypoint {
  * before a new one is created - otherwise asking about 관악산 twice would
  * leave two 관악산 pins on the map.
  *
- * The geocoded waypoints are deliberately NOT written to hikes.track. They are
- * place names resolved one by one and joined with straight lines, which would
- * draw a route nobody walked; that column stays for a real GPX file or a
- * member's own tap-picked trail. The course is recorded as text in the
- * description instead, where it reads as the plan it is.
+ * The drawn line is saved to hikes.track, but the geocoded waypoints are not.
+ * The distinction is the whole point: waypoints are place names joined by
+ * straight lines, which would draw a route nobody walked, while `track` is the
+ * geometry the router pulled onto mapped trails and is the same kind of thing
+ * a GPX file holds. Without it an album made from a course opened as a bare
+ * pin with no way to see the course it was made from.
+ *
+ * A course whose legs could not all be mapped saves no track at all rather
+ * than a partial one: half a route in the column the map draws as "the route"
+ * would read as the whole of it.
  */
 export async function createAlbumFromRoute(input: {
   routeName: string;
   placeName: string;
   waypoints: RouteWaypoint[];
+  /** The snapped line, leg by leg, as drawn. Absent when any leg is unmapped. */
+  track: TrackPoint[] | null;
   distanceText: string | null;
   notes: string | null;
 }) {
@@ -95,6 +104,7 @@ export async function createAlbumFromRoute(input: {
       description,
       lat: spot.lat,
       lng: spot.lng,
+      track: sanitizeTrack(input.track),
       created_by: memberId,
     })
     .select("id")

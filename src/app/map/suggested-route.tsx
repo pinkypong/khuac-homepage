@@ -8,6 +8,7 @@ import { loadClubPois, snapSuggestedRoute } from "./route-actions";
 import { findClubPoi, isPlausibleMatch, type ClubPoi } from "@/lib/routes/poi";
 import { recoverFromStaleDeployment } from "../stale-deployment";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
+import type { TrackPoint } from "@/lib/gps/track";
 import { haversineDistanceMeters } from "@/lib/gps/haversine";
 
 // The outdoor layer draws its own paths in red-brown dashes over brown
@@ -121,6 +122,7 @@ export function SuggestedRoute({
   resolved,
   onResolved,
   onMissing,
+  onTrack,
   onTrailsUnavailable,
 }: {
   route: RouteSuggestion;
@@ -134,6 +136,9 @@ export function SuggestedRoute({
   /** Names this course could not place, handed up so the shell can offer to
       record one. Reported from here because this is where the lookups happen. */
   onMissing: (names: string[]) => void;
+  /** The drawn line, handed up so an album made from this course can keep it.
+      Null while it is still being worked out, or when any leg is unmapped. */
+  onTrack: (track: TrackPoint[] | null) => void;
   /** True when any part of the course cannot be resolved onto mapped trails. */
   onTrailsUnavailable: (unavailable: boolean) => void;
 }) {
@@ -153,6 +158,7 @@ export function SuggestedRoute({
     // on screen - drawn against the new course's waypoints - for the seconds
     // the lookup and the snap take.
     setLegs(null);
+    onTrack(null);
     onTrailsUnavailable(false);
 
     async function resolveOne(name: string, pois: ClubPoi[]): Promise<RouteWaypoint | null> {
@@ -267,6 +273,11 @@ export function SuggestedRoute({
           // is real either way, and the notice beside the map already says
           // which name went unplaced and offers to record it.
           setLegs(snapped.legs);
+          // Only a course mapped end to end is offered as a track: a partial
+          // one saved into the column the map draws as "the route" would read
+          // as the whole of it.
+          const whole = snapped.legs.length > 0 && snapped.legs.every((leg) => leg.onTrail);
+          onTrack(whole ? snapped.legs.flatMap((leg) => leg.points) : null);
           onTrailsUnavailable(!snapped.trailsLoaded || snapped.legs.some((leg) => !leg.onTrail));
         })
         .catch((error) => {
