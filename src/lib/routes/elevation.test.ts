@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildProfile, cellCentre, cellKey, sampleAlongTrack, sectionsOf, steepestRun, steepnessOf, waypointsAlong,
+  buildProfile, cellCentre, cellKey, gradientBands, sampleAlongTrack, sectionsOf, stackLabels, steepestRun, steepnessOf, waypointsAlong,
 } from "./elevation";
 import type { TrackPoint } from "../gps/track";
 
@@ -119,5 +119,73 @@ describe("sectionsOf", () => {
     expect(sections[0]).toMatchObject({ from: "들머리", to: "정상", downhill: false });
     expect(sections[1].downhill).toBe(true);
     expect(sections[0].ascentM).toBeGreaterThan(0);
+  });
+});
+
+describe("gradientBands", () => {
+  const profileOf = (heights: number[], spacing = 90) => ({
+    points: heights.map((elevation, i) => ({ along: i * spacing, elevation })),
+    distanceM: (heights.length - 1) * spacing,
+    surfaceM: 0, ascentM: 0, descentM: 0,
+    lowM: Math.min(...heights), highM: Math.max(...heights),
+  });
+
+  it("gives one band to ground that keeps the same shape", () => {
+    // A steady 22% climb over 1.8km: one band, not twenty.
+    const bands = gradientBands(profileOf(Array.from({ length: 21 }, (_, i) => 100 + i * 20)));
+    expect(bands).toHaveLength(1);
+    expect(bands[0].steepness).toBe("steep");
+  });
+
+  it("splits where the ground changes", () => {
+    // Flat for 900m, then a wall.
+    const heights = [...Array.from({ length: 11 }, () => 100), ...Array.from({ length: 11 }, (_, i) => 100 + i * 40)];
+    const bands = gradientBands(profileOf(heights));
+    expect(bands.length).toBeGreaterThan(1);
+    expect(bands[0].steepness).toBe("flat");
+    expect(bands[bands.length - 1].steepness).toBe("severe");
+  });
+
+  it("grades a descent by how steep it is, not by which way it goes", () => {
+    const bands = gradientBands(profileOf(Array.from({ length: 21 }, (_, i) => 800 - i * 35)));
+    expect(bands[0].steepness).toBe("severe");
+    expect(bands[0].gradient).toBeLessThan(0);
+  });
+
+  it("covers the whole course, end to end, without gaps", () => {
+    const profile = profileOf([100, 120, 300, 320, 330, 500, 505, 510, 700, 701, 702]);
+    const bands = gradientBands(profile);
+    expect(bands[0].fromAlong).toBe(0);
+    expect(bands[bands.length - 1].toAlong).toBe(profile.distanceM);
+    for (let i = 1; i < bands.length; i++) expect(bands[i].fromAlong).toBe(bands[i - 1].toAlong);
+  });
+});
+
+describe("stackLabels", () => {
+  it("leaves well-spaced names on one row", () => {
+    expect(stackLabels([0, 0.25, 0.5, 0.75, 1])).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("drops the crowded one to the next row instead of overlapping it", () => {
+    // 백운대 and 백운봉암문: 340m apart on 5.8km is 0.06 of the width.
+    const rows = stackLabels([0, 0.42, 0.48, 1]);
+    expect(rows[1]).not.toBe(rows[2]);
+    expect(rows.every((row) => row !== null)).toBe(true);
+  });
+
+  it("keeps going down the rows as names pile up", () => {
+    const rows = stackLabels([0.5, 0.52, 0.54]);
+    expect(new Set(rows)).toEqual(new Set([0, 1, 2]));
+  });
+
+  it("drops a name it cannot place rather than hiding it under another", () => {
+    const rows = stackLabels([0.5, 0.51, 0.52, 0.53]);
+    expect(rows.filter((row) => row === null)).toHaveLength(1);
+  });
+
+  it("assigns rows by position, not by order in the list", () => {
+    // Given out of order, the leftmost still gets the top row.
+    const rows = stackLabels([0.9, 0.1, 0.5]);
+    expect(rows).toEqual([0, 0, 0]);
   });
 });

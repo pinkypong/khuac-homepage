@@ -162,7 +162,14 @@ export function buildProfile(
   };
 }
 
-export type Steepness = "flat" | "gentle" | "moderate" | "steep";
+/**
+ * How hard a stretch is, on the scale the national park signs its trails with.
+ *
+ * Five steps rather than four, because the top of the old scale had 22% and a
+ * granite staircase in the same word. The park's own charts go green, blue,
+ * yellow, red, black for the same reason ski runs do.
+ */
+export type Steepness = "flat" | "gentle" | "moderate" | "steep" | "severe";
 
 export interface CourseSection {
   /** The two named points this runs between. */
@@ -204,7 +211,8 @@ export function steepnessOf(gradient: number): Steepness {
   if (up < 0.05) return "flat";
   if (up < 0.12) return "gentle";
   if (up < 0.22) return "moderate";
-  return "steep";
+  if (up < 0.35) return "steep";
+  return "severe";
 }
 
 /** The steepest run of at least `window` metres, or null if there is none. */
@@ -255,6 +263,105 @@ export function sectionsOf(
       steepness: steepnessOf(gradient),
       downhill: riseM < 0,
     });
+  }
+  return out;
+}
+
+/**
+ * How long a stretch the colour of the chart is decided over.
+ *
+ * The heights are a 90m model, so a shorter window colours its own noise: two
+ * samples 90m apart can differ by a few metres of model error alone, which is
+ * several per cent of gradient out of nothing. 250m is three samples, long
+ * enough that a band means the ground and short enough to find the one pitch
+ * inside a two-kilometre climb.
+ */
+export const BAND_WINDOW_M = 250;
+
+export interface GradientBand {
+  fromAlong: number;
+  toAlong: number;
+  /** Signed, so a caller can still tell a climb from a descent. */
+  gradient: number;
+  /** Graded on the size of it: a 30% descent is not easy because it is downhill. */
+  steepness: Steepness;
+}
+
+/**
+ * The course cut into stretches of one difficulty each.
+ *
+ * Between the named points is the wrong unit for colour - 대서문 to 백운봉암문
+ * is 2.6km and averages 21%, which says nothing about where inside it the
+ * staircase is - and a per-sample colour is the model's noise in stripes. This
+ * takes the gradient across a window, grades that, and merges neighbours that
+ * came out the same, so a band is as long as the ground stays the same shape.
+ */
+export function gradientBands(profile: CourseProfile, window = BAND_WINDOW_M): GradientBand[] {
+  const { points } = profile;
+  if (points.length < 2) return [];
+
+  const raw: GradientBand[] = [];
+  let start = 0;
+  for (let i = 1; i < points.length; i++) {
+    const run = points[i].along - points[start].along;
+    const last = i === points.length - 1;
+    if (run < window && !last) continue;
+    const gradient = run > 0 ? (points[i].elevation - points[start].elevation) / run : 0;
+    raw.push({
+      fromAlong: points[start].along,
+      toAlong: points[i].along,
+      gradient,
+      steepness: steepnessOf(gradient),
+    });
+    start = i;
+  }
+
+  // Merged so one long climb is one band rather than a row of stripes.
+  const out: GradientBand[] = [];
+  for (const band of raw) {
+    const previous = out[out.length - 1];
+    if (previous && previous.steepness === band.steepness
+      && Math.sign(previous.gradient) === Math.sign(band.gradient)) {
+      const span = band.toAlong - previous.fromAlong;
+      const rise = previous.gradient * (previous.toAlong - previous.fromAlong)
+        + band.gradient * (band.toAlong - band.fromAlong);
+      previous.toAlong = band.toAlong;
+      previous.gradient = span > 0 ? rise / span : previous.gradient;
+      continue;
+    }
+    out.push({ ...band });
+  }
+  return out;
+}
+
+/**
+ * Which row each label goes on so that none sits on top of its neighbour.
+ *
+ * 백운대 and 백운봉암문 are 340m apart on a 5.8km course - a twentieth of the
+ * width - and side by side on one line they overlapped and were cut off, which
+ * left two names on the chart that could not be read.
+ *
+ * Positions are fractions of the width, and a label is assumed to take `width`
+ * of it; a name needs that much clear space either side of its centre. Walking
+ * left to right, each label takes the highest row that is free at its position.
+ * Anything that would need a row past `rows` is dropped rather than stacked out
+ * of sight - on a chart this size that means the names were too crowded to be
+ * read anyway.
+ */
+export function stackLabels(
+  positions: number[],
+  width = 0.13,
+  rows = 3,
+): (number | null)[] {
+  const lastEnd = new Array<number>(rows).fill(-Infinity);
+  const order = positions.map((at, index) => ({ at, index })).sort((a, b) => a.at - b.at);
+  const out = new Array<number | null>(positions.length).fill(null);
+  for (const { at, index } of order) {
+    const from = at - width / 2;
+    const row = lastEnd.findIndex((end) => end <= from);
+    if (row === -1) continue;
+    lastEnd[row] = at + width / 2;
+    out[index] = row;
   }
   return out;
 }

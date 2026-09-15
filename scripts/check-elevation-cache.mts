@@ -14,7 +14,7 @@
  */
 import { readFileSync } from "node:fs";
 import {
-  buildProfile, cellCentre, cellKey, sampleAlongTrack, sectionsOf, waypointsAlong,
+  buildProfile, cellCentre, cellKey, gradientBands, sampleAlongTrack, sectionsOf, stackLabels, waypointsAlong,
 } from "../src/lib/routes/elevation.ts";
 import { prepareRouteSnap, walkPreparedRoute } from "../src/lib/routes/snap.ts";
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
@@ -149,3 +149,21 @@ const rows = await fetch(`${supabaseUrl}/rest/v1/elevation_cells?select=cell_key
   headers: { ...headers, prefer: "count=exact", range: "0-0" },
 });
 console.log(`\n저장된 셀: ${rows.headers.get("content-range")}`);
+
+// What the chart will actually draw: the coloured bands, and which row each
+// name lands on now that close ones are staggered instead of overlapping.
+const along = waypointsAlong(line, waypoints);
+console.log("");
+console.log("=== 난이도 구간 (색이 칠해질 단위) ===");
+for (const band of gradientBands(second.profile)) {
+  const pct = Math.round(band.gradient * 100);
+  console.log(`  ${(band.fromAlong / 1000).toFixed(2)}~${(band.toAlong / 1000).toFixed(2)}km`
+    + ` · ${String(pct).padStart(4)}% · ${band.steepness}`);
+}
+console.log("");
+console.log("=== 이름표 배치 ===");
+const labelRows = stackLabels(along.map((a) => a / second.profile.distanceM));
+along.forEach((a, i) => {
+  const at = ((a / second.profile.distanceM) * 100).toFixed(1);
+  console.log(`  ${NAMES[i].padEnd(14)} ${at.padStart(5)}% → ${labelRows[i] === null ? "표시 안 함" : labelRows[i] + "번째 줄"}`);
+});
