@@ -83,7 +83,10 @@ function env(name: string): string {
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
-const [fromLat, fromLng, toLat, toLng] = args.filter((a) => a !== "--dry-run").map(Number);
+// Replaces a line already stored for this stretch even when it had as many
+// witnesses. For when the choice rule itself has changed, not the archive.
+const force = args.includes("--force");
+const [fromLat, fromLng, toLat, toLng] = args.filter((a) => !a.startsWith("--")).map(Number);
 if (![fromLat, fromLng, toLat, toLng].every(Number.isFinite)) {
   throw new Error("사용법: <시작위도> <시작경도> <끝위도> <끝경도> [--dry-run]");
 }
@@ -283,19 +286,40 @@ function covers(reference: TrackPoint[], other: TrackPoint[]): number {
  * witnesses at a hundred per cent. A stored line ought not to depend on when it
  * was stored.
  *
- * The middle-length one is asked first. The shortest candidate is usually
- * somebody who cut a corner the recorder did not see, the longest is somebody
- * who stopped to look at something, and the median is the walk.
+ * The order is by how many people walked something that long. Between two
+ * points there is often more than one way - a ridge and a valley, or a
+ * scramble and the path round it - and they show up as separate clumps in the
+ * lengths. The biggest clump is the way most people take, which is the
+ * question being asked: not the shortest line between these points, which is
+ * what the router already finds and is why this exists.
+ *
+ * A median would sit between two clumps and belong to neither. A mode picks a
+ * side.
  */
 const lengthOf = (track: TrackPoint[]) => {
   let total = 0;
   for (let i = 1; i < track.length; i++) total += metres(track[i - 1], track[i]);
   return total;
 };
-const median = [...candidates].map(lengthOf).sort((a, b) => a - b)[Math.floor(candidates.length / 2)];
-const order = candidates
-  .map((_, i) => i)
-  .sort((a, b) => Math.abs(lengthOf(candidates[a]) - median) - Math.abs(lengthOf(candidates[b]) - median));
+const lengths = candidates.map(lengthOf);
+// Wide enough that two recordings of one walk share a bin, narrow enough that
+// two different ways between the same points do not.
+const BIN_M = Math.max(120, straight * 0.08);
+const bins = new Map<number, number[]>();
+for (const [index, length] of lengths.entries()) {
+  const bin = Math.round(length / BIN_M);
+  const members = bins.get(bin);
+  if (members) members.push(index);
+  else bins.set(bin, [index]);
+}
+const sorted = [...bins].sort((a, b) => b[1].length - a[1].length || a[0] - b[0]);
+console.log(`  길이 분포 (${Math.round(BIN_M)}m 단위): ${sorted.slice(0, 5)
+  .map(([bin, members]) => `${(bin * BIN_M / 1000).toFixed(2)}km×${members.length}`).join(", ")}`);
+// The busiest clump first, each clump's members nearest its centre first, and
+// the quieter clumps after it as a fallback rather than as an equal.
+const order = sorted.flatMap(([bin, members]) =>
+  [...members].sort((a, b) =>
+    Math.abs(lengths[a] - bin * BIN_M) - Math.abs(lengths[b] - bin * BIN_M)));
 
 let chosen: { stretch: TrackPoint[]; votes: number[] } | null = null;
 // Asked for three first and settled for two only if three is not on offer, so
@@ -380,7 +404,7 @@ for (const [tile_key, tileSegments] of byTile) {
     ) <= 100;
   const previous = held.filter(sameStretch);
   const best = Math.max(0, ...previous.map((s) => Number(s.name?.match(/동의 (\d+)명/)?.[1] ?? 0)));
-  if (previous.length > 0 && best >= witnessed) {
+  if (!force && previous.length > 0 && best >= witnessed) {
     console.log(`${tile_key}: 이미 동의 ${best}명짜리 선이 있어 그대로 둡니다`);
     continue;
   }
