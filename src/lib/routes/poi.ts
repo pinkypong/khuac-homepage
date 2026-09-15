@@ -195,6 +195,11 @@ export function isUsableWaypoint(
   types: readonly string[],
   place: string,
 ): boolean {
+  // No name came back, so there is nothing to disagree with. Refusing here
+  // would refuse everything: isPlausibleMatch reads an empty name as a generic
+  // answer to a specific question, which is right when a lookup returned
+  // 북한산국립공원 and wrong when it returned a name we simply did not ask for.
+  if (!found.trim()) return !types.some((type) => NOT_A_WAYPOINT.has(type));
   const isTransit = types.some((type) => NOT_A_WAYPOINT.has(type));
   // Plenty of courses start at a station - 사당역, 도봉산역 - and refusing
   // transit for those found nothing, then took whatever was left: 사당역

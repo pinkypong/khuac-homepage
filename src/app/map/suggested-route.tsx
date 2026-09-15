@@ -165,8 +165,16 @@ export function SuggestedRoute({
         // Places always answers with its best guess and never says how good it
         // was: asked for 밤골탐방지원센터, which it does not carry, it returned
         // 북한산성탐방지원센터 on the far side of the ridge.
-        return found.find((place) =>
+        const usable = found.find((place) =>
           isUsableWaypoint(name, place.displayName ?? "", place.types ?? [], placeName));
+        if (!usable && found.length > 0) {
+          // Rejected every candidate. Which ones, and what they were called,
+          // is the difference between a rule that is too strict and a field
+          // the SDK did not fill in.
+          console.warn("[map/suggested-route] no usable result", name,
+            found.map((place) => `${place.displayName ?? "(이름 없음)"}[${(place.types ?? []).join(",")}]`));
+        }
+        return usable;
       }
 
       try {
