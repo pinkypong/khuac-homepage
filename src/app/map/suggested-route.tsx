@@ -309,7 +309,7 @@ export function SuggestedRoute({
           describing - and the line is the thing worth seeing. Where it starts
           and where it comes out are what a reader needs; the rest is on the
           card beside the map. */}
-      {pins && (resolved.length === 1 ? [resolved[0]] : [resolved[0], resolved[resolved.length - 1]]).map((point, i, ends) => (
+      {pins && (resolved.length === 1 ? [resolved[0]] : [resolved[0], resolved[resolved.length - 1]]).map((point, i) => (
         <AdvancedMarker
           key={`${point.name}-${i}`}
           position={point}
@@ -321,7 +321,7 @@ export function SuggestedRoute({
             className="rounded-full border border-white/90 px-1.5 py-px text-[9px] font-semibold leading-tight text-white shadow"
             style={{ backgroundColor: SUGGESTION_COLOR }}
           >
-            {ends.length === 1 ? "" : i === 0 ? "출발 " : "도착 "}{point.name}
+            {point.name}
           </span>
         </AdvancedMarker>
       ))}

@@ -599,7 +599,8 @@ export function MapView({
           the one coordinate the line starts at - which says nothing about
           where any of them is. A small mark on the line at each, and the two
           ends named, because those are what a reader looks for first and the
-          middle ones would otherwise pile their labels on top of each other. */}
+          middle ones would otherwise pile their labels on top of each other.
+          The names alone: which end is which is what the line is for. */}
       {selectedHike?.track && selectedHike.routeWaypoints?.map((point, i, all) => {
         const end = i === 0 || i === all.length - 1;
         return (
@@ -620,7 +621,7 @@ export function MapView({
               />
               {end && (
                 <span className="whitespace-nowrap rounded bg-white/90 px-1 py-px text-[10px] font-medium text-neutral-900 shadow-sm">
-                  {i === 0 ? "출발" : "도착"} {point.name}
+                  {point.name}
                 </span>
               )}
             </span>
