@@ -53,7 +53,10 @@ const MAX_POINTS_PER_SEGMENT = 120;
  */
 async function fetchFromAnyMirror(query: string, timeoutMs: number = TIMEOUT_MS): Promise<unknown> {
   let lastStatus = 0;
-  for (const url of OVERPASS_URLS) {
+  const deadline = Date.now() + timeoutMs;
+  for (const [index, url] of OVERPASS_URLS.entries()) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -63,11 +66,15 @@ async function fetchFromAnyMirror(query: string, timeoutMs: number = TIMEOUT_MS)
           // Overpass asks for a contactable identity on automated traffic.
           "user-agent": "khuac.com hiking album (contact: https://khuac.com)",
         },
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(Math.max(1, Math.floor(remaining / (OVERPASS_URLS.length - index)))),
       });
       lastStatus = response.status;
       if (!response.ok) continue;
-      return await response.json();
+      const payload = await response.json() as { elements?: unknown[]; remark?: string };
+      // Overpass can return HTTP 200 plus a timeout remark and partial ways.
+      // Such a response must never be cached as a complete network.
+      if (!Array.isArray(payload.elements) || payload.remark) continue;
+      return payload;
     } catch {
       // Timed out, refused, or answered with an HTML error page. Next mirror.
     }
@@ -111,8 +118,8 @@ export async function fetchTrailsInBounds(
     throw new Error("등산로를 찾기에는 경로가 너무 넓습니다.");
   }
 
-  const query = `[out:json][timeout:${Math.floor(TIMEOUT_MS / 1000)}];
-way(${south},${west},${north},${east})["highway"~"^(path|footway|track|steps)$"];
+  const query = `[out:json][timeout:${Math.floor(timeoutMs / 1000)}];
+way(${south},${west},${north},${east})["highway"~"^(path|footway|track|steps|pedestrian|living_street|residential|service|unclassified)$"]["area"!="yes"]["foot"!~"^(no|private)$"]["access"!~"^(no|private)$"];
 out geom;`;
 
   return prepare(await fetchFromAnyMirror(query, timeoutMs), 0);
@@ -150,7 +157,8 @@ function prepare(payload: unknown, minLengthM: number): TrailSegment[] {
     .filter((segment) => segmentLengthMeters(segment) >= minLengthM)
     .map((segment) => ({
       ...segment,
-      points: downsampleTrack(segment.points, MAX_POINTS_PER_SEGMENT),
+      // Routing must retain every junction; only simplify the visual picker.
+      points: minLengthM === 0 ? segment.points : downsampleTrack(segment.points, MAX_POINTS_PER_SEGMENT),
     }))
     // Longest first: the named ridge someone actually walked outranks the
     // twenty metres of connector beside it.

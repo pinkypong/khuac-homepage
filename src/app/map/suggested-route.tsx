@@ -22,12 +22,10 @@ const SUGGESTION_CASING = "#FFFFFF";
  * How many named waypoints are looked up per course.
  *
  * Every lookup is a billed Places request, so this is a spend ceiling as much
- * as a layout one: a course shaped 들머리 → 능선 → 정상 reads the same at six
- * points as at twelve, and the model sometimes lists every minor landmark.
- * The ends are kept and the middle is thinned, so the line still spans the
- * whole course rather than stopping short of the summit.
+ * as a layout one. Keep all of the assistant's up-to-twelve waypoints so
+ * skipping a named junction does not silently change the course.
  */
-const MAX_LOOKUPS = 6;
+const MAX_LOOKUPS = 12;
 
 // Names repeat across courses on the same mountain (연주대 ends three of them),
 // and a member comparing courses taps back and forth. Module scope so those
@@ -57,8 +55,8 @@ function thin(waypoints: string[]): string[] {
  *
  * The line between them is then pulled onto the real trails: the waypoints go
  * to OpenStreetMap, which knows where the paths are, and the route is walked
- * along them. A leg that finds no trail stays a straight join and is drawn
- * dashed, so what is surveyed and what is guessed are told apart on sight.
+ * along them. A leg without connected trail geometry is left undrawn and
+ * reported to the member instead of inventing a connection.
  * None of it is written to hikes.track, which stays for a real GPX or a
  * member's own tap-picked route.
  */
@@ -82,8 +80,7 @@ export function SuggestedRoute({
   /** Names this course could not place, handed up so the shell can offer to
       record one. Reported from here because this is where the lookups happen. */
   onMissing: (names: string[]) => void;
-  /** True when no trail data could be loaded at all, which is a different
-      thing from a course that genuinely has no path along part of it. */
+  /** True when any part of the course cannot be resolved onto mapped trails. */
   onTrailsUnavailable: (unavailable: boolean) => void;
 }) {
   const places = useMapsLibrary("places");
@@ -92,6 +89,7 @@ export function SuggestedRoute({
   const centerLng = center?.lng;
   const routeName = route.name;
   const waypoints = route.waypoints;
+  const waypointKey = waypoints.join("\u0001");
   const [legs, setLegs] = useState<RouteLeg[] | null>(null);
 
   useEffect(() => {
@@ -101,6 +99,7 @@ export function SuggestedRoute({
     // on screen - drawn against the new course's waypoints - for the seconds
     // the lookup and the snap take.
     setLegs(null);
+    onTrailsUnavailable(false);
 
     async function resolveOne(name: string, pois: ClubPoi[]): Promise<RouteWaypoint | null> {
       // The club's own gazetteer first. These names are local usage - 해골바위,
@@ -109,13 +108,14 @@ export function SuggestedRoute({
       const known = findClubPoi(name, pois);
       if (known) return { name, lat: known.lat, lng: known.lng };
 
-      const cached = cache.get(name);
+      const cacheKey = `${placeName}:${centerLat ?? ""}:${centerLng ?? ""}:${name}`;
+      const cached = cache.get(cacheKey);
       if (cached !== undefined) return cached;
       try {
         const { places: found } = await places!.Place.searchByText({
           // 관음사 and 사당역 exist in several cities, so without a centre to
           // bias toward, the mountain's name has to carry the disambiguation.
-          textQuery: centerLat != null ? name : `${placeName} ${name}`,
+          textQuery: `${placeName} ${name}`.trim(),
           fields: ["location"],
           language: "ko",
           region: "KR",
@@ -126,11 +126,11 @@ export function SuggestedRoute({
         });
         const location = found[0]?.location;
         const point = location ? { name, lat: location.lat(), lng: location.lng() } : null;
-        cache.set(name, point);
+        if (point) cache.set(cacheKey, point);
         return point;
       } catch (error) {
         console.error("[map/suggested-route] lookup failed", name, error);
-        cache.set(name, null);
+        // Allow retries after transient API errors.
         return null;
       }
     }
@@ -147,7 +147,8 @@ export function SuggestedRoute({
       // came back on the far side of 북한산 - and one bad lookup dragged the
       // whole course into a straight line across the massif. Dropping it here
       // rather than server-side keeps its pin off the map too.
-      const resolvedPoints = points.filter((p): p is RouteWaypoint => p !== null);
+      const resolvedPoints = points.flatMap((point, sequenceIndex) =>
+        point ? [{ ...point, sequenceIndex }] : []);
       const found = dropOutlierWaypoints(resolvedPoints);
       const placed = new Set(found.map((p) => p.name));
       // Reported rather than swallowed: these are the local terms - 해골바위,
@@ -156,8 +157,9 @@ export function SuggestedRoute({
       // notice so it sits with the button that acts on it.
       onMissing(thin(waypoints).filter((name) => !placed.has(name)));
       onResolved(found);
-      if (!map || found.length === 0) return;
+      if (!map || found.length === 0) { onTrailsUnavailable(true); return; }
       if (found.length === 1) {
+        onTrailsUnavailable(true);
         // fitBounds on a single point zooms to the maximum the tiles allow,
         // which lands on a rooftop rather than on a mountain.
         map.setCenter(found[0]);
@@ -168,16 +170,20 @@ export function SuggestedRoute({
       for (const point of found) bounds.extend(point);
       map.fitBounds(bounds, 64);
 
-      // Straight lines between the waypoints go up first so the course is on
-      // screen immediately; the trail-following version replaces them when
-      // Overpass answers, which takes a few seconds.
+      // Show a line only once the mapped trail geometry has been resolved.
       snapSuggestedRoute(found.map(({ lat, lng }) => ({ lat, lng })))
         .then((snapped) => {
           if (cancelled) return;
-          setLegs(snapped.legs);
-          onTrailsUnavailable(!snapped.trailsLoaded);
+          const checked = snapped.legs.map((leg, i) =>
+            found[i + 1].sequenceIndex - found[i].sequenceIndex > 1
+              ? { points: [], onTrail: false } : leg);
+          setLegs(checked);
+          onTrailsUnavailable(!snapped.trailsLoaded || checked.some((leg) => !leg.onTrail));
         })
         .catch((error) => {
+          if (cancelled) return;
+          setLegs([]);
+          onTrailsUnavailable(true);
           console.error("[map/suggested-route] snapping failed", error);
         });
     });
@@ -185,52 +191,35 @@ export function SuggestedRoute({
     return () => {
       cancelled = true;
     };
-    // routeName stands in for the route itself: the object is rebuilt on every
-    // answer render, but a course is the same course while its name holds.
+    // Depend on the course content, not the object rebuilt by answer renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [places, map, routeName, centerLat, centerLng, placeName]);
+  }, [places, map, routeName, waypointKey, centerLat, centerLng, placeName]);
 
   if (!resolved || resolved.length === 0) return null;
 
-  // Before the trails come back there is one straight leg per gap; afterwards
-  // each leg knows whether it follows a mapped path.
-  const drawn: RouteLeg[] =
-    legs ??
-    resolved.slice(1).map((point, i) => ({
-      points: [
-        [resolved[i].lat, resolved[i].lng],
-        [point.lat, point.lng],
-      ],
-      onTrail: false,
-    }));
+  // Missing geometry stays invisible rather than cutting across the mountain.
+  const drawn = (legs ?? []).filter((leg) => leg.onTrail && leg.points.length >= 2);
 
   return (
     <>
       {drawn.flatMap((leg, i) => {
         const path = leg.points.map(([lat, lng]) => ({ lat, lng }));
-        const dashes = [
-          { icon: { path: "M 0,-1 0,1", strokeOpacity: 1, strokeWeight: 3, scale: 1 }, offset: "0", repeat: "10px" },
-        ];
         return [
           // Casing first so the coloured line sits on top of it.
           <Polyline
             key={`casing-${i}`}
             path={path}
             strokeColor={SUGGESTION_CASING}
-            strokeOpacity={leg.onTrail ? 0.95 : 0.8}
-            strokeWeight={leg.onTrail ? 8 : 7}
+            strokeOpacity={0.95}
+            strokeWeight={8}
           />,
-          // Solid means this really is the mapped trail. Dashed means we could
-          // not find one and the line is a straight join - the distinction is
-          // the whole point, so it is carried by the line itself rather than
-          // by a note somewhere off to the side.
+          // Only connected mapped geometry is drawn.
           <Polyline
             key={`leg-${i}-${leg.onTrail}`}
             path={path}
             strokeColor={SUGGESTION_COLOR}
-            strokeOpacity={leg.onTrail ? 1 : 0}
-            strokeWeight={leg.onTrail ? 4 : 3}
-            icons={leg.onTrail ? undefined : dashes}
+            strokeOpacity={1}
+            strokeWeight={4}
           />,
         ];
       })}

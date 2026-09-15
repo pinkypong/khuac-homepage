@@ -4,12 +4,21 @@ import {
   parseOverpassWays,
   segmentLengthMeters,
   stitchSegments,
+  splitSurveyGaps,
   type TrailSegment,
 } from "./trails";
 
 function segment(id: number, points: [number, number][], name: string | null = null): TrailSegment {
   return { id, name, kind: "path", points };
 }
+
+it("splits disconnected survey pieces instead of drawing across a valley", () => {
+  const parts = splitSurveyGaps([segment(123, [[37.60, 127], [37.6001, 127], [37.62, 127], [37.6201, 127]])]);
+  expect(parts).toHaveLength(2);
+  expect(parts[0].points).toEqual([[37.60, 127], [37.6001, 127]]);
+  expect(parts[1].points).toEqual([[37.62, 127], [37.6201, 127]]);
+  expect(parts[0].id).not.toBe(parts[1].id);
+});
 
 describe("parseOverpassWays", () => {
   it("keeps ways that carry geometry and drops the rest", () => {

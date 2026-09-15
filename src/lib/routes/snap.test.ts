@@ -48,7 +48,7 @@ describe("snapRouteToTrails", () => {
     expect(legs[0].points.at(-1)).toEqual([37.603, 127.0]);
   });
 
-  it("falls back to a straight leg when there is no trail at all", () => {
+  it("does not invent a straight route when there is no trail", () => {
     const legs = snapRouteToTrails(
       [
         { lat: 37.6, lng: 127.0 },
@@ -56,7 +56,7 @@ describe("snapRouteToTrails", () => {
       ],
       [],
     );
-    expect(legs).toEqual([{ points: [[37.6, 127.0], [37.61, 127.0]], onTrail: false }]);
+    expect(legs).toEqual([{ points: [], onTrail: false }]);
   });
 
   it("does not snap a waypoint that is nowhere near a path", () => {
@@ -114,6 +114,37 @@ describe("snapRouteToTrails", () => {
       [bulging],
     );
     expect(legs).toHaveLength(2);
+  });
+});
+
+describe("mapped approaches and topology", () => {
+  it("routes from the middle of a sparse road without jumping to its distant endpoints", () => {
+    const road = seg(5, [[37.60, 127], [37.63, 127]]);
+    const leg = snapRouteToTrails([{ lat: 37.610, lng: 127 }, { lat: 37.615, lng: 127 }], [road])[0];
+    expect(leg.onTrail).toBe(true);
+    expect(leg.points[0][0]).toBeCloseTo(37.610, 6);
+    expect(leg.points.at(-1)![0]).toBeCloseTo(37.615, 6);
+    expect(leg.points.every(([lat]) => lat >= 37.610 && lat <= 37.615)).toBe(true);
+  });
+
+  it("does not append an invented off-trail approach to a landmark pin", () => {
+    const road = seg(5, [[37.60, 127], [37.63, 127]]);
+    const leg = snapRouteToTrails([{ lat: 37.610, lng: 127.001 }, { lat: 37.615, lng: 127.001 }], [road])[0];
+    expect(leg.onTrail).toBe(true);
+    expect(leg.points.every(([, lng]) => lng === 127)).toBe(true);
+  });
+
+  it("does not bridge separate parallel trails ten metres apart", () => {
+    const paths = [seg(1, [[37.60, 127], [37.603, 127]]), seg(2, [[37.60, 127.00012], [37.603, 127.00012]])];
+    expect(snapRouteToTrails([{ lat: 37.60, lng: 127 }, { lat: 37.603, lng: 127.00012 }], paths)[0].onTrail).toBe(false);
+  });
+
+  it("keeps a bend even when it passes close to another part of a separate way", () => {
+    const paths = [seg(1, [[37.60, 127], [37.602, 127], [37.602, 127.001]]),
+      seg(2, [[37.602, 127.001], [37.6001, 127.0001], [37.603, 127.003]])];
+    const leg = snapRouteToTrails([{ lat: 37.60, lng: 127 }, { lat: 37.603, lng: 127.003 }], paths)[0];
+    expect(leg.onTrail).toBe(true);
+    expect(leg.points).toContainEqual([37.602, 127.001]);
   });
 });
 

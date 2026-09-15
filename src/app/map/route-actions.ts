@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
-import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
+import { stitchSegments, splitSurveyGaps, type TrailSegment } from "@/lib/routes/trails";
 import { snapRouteToTrails, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
 import type { ClubPoi } from "@/lib/routes/poi";
-import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside } from "@/lib/routes/tiles";
+import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside, TILE_DEG } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
 import { isValidGps } from "@/lib/gps/validate";
 
@@ -82,6 +82,9 @@ export async function snapSuggestedRoute(
   waypoints: { lat: number; lng: number }[],
 ): Promise<SnapResult> {
   const { supabase } = await requireApprovedMember();
+  if (waypoints.length > 12 || waypoints.some((point) => !isValidGps(point.lat, point.lng))) {
+    throw new Error("경로 좌표를 확인해주세요.");
+  }
   if (waypoints.length < 2) return { legs: [], trailsLoaded: true };
 
   // A box around the whole course rather than a circle around its middle. The
@@ -101,15 +104,11 @@ export async function snapSuggestedRoute(
     east: Math.max(...lngs) + margin,
   };
 
-  const segments = await trailsForBounds(supabase, bounds);
+  let segments = await trailsForBounds(supabase, bounds);
   if (segments.length === 0) {
-    // Nothing to route along, from cache or from Overpass. Straight legs say
-    // so honestly rather than the map pretending it looked.
+    // No geometry is available; do not invent straight connections.
     return {
-      legs: waypoints.slice(1).map((point, i) => ({
-        points: [[waypoints[i].lat, waypoints[i].lng], [point.lat, point.lng]] as [number, number][],
-        onTrail: false,
-      })),
+      legs: waypoints.slice(1).map(() => ({ points: [], onTrail: false })),
       trailsLoaded: false,
     };
   }
@@ -117,7 +116,18 @@ export async function snapSuggestedRoute(
   // the same whether a waypoint was 500m from the nearest path or the path
   // simply does not connect.
   const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
-  const legs = snapRouteToTrails(waypoints, segments, diagnostics);
+  let legs = snapRouteToTrails(waypoints, segments, diagnostics);
+  if (legs.some((leg) => !leg.onTrail)) {
+    // A real approach may go around a ridge outside the initial box. Try a
+    // larger area once, retaining usable geometry if the provider is down.
+    const expanded = { south: bounds.south - 0.012, west: bounds.west - 0.012,
+      north: bounds.north + 0.012, east: bounds.east + 0.012 };
+    if (expanded.north - expanded.south <= 0.25 && expanded.east - expanded.west <= 0.25) {
+      segments = mergeTileSegments([segments, await trailsForBounds(supabase, expanded)]);
+      diagnostics.legs = [];
+      legs = snapRouteToTrails(waypoints, segments, diagnostics);
+    }
+  }
   console.log("[route-actions] snap", JSON.stringify({
     ways: segments.length,
     snapM: diagnostics.snapDistances,
@@ -140,33 +150,45 @@ async function trailsForBounds(
 ): Promise<TrailSegment[]> {
   const keys = tilesForBounds(bounds);
   const cached = new Map<string, TrailSegment[]>();
+  const legacy = new Map<string, TrailSegment[]>();
+  const legacyKeys = keys.map((key) => key.replace(/^v3:/, "v2:"));
 
   // Both sources at once. 산림청 and 국립공원공단 surveyed these routes and OSM
   // volunteers walked them, and neither is reliably the better record - the
   // forest service data has documented gaps of its own - so a path missing
   // from one is supplied by the other rather than argued with.
   const [osm, official] = await Promise.all([
-    supabase.from("trail_tiles").select("tile_key, segments").in("tile_key", keys),
-    supabase.from("official_trails").select("segments").in("tile_key", keys),
+    supabase.from("trail_tiles").select("tile_key, segments").in("tile_key", [...keys, ...legacyKeys]),
+    // Official surveyed geometry did not suffer OSM's downsampling bug.
+    supabase.from("official_trails").select("segments").in("tile_key", [...keys, ...keys.map((key) => key.replace(/^v3:/, "v2:"))]),
   ]);
   for (const row of (osm.data ?? []) as unknown as { tile_key: string; segments: TrailSegment[] }[]) {
-    cached.set(row.tile_key, row.segments ?? []);
+    if (row.tile_key.startsWith("v3:")) cached.set(row.tile_key, row.segments ?? []);
+    else legacy.set(row.tile_key.replace(/^v2:/, "v3:"), row.segments ?? []);
   }
-  const officialSegments = ((official.data ?? []) as unknown as { segments: TrailSegment[] }[])
-    .flatMap((row) => row.segments ?? []);
+  const officialSegments = splitSurveyGaps(mergeTileSegments(((official.data ?? []) as unknown as { segments: TrailSegment[] }[])
+    .map((row) => row.segments ?? [])));
 
   const missing = keys.filter((key) => !cached.has(key));
   if (missing.length === 0) return mergeTileSegments([...cached.values(), officialSegments]);
 
   try {
-    const fetched = await fetchTrailsInBounds(bounds);
+    // Query complete tiles, including the edges, so later previews can use
+    // the cache instead of repeatedly asking Overpass for clipped tiles.
+    const aligned = {
+      south: Math.floor(bounds.south / TILE_DEG) * TILE_DEG,
+      west: Math.floor(bounds.west / TILE_DEG) * TILE_DEG,
+      north: Math.ceil(bounds.north / TILE_DEG) * TILE_DEG,
+      east: Math.ceil(bounds.east / TILE_DEG) * TILE_DEG,
+    };
+    const fetched = await fetchTrailsInBounds(aligned);
     const byTile = groupSegmentsByTile(fetched);
     // Only the tiles this box fully contained. An empty tile is a real answer
     // worth keeping - "no paths here" saves the next preview a fetch - but a
     // tile the box merely clipped would be cached with the ways that fell
     // inside and none of the ones continuing past the edge, which is a hole a
     // later course would read as fact.
-    const complete = tilesFullyInside(bounds);
+    const complete = tilesFullyInside(aligned);
     const rows = keys
       .filter((key) => complete.has(key))
       .map((key) => ({
@@ -178,11 +200,22 @@ async function trailsForBounds(
       const { error } = await supabase.from("trail_tiles").upsert(rows, { onConflict: "tile_key" });
       if (error) console.error("[route-actions] trail tile write failed", error.message);
     }
-    return mergeTileSegments([[...fetched], officialSegments]);
+    return mergeTileSegments([[...fetched], ...cached.values(), officialSegments]);
   } catch {
     console.error("[route-actions] Overpass unavailable; drawing from what we hold");
-    return mergeTileSegments([...cached.values(), officialSegments]);
+    // Retain the previous geometry during an outage, without labelling it as
+    // newly fetched or persisting it under the complete-geometry version.
+    return mergeTileSegments([...cached.values(), ...legacy.values(), officialSegments]);
   }
+}
+
+/** Paths for a close satellite viewport; shares the route geometry cache. */
+export async function loadSatelliteTrails(bounds: TrailBounds): Promise<TrailSegment[]> {
+  const { supabase } = await requireApprovedMember();
+  if (!isValidGps(bounds.south, bounds.west) || !isValidGps(bounds.north, bounds.east)
+    || bounds.north <= bounds.south || bounds.east <= bounds.west
+    || bounds.north - bounds.south > 0.08 || bounds.east - bounds.west > 0.08) return [];
+  return trailsForBounds(supabase, bounds);
 }
 
 /**

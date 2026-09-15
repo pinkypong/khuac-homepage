@@ -17,6 +17,25 @@ export interface TrailSegment {
   points: TrackPoint[];
 }
 
+/** Imported survey rows sometimes concatenate disconnected pieces. Never
+ * interpret those jumps as climbable geometry. OSM ways are not subjected to
+ * this spacing rule because sparse roads legitimately have long edges. */
+export function splitSurveyGaps(segments: TrailSegment[]): TrailSegment[] {
+  return segments.flatMap((segment) => {
+    const parts: TrackPoint[][] = [[]];
+    for (const point of segment.points) {
+      const last = parts.at(-1)!;
+      const previous = last.at(-1);
+      if (previous && haversineDistanceMeters({ lat: previous[0], lng: previous[1] }, { lat: point[0], lng: point[1] }) > 150) {
+        parts.push([point]);
+      } else last.push(point);
+    }
+    return parts.filter((points) => points.length >= 2).map((points, i) => ({
+      ...segment, id: -(Math.abs(segment.id) * 10000 + i), points,
+    }));
+  });
+}
+
 /** Two segment ends closer than this are treated as the same junction. */
 const JOIN_TOLERANCE_M = 60;
 

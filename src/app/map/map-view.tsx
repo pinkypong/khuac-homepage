@@ -20,6 +20,7 @@ import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import type { TrailSegment } from "@/lib/routes/trails";
 import { availableTileLayers, type TileLayer, type TileLayerId } from "./tile-layers";
 import { SuggestedRoute } from "./suggested-route";
+import { SatelliteTrails } from "./satellite-trails";
 import type { RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import {
@@ -247,14 +248,11 @@ const GOOGLE_MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
 /**
  * How far each mode can be zoomed before it stops showing anything real.
  *
- * Google's aerial imagery over Korean mountains runs out around zoom 19 and
- * the map keeps going by scaling the last tiles up, which reads as the picture
- * breaking rather than as the map having reached its limit. Terrain gives up
- * earlier still. Capping the zoom stops the viewer at the point where what
- * they see is still real.
+ * Satellite imagery is capped dynamically below using MaxZoomService for
+ * the current location. 22 is the initial ceiling, not a promised resolution.
  */
 const MAX_ZOOM: Partial<Record<MapTypeChoice, number>> = {
-  hybrid: 19,
+  hybrid: 22,
   terrain: 17,
 };
 
@@ -271,15 +269,42 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
   const defaultLayer = layers[0] ?? null;
   const [mapType, setMapType] = useState<MapTypeChoice>(defaultLayer?.id ?? "roadmap");
   const appliedDefault = useRef(false);
+  const [imageryLimit, setImageryLimit] = useState<number | null>(null);
 
   // Applied whenever the mode changes rather than only on the click that
   // changed it: the cap has to hold while someone keeps zooming, and setting
   // it once in the handler left the zoom free the moment they pinched again.
   useEffect(() => {
     if (!map) return;
-    const cap = MAX_ZOOM[mapType] ?? null;
-    map.setOptions({ maxZoom: cap ?? undefined });
+    const cap = MAX_ZOOM[mapType] ?? layers.find((layer) => layer.id === mapType)?.maxZoom ?? 22;
+    map.setOptions({ maxZoom: cap, tilt: 0 });
     if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
+  }, [map, mapType, layers]);
+
+  useEffect(() => {
+    if (!map || mapType !== "hybrid") return;
+    let current = true;
+    let generation = 0;
+    const cache = new globalThis.Map<string, number>();
+    const service = new google.maps.MaxZoomService();
+    const update = async () => {
+      const center = map.getCenter();
+      if (!center) return;
+      const request = ++generation;
+      const key = `${center.lat().toFixed(3)},${center.lng().toFixed(3)}`;
+      try {
+        const max = cache.get(key) ?? (await service.getMaxZoomAtLatLng(center)).zoom;
+        if (!current || request !== generation || !Number.isFinite(max)) return;
+        cache.set(key, max);
+        const cap = Math.min(22, max);
+        setImageryLimit(cap);
+        if (map.get("maxZoom") !== cap) map.setOptions({ maxZoom: cap });
+        if ((map.getZoom() ?? 0) > cap) map.setZoom(cap);
+      } catch { /* Keep the map's own imagery handling if lookup is unavailable. */ }
+    };
+    const listener = map.addListener("idle", () => { void update(); });
+    void update();
+    return () => { current = false; listener.remove(); };
   }, [map, mapType]);
 
   useEffect(() => {
@@ -309,6 +334,7 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
   const choices = [...layers.map(({ id, label }) => ({ id, label })), ...GOOGLE_MAP_TYPES];
 
   return (
+    <div>
     <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
       {choices.map(({ id, label }) => (
         <button
@@ -332,6 +358,12 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
           {label}
         </button>
       ))}
+    </div>
+    {mapType === "hybrid" && imageryLimit !== null && (
+      <p className="mx-2 max-w-72 rounded bg-white/95 px-2 py-1 text-[11px] text-neutral-600">
+        이 위치의 위성 영상은 {imageryLimit}단계까지 제공됩니다. 등산로는 선으로 겹쳐 표시합니다.
+      </p>
+    )}
     </div>
   );
 }
@@ -525,6 +557,8 @@ export function MapView({
         activeLocationId={activeLocationId}
         selectedHike={selectedHike}
       />
+
+      <SatelliteTrails />
 
       {suggestedRoute && (
         <SuggestedRoute

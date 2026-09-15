@@ -42,6 +42,11 @@ describe("tilesForBounds", () => {
 });
 
 describe("groupSegmentsByTile", () => {
+  it("includes tiles crossed by a sparse road with no internal vertices", () => {
+    const road = seg(9, [[37.661, 126.965], [37.729, 126.965]]);
+    const groups = groupSegmentsByTile([road]);
+    expect(groups.size).toBe(4);
+  });
   it("files a way under every tile it passes through", () => {
     // Crosses from one tile into the next.
     const crossing = seg(1, [[37.665, 126.965], [37.685, 126.965]]);

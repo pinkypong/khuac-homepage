@@ -14,14 +14,13 @@ import type { TrailSegment } from "./trails";
  * and walks it between consecutive waypoints, so the line follows switchbacks
  * instead of cutting across them.
  *
- * A leg that cannot be walked on trail stays a straight line and says so, and
- * the map draws those dashed. Half a real route with its gap visible is worth
- * more than a whole invented one.
+ * An unconnected leg has no geometry. The UI reports missing sections
+ * instead of joining waypoints across unmapped ground.
  */
 
 export interface RouteLeg {
   points: TrackPoint[];
-  /** False when this leg is a straight join rather than mapped trail. */
+  /** False with empty points when no mapped route connects the leg. */
   onTrail: boolean;
 }
 
@@ -29,7 +28,7 @@ export interface RouteLeg {
 const SNAP_TOLERANCE_M = 400;
 
 /** Ends of different ways this close are the same junction on the ground. */
-const JUNCTION_TOLERANCE_M = 30;
+const JUNCTION_TOLERANCE_M = 2;
 
 /**
  * How far a trail route may wander before it stops being believable.
@@ -56,6 +55,7 @@ interface Graph {
   /** Which ways each node belongs to, which is what tells a junction from a
       switchback passing close to itself. */
   ways: Map<number, Set<number>>;
+  endpoints: Set<number>;
 }
 
 const cellKey = (lat: number, lng: number) =>
@@ -74,7 +74,7 @@ function addEdge(graph: Graph, from: number, to: number, cost: number) {
 }
 
 export function buildTrailGraph(segments: TrailSegment[]): Graph {
-  const graph: Graph = { nodes: [], edges: new Map(), cells: new Map(), ways: new Map() };
+  const graph: Graph = { nodes: [], edges: new Map(), cells: new Map(), ways: new Map(), endpoints: new Set() };
   // Identical coordinates are one node, which is how a way that branches off
   // another stays connected to it: OSM shares the junction node between them.
   const byCoord = new Map<string, number>();
@@ -97,8 +97,9 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
 
   for (const segment of segments) {
     let previous: number | null = null;
-    for (const point of segment.points) {
+    for (const [index, point] of segment.points.entries()) {
       const id = nodeFor(point);
+      if (index === 0 || index === segment.points.length - 1) graph.endpoints.add(id);
       const owners = graph.ways.get(id);
       if (owners) owners.add(segment.id);
       else graph.ways.set(id, new Set([segment.id]));
@@ -126,6 +127,9 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
           const aWays = graph.ways.get(a);
           for (const b of neighbours) {
             if (b <= a) continue;
+            // Close parallel paths and switchbacks are not junctions. Only
+            // repair sub-two-metre gaps between mapped segment endpoints.
+            if (!graph.endpoints.has(a) || !graph.endpoints.has(b)) continue;
             const bWays = graph.ways.get(b);
             if (aWays && bWays && [...aWays].some((w) => bWays.has(w))) continue;
             const gap = metres(graph.nodes[a], graph.nodes[b]);
@@ -228,6 +232,57 @@ export interface SnapDiagnostics {
   legs: { onTrail: boolean; straightM: number; routedM: number | null }[];
 }
 
+/** Insert a waypoint's perpendicular projection into its nearest trail edge.
+ * Snapping to vertices alone misses the middle of a long, sparsely mapped
+ * approach road, even when the waypoint is directly on that road. */
+export function projectOntoTrails(points: TrackPoint[], segments: TrailSegment[]) {
+  const cuts = new Map<number, Map<number, { t: number; point: TrackPoint }[]>>();
+  const projected = points.map((point): TrackPoint | null => {
+    const scale = Math.cos(point[0] * Math.PI / 180);
+    let best: { segment: number; edge: number; t: number; point: TrackPoint } | null = null;
+    let distance = SNAP_TOLERANCE_M;
+    segments.forEach((segment, segmentIndex) => {
+      for (let i = 1; i < segment.points.length; i++) {
+        const a = segment.points[i - 1];
+        const b = segment.points[i];
+        const dx = (b[1] - a[1]) * scale;
+        const dy = b[0] - a[0];
+        const squared = dx * dx + dy * dy;
+        const t = squared === 0 ? 0 : Math.max(0, Math.min(1,
+          (((point[1] - a[1]) * scale) * dx + (point[0] - a[0]) * dy) / squared));
+        const projected: TrackPoint = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+        const gap = metres(point, projected);
+        if (gap < distance) {
+          distance = gap;
+          best = { segment: segmentIndex, edge: i, t, point: projected };
+        }
+      }
+    });
+    // forEach callback assignments are not narrowed by TypeScript.
+    const selected = best as { segment: number; edge: number; t: number; point: TrackPoint } | null;
+    if (!selected) return null;
+    const edges = cuts.get(selected.segment) ?? new Map<number, { t: number; point: TrackPoint }[]>();
+    const edgeCuts = edges.get(selected.edge) ?? [];
+    edgeCuts.push(selected);
+    edges.set(selected.edge, edgeCuts);
+    cuts.set(selected.segment, edges);
+    return selected.point;
+  });
+  return {
+    projected,
+    segments: segments.map((segment, i) => {
+      const edges = cuts.get(i);
+      if (!edges) return segment;
+      const split: TrackPoint[] = [];
+      segment.points.forEach((point, j) => {
+        for (const cut of (edges.get(j) ?? []).sort((a, b) => a.t - b.t)) split.push(cut.point);
+        split.push(point);
+      });
+      return { ...segment, points: split };
+    }),
+  };
+}
+
 export function snapRouteToTrails(
   waypoints: { lat: number; lng: number }[],
   segments: TrailSegment[],
@@ -236,8 +291,9 @@ export function snapRouteToTrails(
   const points: TrackPoint[] = waypoints.map((w) => [w.lat, w.lng]);
   if (points.length < 2) return [];
 
-  const graph = buildTrailGraph(segments);
-  const snapped = points.map((point) => (graph.nodes.length > 0 ? nearestNode(graph, point) : null));
+  const projected = projectOntoTrails(points, segments);
+  const graph = buildTrailGraph(projected.segments);
+  const snapped = projected.projected.map((point) => point ? nearestNode(graph, point) : null);
   if (diagnostics) {
     diagnostics.snapDistances = snapped.map((id, i) =>
       id === null ? null : Math.round(metres(graph.nodes[id], points[i])),
@@ -248,11 +304,11 @@ export function snapRouteToTrails(
   for (let i = 1; i < points.length; i++) {
     const from = snapped[i - 1];
     const to = snapped[i];
-    const straight: RouteLeg = { points: [points[i - 1], points[i]], onTrail: false };
+    const missing: RouteLeg = { points: [], onTrail: false };
 
     if (from === null || to === null) {
       diagnostics?.legs.push({ onTrail: false, straightM: Math.round(metres(points[i - 1], points[i])), routedM: null });
-      legs.push(straight);
+      legs.push(missing);
       continue;
     }
 
@@ -270,14 +326,14 @@ export function snapRouteToTrails(
     });
 
     if (!believable || !result) {
-      legs.push(straight);
+      legs.push(missing);
       continue;
     }
 
-    // The waypoint itself is kept at each end so the line still reaches the
-    // place the answer named, even when the nearest path is a little off it.
+    // Only mapped geometry is solid. A landmark's pin may be off the trail;
+    // appending it would invent a straight approach through unmapped ground.
     legs.push({
-      points: [points[i - 1], ...result.path.map((id) => graph.nodes[id]), points[i]],
+      points: result.path.map((id) => graph.nodes[id]),
       onTrail: true,
     });
   }

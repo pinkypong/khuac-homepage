@@ -18,7 +18,8 @@ export const TILE_DEG = 0.02;
  * the short connectors that join trails at a junction - a graph built from
  * them could not cross 북한산. Old rows are simply never read again.
  */
-const TILE_VERSION = "v2";
+// v3 preserves all junctions and includes pedestrian approach roads.
+const TILE_VERSION = "v3";
 
 /** Tiles are keyed by their south-west corner, which is what makes the key
     derivable from any coordinate inside them. */
@@ -58,6 +59,15 @@ export function groupSegmentsByTile(segments: TrailSegment[]): Map<string, Trail
   const byTile = new Map<string, TrailSegment[]>();
   for (const segment of segments) {
     const keys = new Set(segment.points.map(([lat, lng]) => tileKey(lat, lng)));
+    for (let i = 1; i < segment.points.length; i++) {
+      const a = segment.points[i - 1];
+      const b = segment.points[i];
+      // Sparse approach roads can cross entire tiles without a vertex inside.
+      const steps = Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])) / (TILE_DEG / 4));
+      for (let step = 1; step < steps; step++) {
+        keys.add(tileKey(a[0] + (b[0] - a[0]) * step / steps, a[1] + (b[1] - a[1]) * step / steps));
+      }
+    }
     for (const key of keys) {
       const bucket = byTile.get(key);
       if (bucket) bucket.push(segment);

@@ -499,7 +499,7 @@ export function MapShell({
             {trailsUnavailable && !trailPick && (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(4.2rem+env(safe-area-inset-bottom))]">
                 <span className="rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-[11px] text-amber-800 shadow backdrop-blur">
-                  등산로 정보를 불러오지 못했습니다 · 점선은 직선 연결입니다
+                  일부 구간의 실제 경로를 확인하지 못했습니다 · 확인된 등산로만 표시합니다
                 </span>
               </div>
             )}
