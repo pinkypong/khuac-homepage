@@ -130,6 +130,17 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
   // That is the park itself, not the place, and accepting it put a waypoint on
   // a centroid in the middle of the mountain.
   if (!got) return false;
+  if (got === wanted) return true;
+  // What was asked for, with a qualifier on the front that the answer dropped:
+  // 원도봉 answered with 도봉, 신사 with 사. Korean place names are
+  // distinguished by what comes first, so a name missing its opening is a
+  // different place - 원도봉탐방지원센터 and 도봉탐방지원센터 are separate
+  // trailheads on opposite sides of the mountain.
+  //
+  // Only in that direction. A name that is a shortening from the end -
+  // 망월사 갈림길 answered with 망월사 - is the same place described less
+  // fully, and the temple really is where that junction is.
+  if (wanted.endsWith(got) && wanted !== got) return false;
   if (got.includes(wanted) || wanted.includes(got)) return true;
   if (sharesRun(wanted, got)) return true;
   // One character apart is a spelling, but only where there is enough name for

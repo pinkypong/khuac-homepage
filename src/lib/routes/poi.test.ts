@@ -81,3 +81,20 @@ describe("isPlausibleMatch", () => {
     expect(isPlausibleMatch("보국문", "북한산보국문역", "북한산")).toBe(true);
   });
 });
+
+describe("isPlausibleMatch, names that differ at the front", () => {
+  it("rejects a name that dropped its qualifier", () => {
+    // Opposite sides of 도봉산.
+    expect(isPlausibleMatch("원도봉탐방지원센터", "도봉탐방지원센터", "도봉산")).toBe(false);
+  });
+
+  it("accepts a name shortened from the end", () => {
+    // The junction really is at the temple.
+    expect(isPlausibleMatch("망월사 갈림길", "대한불교조계종 망월사", "도봉산")).toBe(true);
+  });
+
+  it("still accepts the trailhead written more fully", () => {
+    expect(isPlausibleMatch("백운대탐방지원센터(도선사)", "백운대 탐방지원센터", "북한산")).toBe(true);
+    expect(isPlausibleMatch("정릉탐방지원센터", "북한산국립공원 정릉탐방지원센터", "북한산")).toBe(true);
+  });
+});
