@@ -66,12 +66,14 @@ interface HikeRow {
   title: string;
   description: string | null;
   track: unknown;
+  route_waypoints: unknown;
   locations: { name: string; lat: number; lng: number } | null;
 }
 
 const hikes = await (async () => {
   const response = await fetch(
-    `${url}/rest/v1/hikes?select=id,title,description,track,locations(name,lat,lng)&track=is.null`,
+    `${url}/rest/v1/hikes?select=id,title,description,track,route_waypoints,locations(name,lat,lng)`
+    + `&or=(track.is.null,route_waypoints.is.null)`,
     { headers },
   );
   if (!response.ok) throw new Error(`hikes: ${response.status}`);
@@ -144,7 +146,12 @@ for (const hike of hikes) {
   const write = await fetch(`${url}/rest/v1/hikes?id=eq.${hike.id}`, {
     method: "PATCH",
     headers: { ...headers, "content-type": "application/json" },
-    body: JSON.stringify({ track }),
+    body: JSON.stringify({
+      track,
+      // Stored with the line, so each name can be drawn where it is rather
+      // than listed on the pin the line starts at.
+      route_waypoints: kept.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng })),
+    }),
   });
   if (!write.ok) throw new Error(`${hike.title} 저장 실패 (${write.status}): ${(await write.text()).slice(0, 200)}`);
 }

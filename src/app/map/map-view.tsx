@@ -590,8 +590,43 @@ export function MapView({
           strokeColor={SELECTED_COLOR}
           strokeOpacity={1}
           strokeWeight={5}
+          zIndex={12}
         />
       )}
+
+      {/* The named points, each where it is.
+          The album's own pin carried the whole list - seven names stacked on
+          the one coordinate the line starts at - which says nothing about
+          where any of them is. A small mark on the line at each, and the two
+          ends named, because those are what a reader looks for first and the
+          middle ones would otherwise pile their labels on top of each other. */}
+      {selectedHike?.track && selectedHike.routeWaypoints?.map((point, i, all) => {
+        const end = i === 0 || i === all.length - 1;
+        return (
+          <AdvancedMarker
+            key={`${point.name}-${i}`}
+            position={point}
+            title={point.name}
+            zIndex={13}
+            collisionBehavior={
+              end ? CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL
+                : CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
+            }
+          >
+            <span className="flex items-center gap-1">
+              <span
+                className="block rounded-full border-2 border-white shadow"
+                style={{ backgroundColor: SELECTED_COLOR, width: end ? 11 : 8, height: end ? 11 : 8 }}
+              />
+              {end && (
+                <span className="whitespace-nowrap rounded bg-white/90 px-1 py-px text-[10px] font-medium text-neutral-900 shadow-sm">
+                  {i === 0 ? "출발" : "도착"} {point.name}
+                </span>
+              )}
+            </span>
+          </AdvancedMarker>
+        );
+      })}
 
       {pickedPoint && (
         <AdvancedMarker position={pickedPoint} title="새 장소 위치">

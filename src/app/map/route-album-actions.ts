@@ -111,6 +111,9 @@ export async function createAlbumFromRoute(input: {
       lat: spot.lat,
       lng: spot.lng,
       track: sanitizeTrack(input.track),
+      // The named points, with coordinates, so the map can put each label
+      // where it belongs instead of listing them all on the opening pin.
+      route_waypoints: points.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng })),
       created_by: memberId,
     })
     .select("id")

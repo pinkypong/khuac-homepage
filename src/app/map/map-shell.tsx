@@ -43,6 +43,8 @@ export interface MapHike {
   lat: number | null;
   lng: number | null;
   track: TrackPoint[] | null;
+  /** The course's named points, where it was made from one. */
+  routeWaypoints: { name: string; lat: number; lng: number }[] | null;
   trackSource: "gpx" | null;
   photos: MapPhoto[];
 }
