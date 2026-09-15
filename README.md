@@ -32,10 +32,21 @@ npm run dev                        # http://localhost:3000
 | 명령 | 용도 |
 | --- | --- |
 | `npm run dev` | 평소 개발. Next 개발 서버라 HMR이 빠릅니다. `next.config.ts`의 `initOpenNextCloudflareForDev()` 덕분에 R2/Images 등 Cloudflare 바인딩도 접근 가능합니다. |
-| `npm run cf:preview` | 배포 직전 검증. OpenNext로 빌드한 뒤 `wrangler dev`로 실제 workerd 런타임에서 돌립니다. 빌드가 필요해 느리지만 런타임 차이를 잡아냅니다. |
+| `npm run cf:preview` | 사용자 검토용 기본 화면. 운영과 같은 OpenNext 빌드와 workerd로 http://localhost:3100 에서 실행합니다. 로컬 R2 캐시를 채운 뒤 실행하며 배포하지 않습니다. |
 
-일상 작업은 `npm run dev`를 쓰고, 런타임 관련 변경(서버 코드, 바인딩 사용)을 했을 때만
-`npm run cf:preview`로 확인하세요.
+사용자 확인은 항상 `npm run cf:preview`에서 진행합니다. Node의 `next dev`/`next start`만으로
+운영 검증을 마쳤다고 판단하지 않습니다. 소스 변경 후에는 미리보기를 Ctrl+C로 종료하고
+같은 명령을 다시 실행하면 최신 변경을 빌드합니다. 3100 포트를 사용 중이면 빌드 전에 중단합니다.
+
+작업 순서: 로컬 작업 브랜치 → 수정 및 테스트 → 3100 미리보기 → 사용자 확인 → 커밋 및 배포 요청.
+사용자 확인 전에는 main이나 작업 브랜치에 push하지 않습니다. 브랜치 push만으로는 미리보기
+사이트가 생성되지 않습니다. 다른 기기와 링크를 공유해야 할 때 별도 staging Worker와
+로그인/지도 허용 주소 및 데이터 격리를 설정합니다.
+
+미리보기는 `wrangler.jsonc`의 운영 compatibility date/flags를 그대로 사용하고, 실행은
+로컬 workerd로 제한합니다. R2 바인딩 캐시는 로컬이지만 `.env.local`의 Supabase와 사진용
+S3 연결은 기존 서비스를 사용합니다. 업로드·삭제·수정은 실제 기록에 반영될 수 있습니다.
+Cloudflare 엣지 네트워크와 Images 등의 바인딩 시뮬레이션 차이는 별도로 고려해야 합니다.
 
 ### 그 외 명령
 
