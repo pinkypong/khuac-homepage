@@ -99,6 +99,7 @@ export async function suggestRoutes(
   clubContext: string | null,
   climbing = false,
 ) {
+  const groundedStarted = Date.now();
   const grounded = await generateGroundedText([
     EQUIPMENT_GUIDANCE,
     REGION_GUIDANCE,
@@ -138,10 +139,17 @@ export async function suggestRoutes(
     "동아리 기록이 없어도 검색 결과를 활용하세요. 최신 통제 정보와 출처도 안내하세요.",
   ].filter(Boolean).join("\n"));
 
+  console.log("[assistant] grounded", JSON.stringify({
+    ms: Date.now() - groundedStarted,
+    chars: grounded.text.length,
+    sources: grounded.sources.length,
+  }));
+
   // Numbered so the extraction call can cite one source per course instead
   // of being handed the whole list for every one of them.
   const sourceList = grounded.sources.map((source, i) => `${i + 1}. ${source.label} (${source.url})`).join(String.fromCharCode(10));
 
+  const extractStarted = Date.now();
   try {
     const extracted = await generateStructured<unknown>(
       [
@@ -151,6 +159,7 @@ export async function suggestRoutes(
       ].filter(Boolean).join("\n\n"),
       ROUTE_SCHEMA,
     );
+    console.log("[assistant] extract", JSON.stringify({ ms: Date.now() - extractStarted }));
     return {
       ...grounded,
       routes: normalizeRoutes(extracted, grounded.sources),
