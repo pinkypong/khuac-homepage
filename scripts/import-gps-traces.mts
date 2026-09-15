@@ -17,6 +17,24 @@
  * car, the ten minutes spent lost, and whatever the receiver did under a cliff.
  * So nothing is kept on one track's word - a place is a path here only where
  * separate people walked it, which no single wrong turn can satisfy.
+ *
+ * NOT READY FOR THE MOUNTAINS THE CLUB ACTUALLY VISITS. It was proved on 34
+ * tracks over 밤골 and cut that course from 4.54km to 3.73km, against a
+ * published 5km. Run over the whole of 북한산 it met 900 tracks, and two
+ * people agreeing within thirteen metres stopped meaning anything: walkers
+ * drift between neighbouring cells, so what came out was not a path but a
+ * braid, nine hundred lines through one ridge. One tile reached 3.97MB and 910
+ * segments where the surveyed data for the same square is 0.07MB and 37, and a
+ * course spanning twenty tiles could no longer be read at all.
+ *
+ * Collapsing it afterwards does not work either, and the reason is worth
+ * keeping: in a braid nearly every point is a fork, so following each edge once
+ * yields thousands of two-point stubs rather than lines. 1.5M points became
+ * 1.16M, in 2,531 segments where there had been 38.
+ *
+ * What it needs before the next run is agreement that scales with how many
+ * people passed - two out of three hundred is not consensus - and a thinning
+ * pass that picks one line through a braid rather than tracing all of it.
  */
 import { readFileSync } from "node:fs";
 import { groupSegmentsByTile } from "../src/lib/routes/tiles.ts";
@@ -118,12 +136,25 @@ async function fetchTracks(box: Box): Promise<TrackPoint[][]> {
   const tracks: TrackPoint[][] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
     const url = `${ENDPOINT}?bbox=${box.west},${box.south},${box.east},${box.north}&page=${page}`;
-    const response = await fetch(url, {
-      headers: { "user-agent": "khuac.com hiking album (contact: https://khuac.com)" },
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!response.ok) throw new Error(`page ${page}: HTTP ${response.status}`);
-    const gpx = await response.text();
+    // A dropped connection halfway through a massif lost the whole mountain:
+    // 도봉산 and 수락산 both came back ECONNRESET and were simply missing from
+    // the run, while the six either side of them succeeded. The archive is
+    // free and sometimes tired; asking again is the whole fix.
+    let gpx = "";
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const response = await fetch(url, {
+          headers: { "user-agent": "khuac.com hiking album (contact: https://khuac.com)" },
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        gpx = await response.text();
+        break;
+      } catch (error) {
+        if (attempt >= 4) throw new Error(`page ${page}: ${String(error)}`);
+        await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+      }
+    }
 
     let points = 0;
     // Regex rather than an XML parser: the archive returns one shape, and the
