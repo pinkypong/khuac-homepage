@@ -34,8 +34,15 @@ it("does not silently truncate detailed questions at 200 characters", async () =
   expect(searchRoutes).toHaveBeenCalledWith(null, question, null, false);
 });
 it("rejects oversized input explicitly", async () => {
-  await expect(askAssistant("가".repeat(2001))).rejects.toThrow("2,000자");
+  // Returned rather than thrown: a production build replaces the message of
+  // anything a server action throws, so a reason only survives as a value.
+  expect(await askAssistant("가".repeat(2001))).toMatchObject({ failure: expect.stringContaining("2,000자") });
   expect(searchRoutes).not.toHaveBeenCalled();
+});
+
+it("hands back the model's own message when a call fails", async () => {
+  vi.mocked(searchRoutes).mockRejectedValue(new Error("AI 요청 한도에 도달했습니다. 잠시 후 다시 시도해주세요."));
+  expect(await askAssistant("관악산 등산 루트")).toMatchObject({ failure: "AI 요청 한도에 도달했습니다. 잠시 후 다시 시도해주세요." });
 });
 
 it("answers a venue question with one grounded search", async () => {

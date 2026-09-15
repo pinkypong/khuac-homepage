@@ -166,6 +166,12 @@ export function AssistantPanel({
     const slow = setTimeout(() => setSearching(true), 5000);
     try {
       const first = await askAssistant(trimmed, refresh);
+      // A failure comes back as a value rather than as a throw, because a
+      // production build replaces a thrown message with a generic one.
+      if (first.failure) {
+        setError(first.failure);
+        return;
+      }
       setAnswer(first);
       // The search answer is readable now; the cards are a second model call
       // and arrive on top of it. Waiting for both before showing anything is

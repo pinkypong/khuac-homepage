@@ -55,6 +55,15 @@ export interface AssistantAnswer {
       pair of Gemini calls, so the panel can say how old it is and offer to
       search again. */
   cachedAge?: string;
+  /** Why there is no answer, in the member's own language.
+
+      Returned rather than thrown because a built Worker is a production build,
+      and Next replaces the message of anything a server action throws with a
+      generic one before it reaches the browser. Every message in
+      gemini/client.ts - the depleted credits, the quota, the region block, each
+      written to tell a member what to do next - was being swallowed on the way
+      out, and what showed instead was React's own English placeholder. */
+  failure?: string;
 }
 
 export interface RecentQuestion {
@@ -123,7 +132,29 @@ interface HikeRow {
  * all; only a question asking for judgment does.
  */
 export async function askAssistant(question: string, refresh = false): Promise<AssistantAnswer> {
-  const { supabase, memberId } = await requireApprovedMember();
+  // Membership is checked outside the catch: not being signed in is not an
+  // answer with a reason on it, it is a request that should not have arrived,
+  // and the app already has a place for it.
+  const session = await requireApprovedMember();
+  try {
+    return await produceAnswer(session, question, refresh);
+  } catch (error) {
+    // Everything past here is an expected way for this to fail - the model
+    // timed out, the quota is gone, the region is blocked - and each already
+    // carries a sentence written for the member.
+    const failure = error instanceof Error
+      ? error.message
+      : "답을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.";
+    console.error("[assistant] 실패", failure);
+    return { intent: "complex", text: "", place: null, failure };
+  }
+}
+
+async function produceAnswer(
+  { supabase, memberId }: Awaited<ReturnType<typeof requireApprovedMember>>,
+  question: string,
+  refresh: boolean,
+): Promise<AssistantAnswer> {
 
   const trimmed = question.trim();
   if (!trimmed) throw new Error("질문을 입력해주세요.");
@@ -274,8 +305,22 @@ export async function askAssistant(question: string, refresh = false): Promise<A
     // What we already hold, read against the question instead of searched for.
     // A grounded search costs 27 seconds and is spent again on every
     // rephrasing; the courses themselves barely change, so only the reading is
-    // worth paying for once we know the mountain.
+    // worth paying for once we know the mountain. A table read, not a model
+    // call, so it settles which mountain this is before anything slow starts.
     const held = await libraryFor(supabase, trimmed, place?.location.name ?? placeSummary?.name ?? null);
+    const mountain = held?.mountain ?? place?.location.name ?? placeSummary?.name ?? null;
+
+    // Started here, not awaited here. Today's closures are a grounded search of
+    // their own, and it used to run after the courses had been found: two
+    // 27-second searches end to end, past the 60-second deadline the Gemini
+    // client gives a call, so "북한산 고독길 어프로치 루트" came back as a
+    // timeout rather than as an answer. Nothing about what is shut depends on
+    // which courses we offer, so it runs alongside them.
+    //
+    // Failure is already swallowed inside - saying nothing about closures is
+    // honest, claiming nothing is closed would not be - and this keeps that
+    // true for a rejection nobody is awaiting yet.
+    const closures = closuresFor(supabase, mountain).catch(() => null);
     if (held) {
       const picked = await selectFromLibrary(
         held.mountain,
@@ -294,8 +339,10 @@ export async function askAssistant(question: string, refresh = false): Promise<A
           routePlaceName: place?.location.name ?? picked.placeName,
           summary: picked.summary,
           // Always current, never from the library: a course written last
-          // month cannot know what shut this morning.
-          closures: await closuresFor(supabase, held.mountain),
+          // month cannot know what shut this morning. Asked about the mountain
+          // the question named; the library's own name for it can differ, and
+          // the member asked about theirs.
+          closures: await closures,
           sources: picked.sources,
         });
       }
@@ -324,7 +371,7 @@ export async function askAssistant(question: string, refresh = false): Promise<A
       // than starting a second one under the model's spelling of it.
       routePlaceName: place?.location.name ?? null,
       summary: null,
-      closures: await closuresFor(supabase, place?.location.name ?? placeSummary?.name ?? null),
+      closures: await closures,
       sources: found.sources,
     });
   }
