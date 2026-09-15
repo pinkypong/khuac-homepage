@@ -135,8 +135,14 @@ export function AssistantPanel({
   const [recent, setRecent] = useState<RecentQuestion[]>([]);
   /** The second half is still coming: the answer is readable, the cards are not. */
   const [filling, setFilling] = useState(false);
-  /** The cards did not arrive, and saying so beats an answer that looks whole. */
-  const [cardsFailed, setCardsFailed] = useState(false);
+  /**
+   * What the panel is doing while it waits.
+   *
+   * The library answers in a few seconds and a web search takes half a minute,
+   * so the wait itself says which one is running: past five seconds, nothing
+   * else is slow enough to be the cause.
+   */
+  const [searching, setSearching] = useState(false);
 
   // What the club has already paid for. Asking one of these again is free, so
   // they are offered ahead of the examples.
@@ -156,7 +162,8 @@ export function AssistantPanel({
     setPending(true);
     setError(null);
     setAnswer(null);
-    setCardsFailed(false);
+    setSearching(false);
+    const slow = setTimeout(() => setSearching(true), 5000);
     try {
       const first = await askAssistant(trimmed, refresh);
       setAnswer(first);
@@ -168,13 +175,9 @@ export function AssistantPanel({
         setFilling(true);
         try {
           const whole = await finishRouteAnswer(trimmed);
-          if (whole?.routesPending === false) setAnswer(whole);
-          else setCardsFailed(true);
+          if (whole) setAnswer(whole);
         } catch {
-          // The prose stays - it is a real answer and says the same things -
-          // but the reader is told the cards are missing rather than left with
-          // an answer that looks complete and has no map buttons on it.
-          setCardsFailed(true);
+          // The prose is already on screen and says what the cards would.
         } finally {
           setFilling(false);
         }
@@ -182,6 +185,8 @@ export function AssistantPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : "답을 가져오지 못했습니다.");
     } finally {
+      clearTimeout(slow);
+      setSearching(false);
       setPending(false);
     }
   }
@@ -216,7 +221,7 @@ export function AssistantPanel({
           disabled={pending || !question.trim()}
           className="rounded-lg bg-neutral-900 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          {pending ? "확인하는 중…" : "물어보기"}
+          {!pending ? "물어보기" : searching ? "저장된 코스에 없어 웹에서 찾는 중…" : "저장된 코스를 확인하는 중…"}
         </button>
       </form>
 
@@ -308,6 +313,21 @@ export function AssistantPanel({
             </span>
           )}
 
+          {/* Every answer reads the same way down the panel: what is shut, then
+              what applies to the whole outing, then the courses.
+
+              Closures lead because they are the one thing that can send
+              somebody to a gate that is closed, and the one part of an answer
+              that is searched fresh every day rather than remembered. */}
+          {answer.closures && (
+            <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">오늘 통제 정보</p>
+              <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed text-amber-900">
+                {answer.closures}
+              </p>
+            </div>
+          )}
+
           {/* The prose and the cards used to say the same thing one after the
               other. When courses were extracted, the cards are the answer:
               each carries its own description, and only a caveat that covers
@@ -347,21 +367,7 @@ export function AssistantPanel({
             </p>
           )}
 
-          {cardsFailed && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-100 pt-3">
-              <span className="text-[11px] text-neutral-600">
-                답변은 받았지만 지도에 올릴 코스 목록을 만들지 못했습니다.
-              </span>
-              <button
-                type="button"
-                onClick={() => void ask(question || answer.text, true)}
-                disabled={pending || filling}
-                className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
-              >
-                다시 시도
-              </button>
-            </div>
-          )}
+
 
           {answer.routes && answer.routes.length > 0 && (
             <ul className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3">

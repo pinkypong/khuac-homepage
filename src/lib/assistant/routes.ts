@@ -267,3 +267,29 @@ function hostOf(url: string): string {
     return url;
   }
 }
+
+/**
+ * What is closed on a mountain right now.
+ *
+ * The one part of an answer that cannot come out of a library. Courses hold
+ * still - 북한산 has the same ways up it this year as last - but 통제 changes
+ * with the season, with a fire warning, with a rockfall, and an answer that
+ * sends somebody to a gate that is shut is worse than no answer.
+ *
+ * So it is always searched, and kept apart from the courses for that reason:
+ * a short, current question answered on its own rather than folded into a
+ * description that was written months ago.
+ */
+export async function closureNotice(mountain: string): Promise<string | null> {
+  const today = new Date().toISOString().slice(0, 10);
+  const grounded = await generateGroundedText([
+    `오늘은 ${today}입니다. ${mountain}의 현재 탐방로 통제·폐쇄 정보를 검색해 확인하세요.`,
+    "국립공원공단·지자체 공식 안내를 우선으로 확인하세요.",
+    "통제 중인 구간이 있으면 구간 이름과 사유, 기간을 한 문장으로 쓰세요. 여러 건이면 줄바꿈으로 나열하세요.",
+    "통제 중인 구간이 확인되지 않으면 '없음'만 쓰세요. 추측하지 마세요.",
+    "다른 설명이나 인사말은 쓰지 마세요.",
+  ].join("\n"));
+  const text = grounded.text.trim();
+  if (!text || /^없음/.test(text)) return null;
+  return text.length > 400 ? text.slice(0, 400) : text;
+}

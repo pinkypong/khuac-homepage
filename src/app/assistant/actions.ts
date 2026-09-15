@@ -12,7 +12,7 @@ import {
 } from "@/lib/assistant/intent";
 import { findMatchingPlace, type PlaceCandidateHike } from "@/lib/assistant/resolve";
 import { buildClubHistoryContext } from "@/lib/assistant/context";
-import { extractRoutes, searchRoutes, selectFromLibrary, type LibraryCourse, type RouteSuggestion } from "@/lib/assistant/routes";
+import { closureNotice, extractRoutes, searchRoutes, selectFromLibrary, type LibraryCourse, type RouteSuggestion } from "@/lib/assistant/routes";
 import {
   daysInRange,
   fetchForecast,
@@ -47,6 +47,9 @@ export interface AssistantAnswer {
   routePlaceName?: string | null;
   /** A caveat covering the whole outing, shown above the course cards. */
   summary?: string | null;
+  /** What is closed on this mountain today, searched every time because it is
+      the one part of an answer a stored course cannot know. */
+  closures?: string | null;
   sources?: GroundedSource[];
   /** Set when this answer came from the club cache rather than from a fresh
       pair of Gemini calls, so the panel can say how old it is and offer to
@@ -290,6 +293,9 @@ export async function askAssistant(question: string, refresh = false): Promise<A
           routes: picked.routes,
           routePlaceName: place?.location.name ?? picked.placeName,
           summary: picked.summary,
+          // Always current, never from the library: a course written last
+          // month cannot know what shut this morning.
+          closures: await closuresFor(supabase, held.mountain),
           sources: picked.sources,
         });
       }
@@ -318,6 +324,7 @@ export async function askAssistant(question: string, refresh = false): Promise<A
       // than starting a second one under the model's spelling of it.
       routePlaceName: place?.location.name ?? null,
       summary: null,
+      closures: await closuresFor(supabase, place?.location.name ?? placeSummary?.name ?? null),
       sources: found.sources,
     });
   }
@@ -365,6 +372,46 @@ export async function finishRouteAnswer(question: string): Promise<AssistantAnsw
     summary: result.summary,
     routesPending: false,
   });
+}
+
+/**
+ * Today's closures for a mountain, asked once a day rather than once a question.
+ *
+ * It has to be searched - a course written last month cannot know what shut
+ * this morning - but it does not have to be searched by everyone who asks.
+ * Held under its own key so it expires on its own schedule, separate from the
+ * answers that quote it.
+ */
+async function closuresFor(supabase: Client, mountain: string | null): Promise<string | null> {
+  if (!mountain) return null;
+  const key = `closure:${new Date().toISOString().slice(0, 10)}:${mountain}`;
+  const { data } = await supabase
+    .from("assistant_cache")
+    .select("answer")
+    .eq("question_key", key)
+    .maybeSingle();
+  const held = (data as { answer: { closures?: string | null } } | null)?.answer;
+  if (held) return held.closures ?? null;
+
+  let closures: string | null = null;
+  try {
+    closures = await closureNotice(mountain);
+  } catch {
+    // A failed closure check must not cost the courses. Saying nothing is
+    // honest; claiming nothing is closed would not be.
+    return null;
+  }
+  const { error } = await supabase.from("assistant_cache").upsert(
+    {
+      question_key: key,
+      question: `${mountain} 탐방로 통제 (${new Date().toISOString().slice(0, 10)})`,
+      answer: { intent: "complex", text: closures ?? "", place: null, closures },
+      created_at: new Date().toISOString(),
+    },
+    { onConflict: "question_key" },
+  );
+  if (error) console.error("[assistant/closures] store failed", error.message);
+  return closures;
 }
 
 /** Enough of a mountain held that asking the web again is not worth 27 seconds. */
