@@ -320,6 +320,10 @@ export function MapShell({
   function openHike(hike: MapHike) {
     setActiveLocationId(hike.locationId);
     setActiveHikeId(hike.id);
+    // The map comes back with it. An album's route is the thing worth seeing,
+    // and it was reachable only by finding 지도 펼치기 afterwards - because
+    // opening the album list had closed the map on the way in.
+    setMapOpen(true);
     // Clicking a hike pins its route: it stays on the map while other rows
     // are hovered, unlike the transient hover preview.
     setPinnedHikeId(hike.id);

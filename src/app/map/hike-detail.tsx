@@ -259,47 +259,6 @@ export function HikeDetail({
           + 이 활동에 사진 올리기
         </button>
 
-        {location.type !== "climbing_gym" && (
-          <div className="mb-4 rounded-lg border border-dashed border-neutral-300 p-3">
-            <p className="text-xs font-medium">
-              {hike.trackSource === "gpx" ? "GPX 경로 등록됨" : "GPX 경로 없음"}
-            </p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">
-              {hike.trackSource === "gpx"
-                ? "다시 올리면 기존 경로를 덮어씁니다."
-                : "램블러·산스마일 등에서 내보낸 GPX를 올리면 지도에 실제 경로가 그려집니다."}
-            </p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".gpx,application/gpx+xml,application/xml,text/xml"
-              onChange={(e) => onGpxSelected(e.target.files?.[0])}
-              disabled={uploading}
-              className="mt-2 w-full text-xs"
-            />
-            {uploading && <p className="mt-1 text-[11px] text-neutral-500">업로드 중…</p>}
-            {gpxError && <p className="mt-1 text-[11px] text-red-600">{gpxError}</p>}
-
-            {/* Hardly any outing has a GPX - nobody remembers to record one -
-                so the usual case needs a way to draw the route that is not a
-                file nobody has. These are real OpenStreetMap paths, picked by
-                the person who walked them. */}
-            <div className="mt-3 border-t border-neutral-200 pt-3">
-              <p className="text-[11px] text-neutral-500">
-                GPX 파일이 없다면, 지도에서 걸었던 등산로를 직접 골라 경로를 만들 수 있습니다.
-              </p>
-              <button
-                type="button"
-                onClick={onStartTrailPick}
-                disabled={trailBusy}
-                className="mt-2 w-full rounded-lg border border-neutral-400 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
-              >
-                {trailBusy ? "등산로 불러오는 중…" : "지도에서 등산로 고르기"}
-              </button>
-            </div>
-          </div>
-        )}
-
         {photos.length === 0 ? (
           <p className="py-8 text-center text-sm text-neutral-500">아직 올라온 사진이 없습니다.</p>
         ) : (
@@ -337,6 +296,62 @@ export function HikeDetail({
               </li>
             ))}
           </ul>
+        )}
+
+        {/* Below the photos, and folded.
+            Two dashed boxes and a file input stood between the album's title
+            and its first photograph, and neither is what anybody opens an
+            album for - hardly any outing has a GPX, and the route is drawn
+            already for a course made from an answer. The summary says which
+            of the two states this activity is in, so folding it away costs no
+            information. */}
+        {location.type !== "climbing_gym" && (
+          <details className="mt-5 border-t border-neutral-200 pt-4">
+            <summary className="cursor-pointer list-none text-xs text-neutral-500 hover:text-neutral-800">
+              경로 직접 등록
+              <span className="ml-1.5 text-[11px] text-neutral-400">
+                {hike.trackSource === "gpx" ? "· GPX 등록됨" : hike.track ? "· 경로 있음" : "· 경로 없음"}
+              </span>
+            </summary>
+            <div className="mt-3">
+            <p className="text-xs font-medium">
+              {hike.trackSource === "gpx" ? "GPX 경로 등록됨" : "GPX 경로 없음"}
+            </p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">
+              {hike.trackSource === "gpx"
+                ? "다시 올리면 기존 경로를 덮어씁니다."
+                : "램블러·산스마일 등에서 내보낸 GPX를 올리면 지도에 실제 경로가 그려집니다."}
+            </p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".gpx,application/gpx+xml,application/xml,text/xml"
+              onChange={(e) => onGpxSelected(e.target.files?.[0])}
+              disabled={uploading}
+              className="mt-2 w-full text-xs"
+            />
+            {uploading && <p className="mt-1 text-[11px] text-neutral-500">업로드 중…</p>}
+            {gpxError && <p className="mt-1 text-[11px] text-red-600">{gpxError}</p>}
+
+            {/* Hardly any outing has a GPX - nobody remembers to record one -
+                so the usual case needs a way to draw the route that is not a
+                file nobody has. These are real OpenStreetMap paths, picked by
+                the person who walked them. */}
+            <div className="mt-3 border-t border-neutral-200 pt-3">
+              <p className="text-[11px] text-neutral-500">
+                GPX 파일이 없다면, 지도에서 걸었던 등산로를 직접 골라 경로를 만들 수 있습니다.
+              </p>
+              <button
+                type="button"
+                onClick={onStartTrailPick}
+                disabled={trailBusy}
+                className="mt-2 w-full rounded-lg border border-neutral-400 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+              >
+                {trailBusy ? "등산로 불러오는 중…" : "지도에서 등산로 고르기"}
+              </button>
+            </div>
+            </div>
+          </details>
         )}
 
         {/* Keyed by hike so switching activities inside the panel remounts the
