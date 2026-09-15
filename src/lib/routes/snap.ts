@@ -77,17 +77,28 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
   const graph: Graph = { nodes: [], edges: new Map(), cells: new Map(), ways: new Map(), endpoints: new Set() };
   // Identical coordinates are one node, which is how a way that branches off
   // another stays connected to it: OSM shares the junction node between them.
-  const byCoord = new Map<string, number>();
+  // Keyed by the rounded coordinates as numbers rather than by a formatted
+  // string. Identical bucketing to six decimals, without building 65,000
+  // strings through toFixed - which measured as the single biggest cost in
+  // assembling the graph, and the graph is most of the work of drawing a line.
+  const byCoord = new Map<number, Map<number, number>>();
 
   function nodeFor(point: TrackPoint): number {
-    const key = `${point[0].toFixed(6)},${point[1].toFixed(6)}`;
-    const existing = byCoord.get(key);
-    if (existing !== undefined) return existing;
+    const lat = Math.round(point[0] * 1e6);
+    const lng = Math.round(point[1] * 1e6);
+    let row = byCoord.get(lat);
+    if (row) {
+      const existing = row.get(lng);
+      if (existing !== undefined) return existing;
+    } else {
+      row = new Map<number, number>();
+      byCoord.set(lat, row);
+    }
 
     const id = graph.nodes.length;
     graph.nodes.push(point);
     graph.edges.set(id, []);
-    byCoord.set(key, id);
+    row.set(lng, id);
     const cell = cellKey(point[0], point[1]);
     const bucket = graph.cells.get(cell);
     if (bucket) bucket.push(id);
@@ -117,11 +128,24 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
   // metres of itself, so linking any two nearby points let the router step
   // straight across the zigzag and skip it - which is how a mountain trail came
   // back barely longer than the straight line between its ends.
-  for (const [key, ids] of graph.cells) {
+  // Indexed over the ends of ways alone, which is all this pass can join.
+  // Walking every node and rejecting the interior ones inside the innermost
+  // loop meant measuring 58,000 nodes against their neighbours to act on the
+  // 12,000 that could qualify, and that search was the largest single cost in
+  // drawing a course.
+  const endCells = new Map<string, number[]>();
+  for (const id of graph.endpoints) {
+    const cell = cellKey(graph.nodes[id][0], graph.nodes[id][1]);
+    const bucket = endCells.get(cell);
+    if (bucket) bucket.push(id);
+    else endCells.set(cell, [id]);
+  }
+
+  for (const [key, ids] of endCells) {
     const [cy, cx] = key.split(":").map(Number);
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        const neighbours = graph.cells.get(`${cy + dy}:${cx + dx}`);
+        const neighbours = endCells.get(`${cy + dy}:${cx + dx}`);
         if (!neighbours) continue;
         for (const a of ids) {
           const aWays = graph.ways.get(a);
@@ -129,7 +153,6 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
             if (b <= a) continue;
             // Close parallel paths and switchbacks are not junctions. Only
             // repair sub-two-metre gaps between mapped segment endpoints.
-            if (!graph.endpoints.has(a) || !graph.endpoints.has(b)) continue;
             const bWays = graph.ways.get(b);
             if (aWays && bWays && [...aWays].some((w) => bWays.has(w))) continue;
             const gap = metres(graph.nodes[a], graph.nodes[b]);
@@ -345,12 +368,36 @@ export interface SnapDiagnostics {
  * Snapping to vertices alone misses the middle of a long, sparsely mapped
  * approach road, even when the waypoint is directly on that road. */
 export function projectOntoTrails(points: TrackPoint[], segments: TrailSegment[]) {
+  // One box per way, built once. Without it every waypoint is measured against
+  // every edge on the mountain - eight waypoints against 65,734 vertices was
+  // most of a second of trigonometry, and a Worker answering a course of that
+  // size ran out of CPU and returned 503. Nearly every way is nowhere near any
+  // given waypoint, and a box says so in four comparisons.
+  const boxes = segments.map((segment) => {
+    let south = Infinity, north = -Infinity, west = Infinity, east = -Infinity;
+    for (const [lat, lng] of segment.points) {
+      if (lat < south) south = lat;
+      if (lat > north) north = lat;
+      if (lng < west) west = lng;
+      if (lng > east) east = lng;
+    }
+    return { south, north, west, east };
+  });
+  /** The tolerance in degrees, which is what the boxes are measured in. */
+  const latMargin = SNAP_TOLERANCE_M / 111_320;
+
   const cuts = new Map<number, Map<number, { t: number; point: TrackPoint }[]>>();
   const projected = points.map((point): TrackPoint | null => {
     const scale = Math.cos(point[0] * Math.PI / 180);
+    const lngMargin = latMargin / Math.max(scale, 0.01);
     let best: { segment: number; edge: number; t: number; point: TrackPoint } | null = null;
     let distance = SNAP_TOLERANCE_M;
     segments.forEach((segment, segmentIndex) => {
+      const box = boxes[segmentIndex];
+      if (
+        point[0] < box.south - latMargin || point[0] > box.north + latMargin ||
+        point[1] < box.west - lngMargin || point[1] > box.east + lngMargin
+      ) return;
       for (let i = 1; i < segment.points.length; i++) {
         const a = segment.points[i - 1];
         const b = segment.points[i];
