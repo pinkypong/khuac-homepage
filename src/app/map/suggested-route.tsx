@@ -55,30 +55,6 @@ function thin(waypoints: string[]): string[] {
  * Only consecutive ones. A real out-and-back returns to the gate it came
  * through, and that return is the course, not a duplicate.
  */
-/**
- * The waypoints in the order they are walked, not the order they were written.
- *
- * The line joins consecutive waypoints, so their order is geometry. An answer
- * usually gets it right and sometimes does not: 우이령길 came back as 교현 →
- * 석굴암 → 오봉전망대 → 우이령 → 우이, and 우이령 is the pass before 석굴암
- * rather than after it, so the line ran a kilometre south to the viewpoint and
- * half a kilometre back north to the pass - a stick out the side of an
- * otherwise straight walk, and 7.06km where the route is 5.89km.
- *
- * Sorted by how far each lies from the start, which also settles a course that
- * goes out and comes back the way it went. The two ends stay where the answer
- * put them: those are the part of the order it is reliably sure of.
- */
-function inWalkingOrder<T extends { lat: number; lng: number }>(points: T[]): T[] {
-  if (points.length < 4) return points;
-  const start = points[0];
-  const middle = points.slice(1, -1)
-    .map((point) => ({ point, away: haversineDistanceMeters(start, point) }))
-    .sort((a, b) => a.away - b.away)
-    .map((entry) => entry.point);
-  return [start, ...middle, points[points.length - 1]];
-}
-
 function collapseRepeats<T extends { lat: number; lng: number }>(points: T[]): T[] {
   return points.filter((point, i) => {
     if (i === 0) return true;
@@ -240,7 +216,7 @@ export function SuggestedRoute({
       // came back on the far side of 북한산 - and one bad lookup dragged the
       // whole course into a straight line across the massif. Dropping it here
       // rather than server-side keeps its pin off the map too.
-      const found = dropOutlierWaypoints(collapseRepeats(inWalkingOrder(points.flatMap((point) => point ? [point] : []))));
+      const found = dropOutlierWaypoints(collapseRepeats(points.flatMap((point) => point ? [point] : [])));
       const placed = new Set(found.map((p) => p.name));
       // Reported rather than swallowed: these are the local terms - 해골바위,
       // 밤골 - that a member can fix once by hand, and they cannot do that if
@@ -275,6 +251,11 @@ export function SuggestedRoute({
           // is real either way, and the notice beside the map already says
           // which name went unplaced and offers to record it.
           setLegs(snapped.legs);
+          // The server draws both the written order and the walked one and
+          // keeps the shorter; the markers follow whichever it used, so a
+          // label and the line beside it never describe different walks.
+          const walked = snapped.order.map((index) => found[index]).filter(Boolean);
+          if (walked.length === found.length) onResolved(walked);
           // Only a course mapped end to end is offered as a track: a partial
           // one saved into the column the map draws as "the route" would read
           // as the whole of it.

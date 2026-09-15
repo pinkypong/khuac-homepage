@@ -10,6 +10,7 @@ import type { ClubPoi } from "@/lib/routes/poi";
 import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside, TILE_DEG } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
 import { isValidGps } from "@/lib/gps/validate";
+import { haversineDistanceMeters } from "@/lib/gps/haversine";
 
 /**
  * The mapped paths around an activity, for the member to pick their route from.
@@ -103,6 +104,8 @@ export interface SnapResult {
   /** Why a leg might be dashed, so the map can say rather than leave the
       member guessing between "no trail here" and "could not look". */
   trailsLoaded: boolean;
+  /** The order the line was drawn in, as indices into the waypoints sent. */
+  order: number[];
 }
 
 export async function snapSuggestedRoute(
@@ -112,7 +115,7 @@ export async function snapSuggestedRoute(
   if (waypoints.length > 12 || waypoints.some((point) => !isValidGps(point.lat, point.lng))) {
     throw new Error("경로 좌표를 확인해주세요.");
   }
-  if (waypoints.length < 2) return { legs: [], trailsLoaded: true };
+  if (waypoints.length < 2) return { legs: [], trailsLoaded: true, order: waypoints.map((_, i) => i) };
 
   // A box around the whole course rather than a circle around its middle. The
   // circle was capped at a 3km radius, so a 6km course from 밤골 to 도선사 had
@@ -137,6 +140,7 @@ export async function snapSuggestedRoute(
     return {
       legs: waypoints.slice(1).map(() => ({ points: [], onTrail: false })),
       trailsLoaded: false,
+      order: waypoints.map((_, i) => i),
     };
   }
   // Logged because none of this is visible from the map: a dashed leg looks
@@ -155,12 +159,58 @@ export async function snapSuggestedRoute(
       legs = snapRouteToTrails(waypoints, segments, diagnostics);
     }
   }
+  // The order the answer wrote is usually the order it is walked and sometimes
+  // is not - 우이령길 listed the pass after a viewpoint a kilometre past it,
+  // and the line ran south and back north for nothing. Sorting by distance
+  // from the start fixes that one and breaks 정릉, where the 성곽 ridge curves
+  // enough that a later gate is nearer in a straight line than an earlier one:
+  // 7.74km became 9.01km.
+  //
+  // Neither order is right in general, so both are drawn and the shorter one
+  // kept. They pass the same places; the shorter line is the one that doubles
+  // back less, which is what "walked in order" means on the ground.
+  const sorted = [...waypoints.keys()]
+    .slice(1, -1)
+    .sort((a, b) => straightMetres(waypoints[0], waypoints[a]) - straightMetres(waypoints[0], waypoints[b]));
+  const order = [0, ...sorted, waypoints.length - 1];
+  const reordered = order.some((index, i) => index !== i)
+    ? snapRouteToTrails(order.map((index) => waypoints[index]), segments)
+    : null;
+
+  // Fewer gaps first, then shorter. A gap is the worse fault - it is a piece
+  // of the walk the map cannot show at all - and only between two orders that
+  // show the same amount does length decide, where it means less doubling back.
+  const score = (candidate: RouteLeg[]): [number, number] => [
+    candidate.filter((leg) => !leg.onTrail).length,
+    candidate.reduce((total, leg) => total + trackLengthMetres(leg.points), 0),
+  ];
+  const better = (a: [number, number], b: [number, number]) =>
+    a[0] !== b[0] ? a[0] < b[0] : a[1] < b[1];
+  const takeSorted = reordered !== null && better(score(reordered), score(legs));
+
   console.log("[route-actions] snap", JSON.stringify({
     ways: segments.length,
     snapM: diagnostics.snapDistances,
     legs: diagnostics.legs,
+    reordered: takeSorted,
   }));
-  return { legs, trailsLoaded: true };
+  return takeSorted
+    ? { legs: reordered!, trailsLoaded: true, order }
+    : { legs, trailsLoaded: true, order: waypoints.map((_, i) => i) };
+}
+
+const straightMetres = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+  haversineDistanceMeters(a, b);
+
+function trackLengthMetres(points: [number, number][]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += haversineDistanceMeters(
+      { lat: points[i - 1][0], lng: points[i - 1][1] },
+      { lat: points[i][0], lng: points[i][1] },
+    );
+  }
+  return total;
 }
 
 /**

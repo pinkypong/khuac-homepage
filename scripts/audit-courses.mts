@@ -16,7 +16,7 @@
  * Both are heuristics for finding legs worth looking at by hand, not verdicts.
  */
 import { readFileSync } from "node:fs";
-import { snapRouteToTrails, dropOutlierWaypoints, type SnapDiagnostics } from "../src/lib/routes/snap.ts";
+import { snapRouteToTrails, dropOutlierWaypoints, type RouteLeg, type SnapDiagnostics } from "../src/lib/routes/snap.ts";
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
 import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
 import { haversineDistanceMeters } from "../src/lib/gps/haversine.ts";
@@ -55,6 +55,11 @@ const COURSES: { place: string; centre: { latitude: number; longitude: number };
   ...[
     ["사당역", "관음사", "연주대"],
   ].map((names) => ({ place: "관악산", centre: { latitude: 37.445, longitude: 126.964 }, names })),
+  // The course that produced a spur off the side of the line: the waypoints
+  // came back in an order that walks past 우이령 and back to reach 오봉전망대.
+  ...[
+    ["교현탐방지원센터", "석굴암입구", "오봉전망대", "우이령", "우이탐방지원센터"],
+  ].map((names) => ({ place: "북한산", centre: { latitude: 37.665, longitude: 127.005 }, names })),
 ];
 
 const lookups = new Map<string, { name: string; lat: number; lng: number } | null>();
@@ -117,6 +122,12 @@ async function rows(table: string, keys: string[]): Promise<TrailSegment[][]> {
 
 const metres = (a: TrackPoint, b: TrackPoint) =>
   haversineDistanceMeters({ lat: a[0], lng: a[1] }, { lat: b[0], lng: b[1] });
+
+function legLength(points: TrackPoint[]): number {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += metres(points[i - 1], points[i]);
+  return total;
+}
 
 /** Furthest any point on the line strays from the straight line between its ends. */
 function strayMetres(path: TrackPoint[]): number {
@@ -182,12 +193,37 @@ for (const [index, { place, centre, names }] of COURSES.entries()) {
     splitSurveyGaps(mergeTileSegments(official)),
   ]);
 
-  const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
-  const legs = snapRouteToTrails(kept, segments, diagnostics);
+  // Both orders, shorter kept - the same rule the map applies, so the audit
+  // measures what a member actually sees.
+  // Both orders, fewer gaps and then shorter kept - the same rule the map
+  // applies, so the audit measures what a member actually sees. Whichever wins
+  // brings its own waypoint order and its own diagnostics, so the per-leg lines
+  // below name the places that leg really runs between.
+  const score = (candidate: RouteLeg[]): [number, number] => [
+    candidate.filter((leg) => !leg.onTrail).length,
+    candidate.reduce((n, leg) => n + legLength(leg.points), 0),
+  ];
+  const draw = (points: typeof kept) => {
+    const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
+    return { points, legs: snapRouteToTrails(points, segments, diagnostics), diagnostics };
+  };
+  let drawn = draw(kept);
+  if (kept.length >= 4) {
+    const order = [...kept.keys()].slice(1, -1)
+      .sort((a, b) => haversineDistanceMeters(kept[0], kept[a]) - haversineDistanceMeters(kept[0], kept[b]));
+    const other = draw([kept[0], ...order.map((i) => kept[i]), kept[kept.length - 1]]);
+    const [gapsA, lenA] = score(other.legs);
+    const [gapsB, lenB] = score(drawn.legs);
+    if (gapsA !== gapsB ? gapsA < gapsB : lenA < lenB) {
+      drawn = other;
+      console.log(`  순서 바로잡음: ${other.points.map((p) => p.asked).join(" → ")}`);
+    }
+  }
+  const { points: walked, legs, diagnostics } = drawn;
   let total = 0;
   legs.forEach((leg, i) => {
     const detail = diagnostics.legs[i];
-    const label = `  ${kept[i].asked} → ${kept[i + 1].asked}`;
+    const label = `  ${walked[i].asked} → ${walked[i + 1].asked}`;
     if (!leg.onTrail) {
       console.log(`${label}: 경로 없음 (직선 ${((detail?.straightM ?? 0) / 1000).toFixed(2)}km)`);
       return;
