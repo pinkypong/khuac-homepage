@@ -54,7 +54,7 @@ export function SatelliteTrails() {
   if (!visible) return null;
   return <>
     {/* Only the credit OpenStreetMap's licence requires, on one line in the
-        column where the trail layer.s own credit sits, so the two never stack.
+        column where the trail layer's own credit sits, so the two never stack.
 
         This was a panel: a checkbox to turn the overlay off, a running status
         line, and the credit under it, stacked over the map in the top-left. It
