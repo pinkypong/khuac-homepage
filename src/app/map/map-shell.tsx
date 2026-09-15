@@ -446,7 +446,7 @@ export function MapShell({
     }
     setCreatingAlbum(true);
     try {
-      const { locationId, hikeId } = await createAlbumFromRoute({
+      const result = await createAlbumFromRoute({
         routeName: route.name,
         placeName: current.placeName,
         waypoints,
@@ -454,10 +454,14 @@ export function MapShell({
         distanceText: route.distanceText,
         notes: route.notes,
       });
+      if (!result.ok) {
+        window.alert(result.reason);
+        return;
+      }
       setSuggestedRoute(null);
-      setActiveLocationId(locationId);
-      setActiveHikeId(hikeId);
-      setPinnedHikeId(hikeId);
+      setActiveLocationId(result.locationId);
+      setActiveHikeId(result.hikeId);
+      setPinnedHikeId(result.hikeId);
       router.refresh();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "앨범을 만들지 못했습니다.");
