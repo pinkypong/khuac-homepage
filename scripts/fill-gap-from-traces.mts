@@ -49,11 +49,18 @@ const MATCH_RATIO = 0.75;
 /**
  * How many other people have to have walked it.
  *
- * Three, because two is one coincidence away from a wrong turn that two
- * strangers both took - the junction everybody misses is exactly the place
- * where two agreeing tracks are both wrong.
+ * Three is what we want, because two is one coincidence away from a wrong turn
+ * that two strangers both took - the junction everybody misses is exactly the
+ * place where two agreeing tracks are both wrong.
+ *
+ * Two is accepted when two is all there is. On the quieter approaches that is
+ * the whole archive, and a line two people walked is still better evidence
+ * than the two-kilometre detour the router finds without it. The count is
+ * written into the line, so a later run over the same stretch can tell whether
+ * the archive has since done better and replace it if so.
  */
-const WITNESSES = 3;
+const PREFERRED_WITNESSES = 3;
+const MIN_WITNESSES = 2;
 
 /** References to try before giving up. Shuffled, so this is not the same one. */
 const MAX_REFERENCES = 40;
@@ -223,7 +230,7 @@ const candidates = tracks.flatMap((track) => {
   return stretch ? [stretch] : [];
 });
 console.log(`양 끝을 모두 지나는 트랙 ${candidates.length}개`);
-if (candidates.length < WITNESSES + 1) {
+if (candidates.length < MIN_WITNESSES + 1) {
   // Which end nobody came near is the whole diagnosis: a tolerance that is too
   // tight looks exactly like a point in the wrong place.
   const starts = tracks.map((t) => closest(t, from).distance).sort((a, b) => a - b);
@@ -231,8 +238,8 @@ if (candidates.length < WITNESSES + 1) {
   console.log(`  시작점에 가장 가까이 지난 거리: ${starts.slice(0, 5).map((d) => Math.round(d)).join(", ")}m`);
   console.log(`  끝점에 가장 가까이 지난 거리: ${ends.slice(0, 5).map((d) => Math.round(d)).join(", ")}m`);
 }
-if (candidates.length < WITNESSES + 1) {
-  console.log(`증인이 ${WITNESSES}명은 있어야 합니다. 이 구간은 그리지 않습니다.`);
+if (candidates.length < MIN_WITNESSES + 1) {
+  console.log(`증인이 ${MIN_WITNESSES}명은 있어야 합니다. 이 구간은 그리지 않습니다.`);
   process.exit(0);
 }
 
@@ -276,26 +283,32 @@ for (let i = order.length - 1; i > 0; i--) {
 }
 
 let chosen: { stretch: TrackPoint[]; votes: number[] } | null = null;
-for (const index of order.slice(0, MAX_REFERENCES)) {
-  const reference = candidates[index];
-  const votes: number[] = [];
-  for (const [other, stretch] of candidates.entries()) {
-    if (other === index) continue;
-    const ratio = covers(reference, stretch);
-    if (ratio >= MATCH_RATIO) votes.push(ratio);
-    if (votes.length >= WITNESSES) break;
+// Asked for three first and settled for two only if three is not on offer, so
+// a quiet stretch is drawn without a busy one being drawn on weaker evidence.
+for (const wanted of [PREFERRED_WITNESSES, MIN_WITNESSES]) {
+  for (const index of order.slice(0, MAX_REFERENCES)) {
+    const reference = candidates[index];
+    const votes: number[] = [];
+    for (const [other, stretch] of candidates.entries()) {
+      if (other === index) continue;
+      const ratio = covers(reference, stretch);
+      if (ratio >= MATCH_RATIO) votes.push(ratio);
+      if (votes.length >= wanted) break;
+    }
+    if (votes.length >= wanted) {
+      let length = 0;
+      for (let i = 1; i < reference.length; i++) length += metres(reference[i - 1], reference[i]);
+      console.log(`  채택 후보 ${index}: ${reference.length}점 · ${(length / 1000).toFixed(2)}km · 동의 ${votes.length}명`);
+      chosen = { stretch: reference, votes };
+      break;
+    }
   }
-  let length = 0;
-  for (let i = 1; i < reference.length; i++) length += metres(reference[i - 1], reference[i]);
-  console.log(`  후보 ${index}: ${reference.length}점 · ${(length / 1000).toFixed(2)}km · 동의 ${votes.length}명`);
-  if (votes.length >= WITNESSES) {
-    chosen = { stretch: reference, votes };
-    break;
-  }
+  if (chosen) break;
+  console.log(`  동의 ${wanted}명인 경로 없음`);
 }
 
 if (!chosen) {
-  console.log(`${WITNESSES}명 이상이 동의하는 경로가 없습니다. 이 구간은 그리지 않습니다.`);
+  console.log(`${MIN_WITNESSES}명 이상이 동의하는 경로가 없습니다. 이 구간은 그리지 않습니다.`);
   process.exit(0);
 }
 
@@ -311,7 +324,15 @@ let routed = 0;
 for (let i = 1; i < kept.length; i++) routed += metres(kept[i - 1], kept[i]);
 console.log(`채택: ${kept.length}점 · ${(routed / 1000).toFixed(2)}km · 배율 ${(routed / straight).toFixed(2)} · 동의 ${chosen.votes.map((v) => `${Math.round(v * 100)}%`).join(", ")}`);
 
-const segments: TrailSegment[] = [{ id: ID_BASE - Math.floor(Math.random() * 1e6), name: null, kind: "path", points: kept }];
+// The count is part of the line, so a later run can see what this one was
+// working from and replace it only when the archive has done better.
+const witnessed = chosen.votes.length;
+const segments: TrailSegment[] = [{
+  id: ID_BASE - Math.floor(Math.random() * 1e6),
+  name: `GPS 트랙 · 동의 ${witnessed}명`,
+  kind: "path",
+  points: kept,
+}];
 const byTile = groupSegmentsByTile(segments);
 console.log(`타일 ${byTile.size}개`);
 
@@ -332,7 +353,23 @@ for (const [tile_key, tileSegments] of byTile) {
     { headers },
   );
   const rows = existing.ok ? (await existing.json()) as { segments: TrailSegment[] }[] : [];
-  const merged = [...(rows[0]?.segments ?? []), ...tileSegments];
+  const held = rows[0]?.segments ?? [];
+  // A line already drawn between these same two ends is this stretch, drawn on
+  // an earlier run. Replaced when this run had more people behind it, kept when
+  // it did not - which is how a stretch settled for two improves by itself once
+  // a third walker uploads.
+  const sameStretch = (segment: TrailSegment) =>
+    Math.min(
+      metres(segment.points[0], kept[0]) + metres(segment.points[segment.points.length - 1], kept[kept.length - 1]),
+      metres(segment.points[0], kept[kept.length - 1]) + metres(segment.points[segment.points.length - 1], kept[0]),
+    ) <= 100;
+  const previous = held.filter(sameStretch);
+  const best = Math.max(0, ...previous.map((s) => Number(s.name?.match(/동의 (\d+)명/)?.[1] ?? 0)));
+  if (previous.length > 0 && best >= witnessed) {
+    console.log(`${tile_key}: 이미 동의 ${best}명짜리 선이 있어 그대로 둡니다`);
+    continue;
+  }
+  const merged = [...held.filter((segment) => !sameStretch(segment)), ...tileSegments];
   const write = await fetch(`${url}/rest/v1/official_trails?on_conflict=tile_key,source`, {
     method: "POST",
     headers: { ...headers, "content-type": "application/json", prefer: "resolution=merge-duplicates" },
