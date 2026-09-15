@@ -688,6 +688,98 @@ export function snapRouteToTrails(
   return walkPreparedRoute(prepared, prepared.points.map((_, i) => i), diagnostics);
 }
 
+/** A waypoint on a drawn course - as much of one as placing a hint needs. */
+export interface HintablePoint {
+  /** Which of the names sent this is, so the name travels with the point. */
+  index: number;
+  lat: number;
+  lng: number;
+  /** True when this position was worked out rather than looked up. The map
+      says so: a guessed landmark read as a fact is worse than none. */
+  derived: boolean;
+}
+
+/**
+ * How far a hinted place may sit off the course before it is not on it.
+ *
+ * 석굴암 stands 636m off 우이령길, up a branch, and 석굴암입구 is the turning for
+ * it - so the turning is on the road and the temple is not, which is the whole
+ * distinction. Somewhere two kilometres away is not a place this course passes
+ * the entrance to, and putting a marker on the nearest bit of line to it would
+ * invent a landmark rather than find one.
+ */
+const HINT_REACH_M = 1000;
+
+/**
+ * Puts "X입구" on the line, where the course passes X.
+ *
+ * The name is a turning rather than a place and no gazetteer carries turnings,
+ * so a search answers with X itself: 석굴암입구 came back as the temple, 649m up
+ * a side branch, and routing through it walked that branch twice and added
+ * 1,521m to a 4.25km course. The temple is not wrong about where the temple is.
+ * It is wrong as a point to route through.
+ *
+ * So it is not routed through. The line is drawn without it, and afterwards the
+ * turning is placed where that line comes closest to X. Against the junction
+ * worked out by hand from the same geometry, that lands within 60m.
+ *
+ * Deriving it from the course's stated length was tried first and measured, on
+ * four courses whose start we know, at between 821m and 4,021m from the truth -
+ * because stated lengths and this geometry disagree by about a fifth either way
+ * and the error in the distance is the error in the point. Geometry answers the
+ * same question without the guess. See scripts/check-derived-start.mts.
+ *
+ * The leg the turning falls on is split there, so the course keeps one more
+ * waypoint than it has legs and the marker sits on the line rather than beside
+ * it.
+ */
+export function placeHints(
+  drawn: { legs: RouteLeg[]; points: HintablePoint[] },
+  hints: { index: number; lat: number; lng: number }[],
+): { legs: RouteLeg[]; points: HintablePoint[] } {
+  let legs = drawn.legs;
+  let points = drawn.points;
+  if (hints.length === 0 || legs.length === 0) return { legs, points };
+
+  for (const hint of hints) {
+    // Where the drawn line passes closest to the hinted place.
+    let bestLeg = -1;
+    let bestAt = -1;
+    let bestMetres = Infinity;
+    for (let legIndex = 0; legIndex < legs.length; legIndex++) {
+      const candidate = legs[legIndex];
+      if (!candidate.onTrail) continue;
+      for (let at = 0; at < candidate.points.length; at++) {
+        const away = metres(candidate.points[at], [hint.lat, hint.lng]);
+        if (away < bestMetres) {
+          bestMetres = away;
+          bestLeg = legIndex;
+          bestAt = at;
+        }
+      }
+    }
+    if (bestLeg < 0 || bestMetres > HINT_REACH_M) continue;
+    // Splitting at either end of a leg makes a leg of no length and moves the
+    // marker nowhere the waypoint beside it is not already.
+    const leg = legs[bestLeg];
+    if (bestAt === 0 || bestAt === leg.points.length - 1) continue;
+
+    const [lat, lng] = leg.points[bestAt];
+    legs = [
+      ...legs.slice(0, bestLeg),
+      { points: leg.points.slice(0, bestAt + 1), onTrail: true },
+      { points: leg.points.slice(bestAt), onTrail: true },
+      ...legs.slice(bestLeg + 1),
+    ];
+    points = [
+      ...points.slice(0, bestLeg + 1),
+      { index: hint.index, lat, lng, derived: true },
+      ...points.slice(bestLeg + 1),
+    ];
+  }
+  return { legs, points };
+}
+
 /**
  * Drops a waypoint that sits nowhere near the rest of the course.
  *

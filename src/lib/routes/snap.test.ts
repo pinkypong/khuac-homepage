@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropOutlierWaypoints, snapRouteToTrails } from "./snap";
+import { dropOutlierWaypoints, placeHints, snapRouteToTrails } from "./snap";
 import type { TrailSegment } from "./trails";
 import type { TrackPoint } from "../gps/track";
 
@@ -185,5 +185,47 @@ describe("dropOutlierWaypoints", () => {
       { lat: 37.900, lng: 127.400 },
     ];
     expect(dropOutlierWaypoints(withBadEnd)).toHaveLength(3);
+  });
+});
+
+describe("placeHints", () => {
+  /** A leg running due north, one point every ~11m. */
+  const northward = (count: number): TrackPoint[] =>
+    Array.from({ length: count }, (_, i) => [37.6 + i * 0.0001, 127.0] as TrackPoint);
+
+  const course = () => ({
+    legs: [{ points: northward(11), onTrail: true }],
+    points: [
+      { index: 0, lat: 37.6, lng: 127.0, derived: false },
+      { index: 2, lat: 37.601, lng: 127.0, derived: false },
+    ],
+  });
+
+  it("puts the turning on the line, where the course passes the place", () => {
+    // Beside the middle of the leg, about 90m east - a temple up a short spur.
+    const result = placeHints(course(), [{ index: 1, lat: 37.6005, lng: 127.001 }]);
+    expect(result.points.map((p) => p.index)).toEqual([0, 1, 2]);
+    expect(result.points[1].lat).toBeCloseTo(37.6005, 6);
+    expect(result.points[1].lng).toBeCloseTo(127.0, 6);
+    expect(result.points[1].derived).toBe(true);
+    // Split rather than appended: still one more waypoint than there are legs.
+    expect(result.legs).toHaveLength(result.points.length - 1);
+  });
+
+  it("leaves the line itself alone", () => {
+    const before = course();
+    const after = placeHints(before, [{ index: 1, lat: 37.6005, lng: 127.001 }]);
+    expect(after.legs.flatMap((leg) => leg.points)).toHaveLength(before.legs[0].points.length + 1);
+  });
+
+  it("refuses a place the course does not pass", () => {
+    // Two kilometres east is not somewhere this course passes the entrance to.
+    const result = placeHints(course(), [{ index: 1, lat: 37.6005, lng: 127.023 }]);
+    expect(result.points.map((p) => p.index)).toEqual([0, 2]);
+  });
+
+  it("does not split at a leg's own ends, where a waypoint already stands", () => {
+    const result = placeHints(course(), [{ index: 1, lat: 37.6, lng: 127.0002 }]);
+    expect(result.points.map((p) => p.index)).toEqual([0, 2]);
   });
 });

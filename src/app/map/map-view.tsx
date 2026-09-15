@@ -408,6 +408,7 @@ export function MapView({
   suggestedRoute,
   onRouteResolved,
   onRouteMissing,
+  onRouteDerived,
   onRouteTrack,
   onTrailsUnavailable,
 }: {
@@ -434,6 +435,8 @@ export function MapView({
   } | null;
   onRouteResolved: (points: RouteWaypoint[]) => void;
   onRouteMissing: (names: string[]) => void;
+  /** Names the router placed itself, from the course's stated length. */
+  onRouteDerived: (names: string[]) => void;
   onRouteTrack: (track: TrackPoint[] | null) => void;
   onTrailsUnavailable: (unavailable: boolean) => void;
 }) {
@@ -560,6 +563,7 @@ export function MapView({
           resolved={suggestedRoute.resolved}
           onResolved={onRouteResolved}
           onMissing={onRouteMissing}
+          onDerived={onRouteDerived}
           onTrack={onRouteTrack}
           pins={!selectedHike}
           onTrailsUnavailable={onTrailsUnavailable}

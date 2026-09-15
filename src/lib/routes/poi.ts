@@ -138,8 +138,14 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
   // trailheads on opposite sides of the mountain.
   //
   // Only in that direction. A name that is a shortening from the end -
-  // 망월사 갈림길 answered with 망월사 - is the same place described less
-  // fully, and the temple really is where that junction is.
+  // 망월사 갈림길 answered with 망월사 - names the same feature less fully, and
+  // the answer is close enough to be worth taking.
+  //
+  // Close enough to name it, not close enough to route through: the temple is
+  // 426m off the 다락능선 ridge its junction sits on, and walking down to it
+  // and back added 1,601m to a 3.33km course. Which is why a name of that
+  // shape is not routed through at all any more - see placeHints in snap.ts,
+  // where the junction is put on the line where the line passes the temple.
   if (wanted.endsWith(got) && wanted !== got) return false;
   if (got.includes(wanted) || wanted.includes(got)) return true;
   if (sharesRun(wanted, got)) return true;

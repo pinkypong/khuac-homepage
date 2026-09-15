@@ -5,7 +5,7 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, splitSurveyGaps, type TrailSegment } from "@/lib/routes/trails";
-import { prepareRouteSnap, walkPreparedRoute, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
+import { placeHints, prepareRouteSnap, walkPreparedRoute, type HintablePoint, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
 import { SAME_PLACE_M, type ClubPoi } from "@/lib/routes/poi";
 import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside, TILE_DEG } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
@@ -105,25 +105,54 @@ export interface SnapResult {
   /** Why a leg might be dashed, so the map can say rather than leave the
       member guessing between "no trail here" and "could not look". */
   trailsLoaded: boolean;
-  /** The order the line was drawn in, as indices into the waypoints sent. */
-  order: number[];
+  /** The waypoints as actually walked, in order; one more than there are legs. */
+  points: HintablePoint[];
 }
 
-export async function snapSuggestedRoute(
-  waypoints: { lat: number; lng: number }[],
-): Promise<SnapResult> {
+/**
+ * A waypoint as the browser could resolve it.
+ *
+ * Three cases, because a lookup can fail in two different ways. A point is a
+ * name that resolved. Null is a name that resolved to nothing at all. A hint is
+ * the third: a name like 석굴암입구 - a turning, which no gazetteer carries -
+ * where the place it is the way in to does resolve. The turning is then
+ * wherever the course passes closest to that place, which is geometry rather
+ * than a guess.
+ */
+export type SentWaypoint =
+  | { lat: number; lng: number }
+  | { hint: { lat: number; lng: number } }
+  | null;
+
+const isPoint = (w: SentWaypoint): w is { lat: number; lng: number } =>
+  w !== null && "lat" in w;
+const isHint = (w: SentWaypoint): w is { hint: { lat: number; lng: number } } =>
+  w !== null && "hint" in w;
+
+export async function snapSuggestedRoute(waypoints: SentWaypoint[]): Promise<SnapResult> {
   const { supabase } = await requireApprovedMember();
-  if (waypoints.length > 12 || waypoints.some((point) => !isValidGps(point.lat, point.lng))) {
-    throw new Error("경로 좌표를 확인해주세요.");
+  if (waypoints.length > 12) throw new Error("경로 좌표를 확인해주세요.");
+  for (const waypoint of waypoints) {
+    const point = isPoint(waypoint) ? waypoint : isHint(waypoint) ? waypoint.hint : null;
+    if (point && !isValidGps(point.lat, point.lng)) throw new Error("경로 좌표를 확인해주세요.");
   }
-  if (waypoints.length < 2) return { legs: [], trailsLoaded: true, order: waypoints.map((_, index) => index) };
+
+  // Dense, each remembering which name it came from. Everything below routes
+  // through these; hints are placed onto the finished line afterwards, because
+  // routing through a temple 649m up a side branch is the detour this exists
+  // to stop drawing.
+  const placed: HintablePoint[] = waypoints.flatMap((point, index) =>
+    isPoint(point) ? [{ index, lat: point.lat, lng: point.lng, derived: false }] : []);
+  const hints = waypoints.flatMap((point, index) =>
+    isHint(point) ? [{ index, ...point.hint }] : []);
+  if (placed.length < 2) return { legs: [], trailsLoaded: true, points: placed };
 
   // A box around the whole course rather than a circle around its middle. The
   // circle was capped at a 3km radius, so a 6km course from 밤골 to 도선사 had
   // the middle of the mountain outside the query and came back entirely dashed
   // for want of data rather than for want of a path.
-  const lats = waypoints.map((w) => w.lat);
-  const lngs = waypoints.map((w) => w.lng);
+  const lats = placed.map((w) => w.lat);
+  const lngs = placed.map((w) => w.lng);
   // Roughly 900m of margin, so a trailhead just outside the course still has
   // the path leading onto it.
   const margin = 0.008;
@@ -139,24 +168,24 @@ export async function snapSuggestedRoute(
   if (segments.length === 0) {
     // No geometry is available; do not invent straight connections.
     return {
-      legs: waypoints.slice(1).map(() => ({ points: [], onTrail: false })),
+      legs: placed.slice(1).map(() => ({ points: [], onTrail: false })),
       trailsLoaded: false,
-      order: waypoints.map((_, i) => i),
+      points: placed,
     };
   }
   // Logged because none of this is visible from the map: a dashed leg looks
   // the same whether a waypoint was 500m from the nearest path or the path
   // simply does not connect.
   const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
-  const written = waypoints.map((_, index) => index);
+  const written = placed.map((_, index) => index);
   // Prepared once. Projecting the waypoints and building the path graph is
   // almost all of the cost - 273ms of the 정릉 course's snap, measured - and
   // none of it depends on the order they are visited in, so the second order
   // below is walked over this same graph rather than rebuilding it. Two full
   // snaps per request is most of a CPU budget this Worker has already exceeded
   // once in production.
-  let prepared = prepareRouteSnap(waypoints, segments);
-  if (!prepared) return { legs: [], trailsLoaded: true, order: written };
+  let prepared = prepareRouteSnap(placed, segments);
+  if (!prepared) return { legs: [], trailsLoaded: true, points: placed };
   let legs = walkPreparedRoute(prepared, written, diagnostics);
   if (legs.some((leg) => !leg.onTrail)) {
     // A real approach may go around a ridge outside the initial box. Try a
@@ -165,7 +194,7 @@ export async function snapSuggestedRoute(
       north: bounds.north + 0.012, east: bounds.east + 0.012 };
     if (expanded.north - expanded.south <= 0.25 && expanded.east - expanded.west <= 0.25) {
       segments = mergeTileSegments([segments, await trailsForBounds(supabase, expanded)]);
-      prepared = prepareRouteSnap(waypoints, segments) ?? prepared;
+      prepared = prepareRouteSnap(placed, segments) ?? prepared;
       legs = walkPreparedRoute(prepared, written, diagnostics);
     }
   }
@@ -179,11 +208,11 @@ export async function snapSuggestedRoute(
   // Neither order is right in general, so both are drawn and the shorter one
   // kept. They pass the same places; the shorter line is the one that doubles
   // back less, which is what "walked in order" means on the ground.
-  const sorted = [...waypoints.keys()]
+  const sorted = [...placed.keys()]
     .slice(1, -1)
-    .sort((a, b) => straightMetres(waypoints[0], waypoints[a]) - straightMetres(waypoints[0], waypoints[b]));
-  const order = [0, ...sorted, waypoints.length - 1];
-  const reordered = order.some((index, i) => index !== i) && !isOutAndBack(waypoints)
+    .sort((a, b) => straightMetres(placed[0], placed[a]) - straightMetres(placed[0], placed[b]));
+  const order = [0, ...sorted, placed.length - 1];
+  const reordered = order.some((index, i) => index !== i) && !isOutAndBack(placed)
     ? walkPreparedRoute(prepared, order)
     : null;
 
@@ -203,10 +232,12 @@ export async function snapSuggestedRoute(
     snapM: diagnostics.snapDistances,
     legs: diagnostics.legs,
     reordered: takeSorted,
+    hints: hints.map((hint) => hint.index),
   }));
-  return takeSorted
-    ? { legs: reordered!, trailsLoaded: true, order }
-    : { legs, trailsLoaded: true, order: written };
+  const drawn = takeSorted
+    ? { legs: reordered!, points: order.map((index) => placed[index]) }
+    : { legs, points: placed };
+  return { ...placeHints(drawn, hints), trailsLoaded: true };
 }
 
 const straightMetres = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>

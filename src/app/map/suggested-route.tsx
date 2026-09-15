@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AdvancedMarker, CollisionBehavior, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
-import { loadClubPois, snapSuggestedRoute } from "./route-actions";
+import { loadClubPois, snapSuggestedRoute, type SentWaypoint } from "./route-actions";
 import { findClubPoi, isUsableWaypoint, SAME_PLACE_M, type ClubPoi } from "@/lib/routes/poi";
 import { recoverFromStaleDeployment } from "../stale-deployment";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
@@ -33,7 +33,7 @@ const MAX_LOOKUPS = 12;
 // Names repeat across courses on the same mountain (연주대 ends three of them),
 // and a member comparing courses taps back and forth. Module scope so those
 // repeats cost nothing - a page load is the only thing that clears it.
-const cache = new Map<string, RouteWaypoint | null>();
+const cache = new Map<string, { kind: "point" | "hint"; name: string; lat: number; lng: number } | null>();
 
 function thin(waypoints: string[]): string[] {
   if (waypoints.length <= MAX_LOOKUPS) return waypoints;
@@ -61,6 +61,30 @@ function collapseRepeats<T extends { lat: number; lng: number }>(points: T[]): T
     const previous = points[i - 1];
     return haversineDistanceMeters(previous, point) > SAME_PLACE_M;
   });
+}
+
+/**
+ * The place a name is the way in to, if it is that kind of name.
+ *
+ * "석굴암입구" is a turning on a road. No gazetteer carries turnings, so Places
+ * answers with 석굴암 itself - a temple 649m up a side branch - and routing
+ * through it walked that branch twice and added 1.5km to a 4.25km course.
+ *
+ * The temple is not the wrong answer to the wrong question: it is exactly where
+ * the temple is. It is the wrong thing to route through. So a name like this is
+ * split, the place it names is looked up, and the turning is left to the server
+ * to put on the line where the course passes that place.
+ *
+ * 들머리 and 초입 are the same word in other clothes; 갈림길 and 삼거리 name the
+ * junction for whatever is up the side of them.
+ */
+const ENTRANCE = /^(.+?)(입구|들머리|초입|갈림길|삼거리)$/;
+
+function entranceOf(name: string): string | null {
+  const match = name.replace(/\s+/g, "").match(ENTRANCE);
+  const base = match?.[1]?.trim();
+  // Two characters is not a place name, it is what is left of one.
+  return base && base.length >= 2 ? base : null;
 }
 
 /**
@@ -92,6 +116,7 @@ export function SuggestedRoute({
   onMissing,
   onTrack,
   onTrailsUnavailable,
+  onDerived,
   pins,
 }: {
   route: RouteSuggestion;
@@ -110,6 +135,9 @@ export function SuggestedRoute({
   onTrack: (track: TrackPoint[] | null) => void;
   /** True when any part of the course cannot be resolved onto mapped trails. */
   onTrailsUnavailable: (unavailable: boolean) => void;
+  /** Names whose position was worked out rather than looked up. The map says
+      so: a guessed trailhead read as a fact is worse than no line at all. */
+  onDerived: (names: string[]) => void;
   /** False once an album is open: then the line is the subject and labels for
       places the reader is no longer choosing between only cover it. */
   pins: boolean;
@@ -133,12 +161,15 @@ export function SuggestedRoute({
     onTrack(null);
     onTrailsUnavailable(false);
 
-    async function resolveOne(name: string, pois: ClubPoi[]): Promise<RouteWaypoint | null> {
+    /** What a name resolved to: the place itself, or the place it is the way in to. */
+    type Resolved = { kind: "point" | "hint"; name: string; lat: number; lng: number };
+
+    async function resolveOne(name: string, pois: ClubPoi[]): Promise<Resolved | null> {
       // The club's own gazetteer first. These names are local usage - 해골바위,
       // 밤골, 깔딱고개 - and a search engine has no reliable answer for them,
       // so a point a member recorded outranks anything a lookup returns.
       const known = findClubPoi(name, pois);
-      if (known) return { name, lat: known.lat, lng: known.lng };
+      if (known) return { kind: "point", name, lat: known.lat, lng: known.lng };
 
       const cacheKey = `${placeName}:${centerLat ?? ""}:${centerLng ?? ""}:${name}`;
       const cached = cache.get(cacheKey);
@@ -194,9 +225,27 @@ export function SuggestedRoute({
         // the wrong province is caught while a missing one is not.
         if (!best && placeName) best = await search(name);
         const location = best?.location;
-        const point = location ? { name, lat: location.lat(), lng: location.lng() } : null;
-        if (point) cache.set(cacheKey, point);
-        return point;
+        if (location) {
+          const point = { kind: "point" as const, name, lat: location.lat(), lng: location.lng() };
+          cache.set(cacheKey, point);
+          return point;
+        }
+        // Nothing carries the turning. The place it leads to usually is
+        // carried, and where the course passes that place is the turning.
+        const base = entranceOf(name);
+        if (base) {
+          const nearby = findClubPoi(base, pois)
+            ?? await search(`${placeName} ${base}`.trim()).then((found) => {
+              const at = found?.location;
+              return at ? { lat: at.lat(), lng: at.lng() } : null;
+            });
+          if (nearby) {
+            const hint = { kind: "hint" as const, name, lat: nearby.lat, lng: nearby.lng };
+            cache.set(cacheKey, hint);
+            return hint;
+          }
+        }
+        return null;
       } catch (error) {
         console.error("[map/suggested-route] lookup failed", name, error);
         // Allow retries after transient API errors.
@@ -204,41 +253,67 @@ export function SuggestedRoute({
       }
     }
 
-    // An unresolved name is left out rather than guessed at: a pin in the
-    // wrong place is worse than a course drawn without it, and the member can
-    // put it on the map by hand once, after which it resolves from our table.
+    // A name nothing can place is no longer simply dropped. It is sent on as a
+    // blank, and if it is one of the two ends the server works out where it
+    // must have been from how long the course says it is - see
+    // deriveMissingEnds. The member is told which points were guessed at.
     loadClubPois()
       .catch(() => [] as ClubPoi[])
       .then((pois) => Promise.all(thin(waypoints).map((name) => resolveOne(name, pois))))
       .then((points) => {
       if (cancelled) return;
+      const names = thin(waypoints);
       // A name can resolve to the wrong place entirely - 해골바위 on 숨은벽
       // came back on the far side of 북한산 - and one bad lookup dragged the
       // whole course into a straight line across the massif. Dropping it here
       // rather than server-side keeps its pin off the map too.
-      const found = dropOutlierWaypoints(collapseRepeats(points.flatMap((point) => point ? [point] : [])));
-      const placed = new Set(found.map((p) => p.name));
-      // Reported rather than swallowed: these are the local terms - 해골바위,
-      // 밤골 - that a member can fix once by hand, and they cannot do that if
-      // the course simply appears one waypoint short. The shell owns the
-      // notice so it sits with the button that acts on it.
-      onMissing(thin(waypoints).filter((name) => !placed.has(name)));
-      onResolved(found);
-      if (!map || found.length === 0) { onTrailsUnavailable(true); return; }
-      if (found.length === 1) {
+      const found = points.flatMap((point) => point?.kind === "point" ? [point] : []);
+      const usable = dropOutlierWaypoints(collapseRepeats(found));
+      const kept = new Set(usable.map((point) => point.name));
+
+      // What goes to the server, in the order written. A name that resolved to
+      // somewhere impossible - a repeat of the point before it, or a lookup on
+      // the far side of the massif - is left out entirely, because it is one
+      // place described twice or a mistake, and neither is a gap to fill. A
+      // name that resolved to nothing is sent as a blank, because that is a
+      // gap and the server may be able to close it.
+      const sentNames: string[] = [];
+      const sent: SentWaypoint[] = [];
+      for (const [i, name] of names.entries()) {
+        const point = points[i];
+        if (point?.kind === "point" && !kept.has(point.name)) continue;
+        sentNames.push(name);
+        sent.push(
+          point === null ? null
+            : point.kind === "hint" ? { hint: { lat: point.lat, lng: point.lng } }
+              : { lat: point.lat, lng: point.lng },
+        );
+      }
+
+      onResolved(usable);
+      if (!map) { onTrailsUnavailable(true); return; }
+      if (usable.length === 1) {
+        onMissing(names.filter((name) => !kept.has(name)));
+        onDerived([]);
         onTrailsUnavailable(true);
         // fitBounds on a single point zooms to the maximum the tiles allow,
         // which lands on a rooftop rather than on a mountain.
-        map.setCenter(found[0]);
+        map.setCenter(usable[0]);
         map.setZoom(14);
         return;
       }
+      if (usable.length === 0) {
+        onMissing(names.filter((name) => !kept.has(name)));
+        onDerived([]);
+        onTrailsUnavailable(true);
+        return;
+      }
       const bounds = new google.maps.LatLngBounds();
-      for (const point of found) bounds.extend(point);
+      for (const point of usable) bounds.extend(point);
       map.fitBounds(bounds, 64);
 
       // Show a line only once the mapped trail geometry has been resolved.
-      snapSuggestedRoute(found.map(({ lat, lng }) => ({ lat, lng })))
+      snapSuggestedRoute(sent)
         .then((snapped) => {
           if (cancelled) return;
           // A leg that spans a waypoint we could not place is still drawn.
@@ -251,11 +326,19 @@ export function SuggestedRoute({
           // is real either way, and the notice beside the map already says
           // which name went unplaced and offers to record it.
           setLegs(snapped.legs);
-          // The server draws both the written order and the walked one and
-          // keeps the shorter; the markers follow whichever it used, so a
-          // label and the line beside it never describe different walks.
-          const walked = snapped.order.map((index) => found[index]).filter(Boolean);
-          if (walked.length === found.length) onResolved(walked);
+          // The waypoints come back in the order the server drew them, with
+          // any it worked out itself already in place, so a label and the line
+          // beside it never describe different walks.
+          const walked = snapped.points.map((point) => ({
+            name: sentNames[point.index] ?? "", lat: point.lat, lng: point.lng,
+          }));
+          if (walked.length >= 2) onResolved(walked);
+          // Two different things, and the map says them differently: a name
+          // with no position at all, which a member can fix by recording one,
+          // and a position we estimated, which they should not read as exact.
+          const guessed = new Set(snapped.points.filter((p) => p.derived).map((p) => sentNames[p.index]));
+          onDerived([...guessed].filter(Boolean));
+          onMissing(names.filter((name) => !kept.has(name) && !guessed.has(name)));
           // Only a course mapped end to end is offered as a track: a partial
           // one saved into the column the map draws as "the route" would read
           // as the whole of it.
@@ -269,6 +352,8 @@ export function SuggestedRoute({
           // the only symptom is a course that draws nothing.
           if (recoverFromStaleDeployment(error)) return;
           setLegs([]);
+          onMissing(names.filter((name) => !kept.has(name)));
+          onDerived([]);
           onTrailsUnavailable(true);
           console.error("[map/suggested-route] snapping failed", error);
         });

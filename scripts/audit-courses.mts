@@ -16,7 +16,7 @@
  * Both are heuristics for finding legs worth looking at by hand, not verdicts.
  */
 import { readFileSync } from "node:fs";
-import { snapRouteToTrails, dropOutlierWaypoints, type RouteLeg, type SnapDiagnostics } from "../src/lib/routes/snap.ts";
+import { snapRouteToTrails, dropOutlierWaypoints, placeHints, type RouteLeg, type SnapDiagnostics } from "../src/lib/routes/snap.ts";
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
 import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
 import { haversineDistanceMeters } from "../src/lib/gps/haversine.ts";
@@ -148,10 +148,25 @@ function strayMetres(path: TrackPoint[]): number {
   return worst;
 }
 
+/** "석굴암입구" and its kin: a turning, named after the place it leads to. */
+const ENTRANCE = /^(.+?)(입구|들머리|초입|갈림길|삼거리)$/;
+
 for (const [index, { place, centre, names }] of COURSES.entries()) {
   const resolved: { name: string; lat: number; lng: number; asked: string }[] = [];
+  const hints: { asked: string; lat: number; lng: number }[] = [];
   const missing: string[] = [];
   for (const name of names) {
+    // A turning is not routed through - the place it leads to can be a
+    // kilometre up a branch, and routing through that walks the branch twice.
+    // It is put on the finished line instead, where the line passes the place.
+    const base = name.replace(/\s+/g, "").match(ENTRANCE)?.[1];
+    if (base && base.length >= 2) {
+      const at = await resolve(base, place, centre);
+      if (at) {
+        hints.push({ asked: name, lat: at.lat, lng: at.lng });
+        continue;
+      }
+    }
     const point = await resolve(name, place, centre);
     if (point) resolved.push({ ...point, asked: name });
     else missing.push(name);
@@ -223,17 +238,32 @@ for (const [index, { place, centre, names }] of COURSES.entries()) {
       console.log(`  순서 바로잡음: ${other.points.map((p) => p.asked).join(" → ")}`);
     }
   }
-  const { points: walked, legs, diagnostics } = drawn;
+  // The turnings, placed on the line the rest of the course drew.
+  const hinted = placeHints(
+    {
+      legs: drawn.legs,
+      points: drawn.points.map((point, at) => ({ index: at, lat: point.lat, lng: point.lng, derived: false })),
+    },
+    hints.map((hint, at) => ({ index: drawn.points.length + at, lat: hint.lat, lng: hint.lng })),
+  );
+  const names2 = [...drawn.points.map((point) => point.asked), ...hints.map((hint) => hint.asked)];
+  const walked = hinted.points.map((point) => ({ asked: names2[point.index] ?? "?", derived: point.derived }));
+  const legs = hinted.legs;
+  const { diagnostics } = drawn;
+  const guessed = walked.filter((point) => point.derived).map((point) => point.asked);
+  if (guessed.length) console.log(`  선 위에 놓은 입구: ${guessed.join(", ")}`);
   let total = 0;
   legs.forEach((leg, i) => {
-    const detail = diagnostics.legs[i];
+    const detail = hints.length > 0 ? undefined : diagnostics.legs[i];
     const label = `  ${walked[i].asked} → ${walked[i + 1].asked}`;
     if (!leg.onTrail) {
       console.log(`${label}: 경로 없음 (직선 ${((detail?.straightM ?? 0) / 1000).toFixed(2)}km)`);
       return;
     }
-    const routed = detail?.routedM ?? 0;
-    const straight = detail?.straightM ?? 1;
+    // Measured off the drawn line when a turning was inserted: the diagnostics
+    // count the legs the router produced, and inserting one splits a leg.
+    const routed = detail?.routedM ?? legLength(leg.points);
+    const straight = detail?.straightM ?? metres(leg.points[0], leg.points[leg.points.length - 1]);
     total += routed;
     const ratio = routed / Math.max(straight, 1);
     const stray = strayMetres(leg.points);

@@ -251,6 +251,11 @@ export function MapShell({
   // on the map for it. Null unless they asked to record one, so the map stays
   // clear the rest of the time.
   const [missingNames, setMissingNames] = useState<string[]>([]);
+  // Points the router worked out from the course's stated length rather than
+  // looked up. Held apart from missingNames because the two ask different
+  // things of the reader: one is a name they can record, the other is a
+  // position they should not trust to the metre.
+  const [derivedNames, setDerivedNames] = useState<string[]>([]);
   const [namingPoi, setNamingPoi] = useState<string | null>(null);
   // Told apart from "this stretch has no path": one is our problem, the other
   // is the mountain's, and a dashed line alone cannot say which.
@@ -418,6 +423,7 @@ export function MapShell({
     // no way to clear a line that covers the folders underneath it.
     if (suggestedRoute?.route.name === route.name) {
       setSuggestedRoute(null);
+      setDerivedNames([]);
       return;
     }
     setSuggestedRoute({
@@ -544,6 +550,7 @@ export function MapShell({
                   setSuggestedRoute((current) => (current ? { ...current, resolved: points } : current))
                 }
                 onRouteMissing={setMissingNames}
+                onRouteDerived={setDerivedNames}
                 onRouteTrack={setRouteTrack}
                 onTrailsUnavailable={setTrailsUnavailable}
               /></MapErrorBoundary>
@@ -558,6 +565,18 @@ export function MapShell({
             {/* Only while a course has a name nothing could place. The club's
                 own point for it is the fix, and this is the moment the member
                 both knows the answer and has a reason to give it. */}
+            {/* A course drawn through a point we guessed at. The line is still
+                worth showing - it is the right paths, and the alternative was a
+                course that began two kilometres up the hill with no sign that
+                its start was missing - but a guessed trailhead read as a fact
+                is worse than no line, so it is named and called an estimate. */}
+            {derivedNames.length > 0 && !trailPick && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(6.0rem+env(safe-area-inset-bottom))]">
+                <span className="max-w-[min(26rem,calc(100vw-2rem))] rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-center text-[11px] text-amber-800 shadow backdrop-blur">
+                  &lsquo;{derivedNames.join(", ")}&rsquo;의 위치는 코스 거리로 추정했습니다 · 실제와 다를 수 있습니다
+                </span>
+              </div>
+            )}
             {trailsUnavailable && !trailPick && (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(4.2rem+env(safe-area-inset-bottom))]">
                 <span className="rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-[11px] text-amber-800 shadow backdrop-blur">
