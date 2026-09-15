@@ -82,9 +82,15 @@ export async function createAlbumFromRoute(input: {
     locationId = (created as { id: string }).id;
   }
 
-  // The summit end of the course is the activity's own spot, matching how a
-  // hike created by hand is placed on its peak rather than at its trailhead.
-  const spot = points[points.length - 1];
+  // The start, which is the one point on a course a member can act on: it is
+  // where they get off the bus. The last waypoint was used before, on the
+  // reasoning that a hike belongs on its peak - but a course does not end on
+  // its peak, it ends at whichever gate it came down to, so the 숨은벽 course
+  // was pinned on 도선사 three kilometres from the 밤골 it starts at.
+  //
+  // The line matters more than the pin now that the course is saved with one:
+  // the map frames the whole route, and the pin only says where it begins.
+  const spot = points[0];
 
   const description = [
     `AI 추천 코스: ${points.map((p) => p.name).join(" → ")}`,
