@@ -69,6 +69,6 @@ export function SatelliteTrails() {
     </MapControl>
     {segments.map((segment) => <Polyline key={segment.id}
       path={segment.points.map(([lat, lng]) => ({ lat, lng }))}
-      strokeColor="#FDE047" strokeWeight={3} strokeOpacity={0.9} zIndex={1} clickable={false} />)}
+      strokeColor="#FDE047" strokeWeight={2} strokeOpacity={0.55} zIndex={1} clickable={false} />)}
   </>;
 }

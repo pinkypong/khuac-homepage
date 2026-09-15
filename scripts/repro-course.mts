@@ -113,7 +113,12 @@ legs.forEach((leg, i) => {
   const from = kept[i].name;
   const to = kept[i + 1].name;
   const detail = diagnostics.legs[i];
-  console.log(leg.onTrail
-    ? `${from} → ${to}: ${leg.points.length}점 · ${((detail?.routedM ?? 0) / 1000).toFixed(2)}km (직선 ${((detail?.straightM ?? 0) / 1000).toFixed(2)}km)`
-    : `${from} → ${to}: 경로 없음 · 직선 ${((detail?.straightM ?? 0) / 1000).toFixed(2)}km · 찾은 경로 ${detail?.routedM === null ? "없음" : `${detail?.routedM}m (너무 돌아감)`}`);
+  if (!leg.onTrail) {
+    console.log(`${from} → ${to}: 경로 없음 · 직선 ${((detail?.straightM ?? 0) / 1000).toFixed(2)}km`);
+    return;
+  }
+  console.log(`${from} → ${to}: ${leg.points.length}점 · ${((detail?.routedM ?? 0) / 1000).toFixed(2)}km (직선 ${((detail?.straightM ?? 0) / 1000).toFixed(2)}km)`);
+  // Quarter points, so the shape of the leg can be checked against the ground.
+  const marks = [0.25, 0.5, 0.75].map((f) => leg.points[Math.floor(leg.points.length * f)]);
+  console.log(`    경유: ${marks.map(([la, ln]) => `${la.toFixed(5)},${ln.toFixed(5)}`).join("  ")}`);
 });

@@ -292,12 +292,18 @@ export function SuggestedRoute({
         const path = leg.points.map(([lat, lng]) => ({ lat, lng }));
         return [
           // Casing first so the coloured line sits on top of it.
+          //
+          // Both carry a z-index above the satellite trail overlay. Polylines
+          // without one stack in creation order, and the overlay asked for 1,
+          // which put every yellow trail on the map over the course the member
+          // came to look at.
           <Polyline
             key={`casing-${i}`}
             path={path}
             strokeColor={SUGGESTION_CASING}
             strokeOpacity={0.95}
             strokeWeight={8}
+            zIndex={10}
           />,
           // Only connected mapped geometry is drawn.
           <Polyline
@@ -306,6 +312,7 @@ export function SuggestedRoute({
             strokeColor={SUGGESTION_COLOR}
             strokeOpacity={1}
             strokeWeight={4}
+            zIndex={11}
           />,
         ];
       })}
