@@ -19,6 +19,8 @@ import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { formatDistance, trackDistanceMeters } from "@/lib/gps/track";
 import { MapErrorBoundary, MapUnavailable } from "./map-error-boundary";
 import { PoiForm } from "./poi-form";
+import { loadCourseElevation, type CourseElevation } from "./elevation-actions";
+import { ElevationProfile } from "./elevation-profile";
 import { createAlbumFromRoute, type RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
@@ -274,6 +276,11 @@ export function MapShell({
   // The drawn line for the course being previewed, kept so an album made from
   // it opens with the route on the map rather than as a bare pin.
   const [routeTrack, setRouteTrack] = useState<TrackPoint[] | null>(null);
+  // The course seen side-on, under the map. Held here rather than in the map
+  // because it belongs to whichever course is being looked at, and that is
+  // either a previewed suggestion or an open album - the map knows about
+  // neither on its own.
+  const [courseProfile, setCourseProfile] = useState<CourseElevation | null>(null);
   // When the "new location" form is open the map turns into a coordinate
   // picker - far easier than asking anyone to type lat/lng.
   const [picking, setPicking] = useState(false);
@@ -482,6 +489,38 @@ export function MapShell({
     }
   }
 
+  // The line to profile: the previewed course while one is being looked at,
+  // and otherwise the open album's own track. A member's GPX is the better
+  // record of the two and wins whenever there is no suggestion on screen.
+  const profileTrack = routeTrack ?? pinnedHike?.track ?? null;
+  const profileKey = profileTrack ? `${routeTrack ? "route" : pinnedHike?.id}:${profileTrack.length}` : null;
+  const profileNames = routeTrack
+    ? (suggestedRoute?.resolved ?? [])
+    : (pinnedHike?.routeWaypoints ?? []);
+
+  useEffect(() => {
+    if (!profileTrack || profileTrack.length < 2) {
+      setCourseProfile(null);
+      return;
+    }
+    let cancelled = false;
+    setCourseProfile(null);
+    loadCourseElevation(profileTrack, profileNames)
+      .then((found) => {
+        if (!cancelled) setCourseProfile(found);
+      })
+      .catch(() => {
+        // The map and the course are both already drawn. A profile that could
+        // not be worked out is one picture missing, not a broken screen.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Keyed by which line it is and how long, not by the array's identity:
+    // every answer render rebuilds these and would otherwise re-ask.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileKey]);
+
   // Read only at md and above. Left unset until measured so the pane keeps its
   // natural width for the one frame before the effect runs.
   const mapWidthStyle =
@@ -524,10 +563,15 @@ export function MapShell({
           <div
             style={mapWidthStyle}
             className={
-              "absolute inset-0 w-full md:relative md:inset-auto md:w-[var(--map-width)] md:shrink-0 " +
+              "absolute inset-0 flex w-full flex-col md:relative md:inset-auto md:w-[var(--map-width)] md:shrink-0 " +
               (mobileTab === "map" ? "" : "invisible md:visible")
             }
           >
+            {/* The map and everything that floats over it. The profile below is
+                a sibling rather than another overlay: it is read, not pointed
+                at, and a chart lying across the ground it describes helps
+                nobody. */}
+            <div className="relative min-h-0 flex-1">
             {mapFailed ? <MapUnavailable onShowAlbum={() => {setMapOpen(false); setMobileTab("album");}} /> : apiKey ? (
               <MapErrorBoundary onShowAlbum={() => {setMapOpen(false); setMobileTab("album");}}><MapView
                 mapId={mapId}
@@ -628,6 +672,8 @@ export function MapShell({
                 onSave={saveTrailPick}
               />
             )}
+            </div>
+            {courseProfile && <ElevationProfile data={courseProfile} />}
           </div>
 
           <div
