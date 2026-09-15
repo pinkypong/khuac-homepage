@@ -82,10 +82,15 @@ export async function recentQuestions(): Promise<RecentQuestion[]> {
  */
 export async function forgetQuestion(question: string): Promise<void> {
   const { supabase } = await requireApprovedMember();
+  // Matched on the question itself, not on its key. The key carries the prompt
+  // version it was stored under - the table holds v2, v3 and rows from before
+  // versioning existed - while cacheKey() only ever builds today's. Asking by
+  // key meant the delete matched nothing and said nothing, which on screen was
+  // a chip that would not go away.
   const { error } = await supabase
     .from("assistant_cache")
     .delete()
-    .eq("question_key", cacheKey(question));
+    .eq("question", question);
   if (error) throw new Error(error.message);
 }
 

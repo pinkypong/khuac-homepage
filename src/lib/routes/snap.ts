@@ -521,6 +521,50 @@ export function projectOntoTrails(points: TrackPoint[], segments: TrailSegment[]
   };
 }
 
+/**
+ * How long an out-and-back at a waypoint has to be before it is a real visit.
+ *
+ * A waypoint is a point and some of the places courses name are not: 숨은벽능선
+ * is a ridge, and the label sits beside the path rather than on it. Routing
+ * through it exactly makes the line leave the trail, touch the label and come
+ * straight back - 58m out and 58m back, a spike off an otherwise clean line,
+ * and the first thing anybody notices on the map.
+ *
+ * Trimming every such tail would be wrong: 백운대 is a summit, the course
+ * really does go up and come back down, and that spur is 280m each way. So the
+ * short ones go and the long ones stay, because at this length the line is
+ * describing where a label was put and not where anybody walked.
+ */
+const LABEL_SPUR_M = 120;
+
+/**
+ * Removes the there-and-back a leg makes to touch a waypoint beside the path.
+ *
+ * The two legs meeting at that waypoint retrace each other, point for point,
+ * so the spur is exactly the mirrored tail of one and head of the other.
+ */
+function trimLabelSpurs(legs: RouteLeg[]): RouteLeg[] {
+  for (let i = 0; i + 1 < legs.length; i++) {
+    const before = legs[i];
+    const after = legs[i + 1];
+    if (!before.onTrail || !after.onTrail) continue;
+
+    let mirrored = 0;
+    let length = 0;
+    while (mirrored + 1 < before.points.length && mirrored + 1 < after.points.length) {
+      const back = before.points[before.points.length - 1 - mirrored];
+      const forth = after.points[mirrored];
+      if (metres(back, forth) > 1) break;
+      if (mirrored > 0) length += metres(before.points[before.points.length - mirrored], back);
+      mirrored++;
+    }
+    if (mirrored < 2 || length > LABEL_SPUR_M) continue;
+    before.points = before.points.slice(0, before.points.length - mirrored + 1);
+    after.points = after.points.slice(mirrored - 1);
+  }
+  return legs;
+}
+
 export function snapRouteToTrails(
   waypoints: { lat: number; lng: number }[],
   segments: TrailSegment[],
@@ -591,7 +635,7 @@ export function snapRouteToTrails(
     });
   }
 
-  return legs;
+  return trimLabelSpurs(legs);
 }
 
 /**
