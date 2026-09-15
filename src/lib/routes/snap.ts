@@ -143,8 +143,17 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
   return graph;
 }
 
-/** The mapped point nearest a waypoint, or null when none is close enough. */
-function nearestNode(graph: Graph, point: TrackPoint): number | null {
+/**
+ * The mapped point nearest a waypoint, or null when none is close enough.
+ *
+ * `allowed` restricts the answer to one connected piece of the network, which
+ * is what stops a waypoint landing four metres onto a path that goes nowhere.
+ */
+function nearestNode(
+  graph: Graph,
+  point: TrackPoint,
+  allowed?: (id: number) => boolean,
+): number | null {
   const reach = Math.ceil(SNAP_TOLERANCE_M / 33);
   const [cy, cx] = cellKey(point[0], point[1]).split(":").map(Number);
   let best: number | null = null;
@@ -153,12 +162,112 @@ function nearestNode(graph: Graph, point: TrackPoint): number | null {
   for (let dy = -reach; dy <= reach; dy++) {
     for (let dx = -reach; dx <= reach; dx++) {
       for (const id of graph.cells.get(`${cy + dy}:${cx + dx}`) ?? []) {
+        if (allowed && !allowed(id)) continue;
         const distance = metres(graph.nodes[id], point);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = id;
         }
       }
+    }
+  }
+  return best;
+}
+
+/** Which connected piece of the network each node belongs to, and how big each is. */
+function connectedComponents(graph: Graph): { of: Int32Array; sizes: number[] } {
+  const of = new Int32Array(graph.nodes.length).fill(-1);
+  const sizes: number[] = [];
+  for (let start = 0; start < graph.nodes.length; start++) {
+    if (of[start] !== -1) continue;
+    const id = sizes.length;
+    let size = 0;
+    of[start] = id;
+    const stack = [start];
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      size++;
+      for (const edge of graph.edges.get(node) ?? []) {
+        if (of[edge.to] === -1) {
+          of[edge.to] = id;
+          stack.push(edge.to);
+        }
+      }
+    }
+    sizes.push(size);
+  }
+  return { of, sizes };
+}
+
+/**
+ * How much bigger a network has to be before a waypoint is moved onto it, and
+ * how far it may be moved to get there.
+ *
+ * Both guards are needed, and each without the other is wrong. Size alone
+ * bridges two real parallel trails ten metres apart, because neither is the
+ * main network and preferring either is arbitrary. Distance alone drags a
+ * waypoint onto whatever large thing is nearby, which is how a course walks to
+ * a road instead of the path it named. Together they say only this: a waypoint
+ * should not be left on a dead end when the mountain's own network is as close.
+ */
+const MAIN_NETWORK_FACTOR = 4;
+const REROUTE_SLACK_M = 50;
+
+/**
+ * The piece of the network that can carry the most of this course.
+ *
+ * Two surveys of the same mountain never share a coordinate, so merging them
+ * does not merge their networks: around 정릉, OSM alone connects the whole
+ * course on one 24,666-node network, while the 국립공원공단 lines fall into 94
+ * disconnected spurs, the largest holding 6.5% of its nodes. Snapping each
+ * waypoint to whatever is nearest then decides the route on a few metres -
+ * 보국문 sits 4m from a park spur and 6m from the OSM ridge, took the spur,
+ * and the leg came back with no path at all because that spur leads nowhere.
+ *
+ * So the network is chosen before the waypoints are: whichever piece is within
+ * reach of the most of them, nearest in aggregate to break a tie.
+ */
+function bestComponent(
+  graph: Graph,
+  component: Int32Array,
+  points: (TrackPoint | null)[],
+): number | null {
+  const reach = new Map<number, { covered: number; distance: number }>();
+  for (const point of points) {
+    if (!point) continue;
+    // The closest this waypoint gets to each piece, counted once per piece so
+    // a dense one cannot outvote a reachable one.
+    const nearestPer = new Map<number, number>();
+    const span = Math.ceil(SNAP_TOLERANCE_M / 33);
+    const [cy, cx] = cellKey(point[0], point[1]).split(":").map(Number);
+    for (let dy = -span; dy <= span; dy++) {
+      for (let dx = -span; dx <= span; dx++) {
+        for (const id of graph.cells.get(`${cy + dy}:${cx + dx}`) ?? []) {
+          const distance = metres(graph.nodes[id], point);
+          if (distance >= SNAP_TOLERANCE_M) continue;
+          const piece = component[id];
+          const seen = nearestPer.get(piece);
+          if (seen === undefined || distance < seen) nearestPer.set(piece, distance);
+        }
+      }
+    }
+    for (const [piece, distance] of nearestPer) {
+      const tally = reach.get(piece) ?? { covered: 0, distance: 0 };
+      tally.covered++;
+      tally.distance += distance;
+      reach.set(piece, tally);
+    }
+  }
+
+  let best: number | null = null;
+  let bestTally = { covered: 0, distance: Infinity };
+  for (const [piece, tally] of reach) {
+    if (
+      tally.covered > bestTally.covered ||
+      (tally.covered === bestTally.covered && tally.distance < bestTally.distance)
+    ) {
+      best = piece;
+      bestTally = tally;
     }
   }
   return best;
@@ -293,7 +402,22 @@ export function snapRouteToTrails(
 
   const projected = projectOntoTrails(points, segments);
   const graph = buildTrailGraph(projected.segments);
-  const snapped = projected.projected.map((point) => point ? nearestNode(graph, point) : null);
+  const component = connectedComponents(graph);
+  const chosen = bestComponent(graph, component.of, projected.projected);
+  const snapped = projected.projected.map((point) => {
+    if (!point) return null;
+    const nearest = nearestNode(graph, point);
+    if (nearest === null || chosen === null || component.of[nearest] === chosen) return nearest;
+
+    const onChosen = nearestNode(graph, point, (id) => component.of[id] === chosen);
+    if (onChosen === null) return nearest;
+
+    const here = metres(graph.nodes[nearest], point);
+    const there = metres(graph.nodes[onChosen], point);
+    const bigger = component.sizes[chosen] >= component.sizes[component.of[nearest]] * MAIN_NETWORK_FACTOR;
+    const close = there <= Math.max(here * 3, REROUTE_SLACK_M);
+    return bigger && close ? onChosen : nearest;
+  });
   if (diagnostics) {
     diagnostics.snapDistances = snapped.map((id, i) =>
       id === null ? null : Math.round(metres(graph.nodes[id], points[i])),

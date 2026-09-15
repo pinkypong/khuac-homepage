@@ -41,6 +41,35 @@ function thin(waypoints: string[]): string[] {
 }
 
 /**
+ * Place types a hiking waypoint is never one of.
+ *
+ * 보국문 is a gate on the 북한산성 ridge. 북한산보국문 is a station on the
+ * 우이신설선, 2.7km away at the bottom of the valley - and it is what Places
+ * returns first for "북한산 보국문", because the station's name contains the
+ * query exactly while the gate's does not. The course walked to a subway
+ * entrance and the line looked plausible the whole way.
+ *
+ * Stations are worth naming as a class rather than fixing one at a time:
+ * Korean transit is full of stops named after the mountain above them
+ * (북한산우이, 도봉산, 관악산), so every such mountain has this waiting in it.
+ */
+const NOT_A_WAYPOINT = new Set([
+  "subway_station",
+  "train_station",
+  "light_rail_station",
+  "transit_station",
+  "transit_depot",
+  "bus_station",
+  "bus_stop",
+  "airport",
+  // The same station listed a second time, as "북한산보국문역(우이신설선)",
+  // carries none of the station types above - only this one. Rejecting the
+  // specific types alone left the second entry to be picked instead, 55m from
+  // the first. Trailhead car parks are typed "parking" and stay eligible.
+  "transportation_service",
+]);
+
+/**
  * Draws a course the assistant suggested onto the club's own map.
  *
  * Waypoints arrive as place names and are resolved here, in the browser,
@@ -111,20 +140,39 @@ export function SuggestedRoute({
       const cacheKey = `${placeName}:${centerLat ?? ""}:${centerLng ?? ""}:${name}`;
       const cached = cache.get(cacheKey);
       if (cached !== undefined) return cached;
-      try {
+
+      const bias = centerLat != null && centerLng != null
+        ? { locationBias: { center: { lat: centerLat, lng: centerLng }, radius: 20000 } }
+        : {};
+
+      /** The first result that is a place on a mountain rather than a way in. */
+      async function search(textQuery: string) {
         const { places: found } = await places!.Place.searchByText({
-          // 관음사 and 사당역 exist in several cities, so without a centre to
-          // bias toward, the mountain's name has to carry the disambiguation.
-          textQuery: `${placeName} ${name}`.trim(),
-          fields: ["location"],
+          textQuery,
+          // types costs nothing extra: location already puts this on the Pro
+          // SKU, which is billed per request rather than per field or result.
+          fields: ["location", "types"],
           language: "ko",
           region: "KR",
-          maxResultCount: 1,
-          ...(centerLat != null && centerLng != null
-            ? { locationBias: { center: { lat: centerLat, lng: centerLng }, radius: 20000 } }
-            : {}),
+          // Asked five deep rather than one so that rejecting a station leaves
+          // something to fall back on; the real place is usually right behind it.
+          maxResultCount: 5,
+          ...bias,
         });
-        const location = found[0]?.location;
+        return found.find((place) => !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)));
+      }
+
+      try {
+        // 관음사 and 사당역 exist in several cities, so without a centre to
+        // bias toward, the mountain's name has to carry the disambiguation.
+        let best = await search(`${placeName} ${name}`.trim());
+        // That same prefix is what found the station: "북한산 보국문" matches
+        // 북한산보국문역 exactly and the gate not at all. Asked plainly, with
+        // the map's own centre to bias it, Places puts the gate first - so a
+        // course that only turned up transit is worth asking again, and only
+        // then, because the bare name alone could be a 보국문 in another city.
+        if (!best && placeName && (bias.locationBias ?? null)) best = await search(name);
+        const location = best?.location;
         const point = location ? { name, lat: location.lat(), lng: location.lng() } : null;
         if (point) cache.set(cacheKey, point);
         return point;
