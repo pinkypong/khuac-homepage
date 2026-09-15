@@ -6,6 +6,7 @@ import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
 import { loadClubPois, snapSuggestedRoute } from "./route-actions";
 import { findClubPoi, type ClubPoi } from "@/lib/routes/poi";
+import { recoverFromStaleDeployment } from "../stale-deployment";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
 
 // The outdoor layer draws its own paths in red-brown dashes over brown
@@ -234,6 +235,9 @@ export function SuggestedRoute({
         })
         .catch((error) => {
           if (cancelled) return;
+          // A tab open across a deploy asks for an action id that is gone, and
+          // the only symptom is a course that draws nothing.
+          if (recoverFromStaleDeployment(error)) return;
           setLegs([]);
           onTrailsUnavailable(true);
           console.error("[map/suggested-route] snapping failed", error);
