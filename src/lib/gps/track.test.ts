@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  downsampleTrack,
-  formatDistance,
-  sanitizeTrack,
-  trackDistanceMeters,
-  type TrackPoint,
-} from "./track";
+import { downsampleTrack, flattenTrack, formatDistance, sanitizeTrack, trackDistanceMeters, type TrackPoint, unflattenTrack } from "./track";
 
 const bukhansan: TrackPoint = [37.6585, 126.9772];
 
@@ -59,5 +53,44 @@ describe("sanitizeTrack", () => {
     expect(sanitizeTrack([["a", "b"], [1, 2]])).toBeNull();
     expect(sanitizeTrack([[91, 126.97], [37.66, 126.98]])).toBeNull();
     expect(sanitizeTrack([[37.65, 126.97]])).toBeNull();
+  });
+});
+
+describe("flattenTrack / unflattenTrack", () => {
+  const track: TrackPoint[] = [[37.6, 127.0], [37.61, 127.01], [37.62, 127.02]];
+
+  it("round-trips a track", () => {
+    expect(unflattenTrack(flattenTrack(track))).toEqual(track);
+  });
+
+  it("pairs by position: even latitude, odd longitude", () => {
+    expect(flattenTrack(track)).toEqual([37.6, 127.0, 37.61, 127.01, 37.62, 127.02]);
+  });
+
+  it("keeps a repeated point as two separate pairs", () => {
+    // The shape that broke the album button: a leg is path.map(id =>
+    // graph.nodes[id]) and graph.nodes holds one object per node, so a course
+    // that comes back on itself holds the same array twice. Flattened, there is
+    // no object left to be the same.
+    const junction: TrackPoint = [37.6, 127.0];
+    const doubled = [junction, [37.61, 127.01] as TrackPoint, junction];
+    const flat = flattenTrack(doubled);
+    expect(flat).toHaveLength(6);
+    expect(unflattenTrack(flat)).toEqual(doubled);
+  });
+
+  it("refuses an odd number of values", () => {
+    expect(unflattenTrack([37.6, 127.0, 37.61])).toBeNull();
+  });
+
+  it("refuses anything that is not a run of numbers", () => {
+    expect(unflattenTrack([37.6, "127.0"])).toBeNull();
+    expect(unflattenTrack(null)).toBeNull();
+    expect(unflattenTrack([[37.6, 127.0]])).toBeNull();
+  });
+
+  it("gives an empty track an empty run, and back", () => {
+    expect(flattenTrack([])).toEqual([]);
+    expect(unflattenTrack([])).toEqual([]);
   });
 });

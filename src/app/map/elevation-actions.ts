@@ -2,7 +2,7 @@
 
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { isValidGps } from "@/lib/gps/validate";
-import { sanitizeTrack } from "@/lib/gps/track";
+import { sanitizeTrack, unflattenTrack } from "@/lib/gps/track";
 import {
   buildProfile,
   cellCentre,
@@ -13,7 +13,6 @@ import {
   type CourseProfile,
   type CourseSection,
 } from "@/lib/routes/elevation";
-import type { TrackPoint } from "@/lib/gps/track";
 
 export interface CourseElevation {
   profile: CourseProfile;
@@ -40,12 +39,13 @@ const MAX_SAMPLES = 500;
  * pays nothing. The ground does not move; there is no staleness to manage.
  */
 export async function loadCourseElevation(
-  track: TrackPoint[],
+  /** Flattened to [lat, lng, lat, lng, ...] - see flattenTrack for why. */
+  track: number[],
   waypoints: { name: string; lat: number; lng: number }[],
 ): Promise<CourseElevation | null> {
   const { supabase } = await requireApprovedMember();
 
-  const line = sanitizeTrack(track);
+  const line = sanitizeTrack(unflattenTrack(track));
   if (!line || line.length < 2) return null;
 
   const sampled = sampleAlongTrack(line).slice(0, MAX_SAMPLES);

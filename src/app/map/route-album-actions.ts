@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { isValidGps } from "@/lib/gps/validate";
 import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
-import { sanitizeTrack } from "@/lib/gps/track";
-import type { TrackPoint } from "@/lib/gps/track";
+import { sanitizeTrack, unflattenTrack } from "@/lib/gps/track";
 
 export interface RouteWaypoint {
   name: string;
@@ -36,8 +35,12 @@ export async function createAlbumFromRoute(input: {
   routeName: string;
   placeName: string;
   waypoints: RouteWaypoint[];
-  /** The snapped line, leg by leg, as drawn. Absent when any leg is unmapped. */
-  track: TrackPoint[] | null;
+  /** The snapped line as drawn, flattened to [lat, lng, lat, lng, ...].
+
+      Flat because React's reply decoder refuses a nested array that repeats -
+      and our lines repeat by construction, since two legs meeting at a junction
+      share that junction's point object. See flattenTrack. */
+  track: number[] | null;
   distanceText: string | null;
   notes: string | null;
 }): Promise<ActionResult<{ locationId: string; hikeId: string }>> {
@@ -111,7 +114,7 @@ export async function createAlbumFromRoute(input: {
       description,
       lat: spot.lat,
       lng: spot.lng,
-      track: sanitizeTrack(input.track),
+      track: sanitizeTrack(unflattenTrack(input.track)),
       // The named points, with coordinates, so the map can put each label
       // where it belongs instead of listing them all on the opening pin.
       route_waypoints: points.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng })),

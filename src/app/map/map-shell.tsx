@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { ActivityType, LocationType } from "@/types/database";
+import { flattenTrack } from "@/lib/gps/track";
 import type { TrackPoint } from "@/lib/gps/track";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -467,7 +468,7 @@ export function MapShell({
         routeName: route.name,
         placeName: current.placeName,
         waypoints,
-        track: routeTrack,
+        track: routeTrack ? flattenTrack(routeTrack) : null,
         distanceText: route.distanceText,
         notes: route.notes,
       });
@@ -505,7 +506,7 @@ export function MapShell({
     }
     let cancelled = false;
     setCourseProfile(null);
-    loadCourseElevation(profileTrack, profileNames)
+    loadCourseElevation(flattenTrack(profileTrack), profileNames)
       .then((found) => {
         if (!cancelled) setCourseProfile(found);
       })
