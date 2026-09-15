@@ -125,6 +125,15 @@ export async function suggestRoutes(
     // Every waypoint is looked up by name on the map, so a nickname or a
     // slash-joined pair resolves to nothing and leaves a gap in the line.
     "경유지는 지도에서 찾을 수 있는 실제 지명만 쓰세요. '계곡길/능선길'처럼 둘을 붙여 쓴 이름은 피하고, 역·사찰·봉우리처럼 지점이 하나로 정해지는 이름을 고르세요.",
+    // The line is drawn between consecutive waypoints in the order given, so
+    // the order is geometry rather than prose. Asked for the 숨은벽 course it
+    // listed 백운봉암문 before 백운대 and then 위문 after it - the same gate
+    // under both its names, with the summit in between - and the map dutifully
+    // drew a climb to the top, a descent, and a second climb.
+    "경유지는 실제로 걷는 순서대로만 나열하세요. 지도는 이 순서대로 선을 잇습니다. 정상은 올라가서 되돌아 내려오는 지점이므로 오르는 길의 마지막에 두고, 하산길에 지나는 성문·안부·삼거리는 정상 뒤에 적으세요.",
+    // 위문 is 백운봉암문, 구 백운대 매표소 is 백운대탐방지원센터. Listed
+    // twice a course gains a leg of zero length and two pins on one pixel.
+    "같은 지점을 다른 이름으로 두 번 적지 마세요. 옛 이름과 현재 이름이 있으면 현재 이름 하나만 쓰세요.",
     "널리 알려진 대표 코스를 빠뜨리지 마세요. 그 산을 검색하면 반드시 나오는 코스는 목록에 포함하세요.",
     "동아리 기록이 없어도 검색 결과를 활용하세요. 최신 통제 정보와 출처도 안내하세요.",
   ].filter(Boolean).join("\n"));

@@ -24,8 +24,11 @@ export const CACHE_TTL_DAYS = 14;
  * open without a preamble; small practice crags are screened out.
  * v3: citations are per course and carry the site they came from, and answers
  * offer up to six courses rather than four.
+ * v4: waypoints are listed in the order they are walked, and one place is not
+ * named twice. The map joins consecutive waypoints, so an order that reads
+ * fine in a sentence drew a climb, a descent and a second climb.
  */
-export const PROMPT_VERSION = "v3";
+export const PROMPT_VERSION = "v4";
 
 /**
  * Collapses the differences that should not cost a second search: spacing,
