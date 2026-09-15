@@ -28,7 +28,18 @@ const ENDPOINT = "https://api.openstreetmap.org/api/0.6/trackpoints";
 /** The API's own limit on the box it will answer, and on points per page. */
 const MAX_SPAN_DEG = 0.25;
 const PAGE_SIZE = 5000;
-const MAX_PAGES = 30;
+
+/**
+ * A whole massif is asked for a piece at a time.
+ *
+ * The archive pages 5,000 points at a time and stops somewhere; over 북한산
+ * that ceiling arrives long before the mountain does, and a truncated answer
+ * looks exactly like a quiet one. Small boxes each get their own budget, and
+ * they overlap so a path crossing a boundary is not cut at it.
+ */
+const CHUNK_DEG = 0.04;
+const CHUNK_OVERLAP_DEG = 0.004;
+const MAX_PAGES = 20;
 
 /**
  * The grid the agreement is counted on, about thirteen metres at this latitude.
@@ -85,11 +96,28 @@ if (north - south > MAX_SPAN_DEG || east - west > MAX_SPAN_DEG) {
   throw new Error(`한 번에 ${MAX_SPAN_DEG}° 이하만 요청할 수 있습니다.`);
 }
 
+interface Box { south: number; west: number; north: number; east: number }
+
+function chunksOf(box: Box): Box[] {
+  const out: Box[] = [];
+  for (let y = box.south; y < box.north - 1e-9; y += CHUNK_DEG) {
+    for (let x = box.west; x < box.east - 1e-9; x += CHUNK_DEG) {
+      out.push({
+        south: Math.max(box.south, y - CHUNK_OVERLAP_DEG),
+        west: Math.max(box.west, x - CHUNK_OVERLAP_DEG),
+        north: Math.min(box.north, y + CHUNK_DEG + CHUNK_OVERLAP_DEG),
+        east: Math.min(box.east, x + CHUNK_DEG + CHUNK_OVERLAP_DEG),
+      });
+    }
+  }
+  return out;
+}
+
 /** Ordered points per recorded segment, as the archive returns them. */
-async function fetchTracks(): Promise<TrackPoint[][]> {
+async function fetchTracks(box: Box): Promise<TrackPoint[][]> {
   const tracks: TrackPoint[][] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
-    const url = `${ENDPOINT}?bbox=${west},${south},${east},${north}&page=${page}`;
+    const url = `${ENDPOINT}?bbox=${box.west},${box.south},${box.east},${box.north}&page=${page}`;
     const response = await fetch(url, {
       headers: { "user-agent": "khuac.com hiking album (contact: https://khuac.com)" },
       signal: AbortSignal.timeout(60_000),
@@ -109,7 +137,6 @@ async function fetchTracks(): Promise<TrackPoint[][]> {
       points += track.length;
       if (track.length >= MIN_RUN_POINTS) tracks.push(track);
     }
-    console.log(`  ${page}페이지 · 좌표 ${points}개 · 누적 트랙 ${tracks.length}개`);
     // A short page is the last one; the archive fills each to the cap.
     if (points < PAGE_SIZE) break;
     // The archive is free and volunteer-funded. One request a second.
@@ -122,7 +149,13 @@ const cellOf = (point: TrackPoint) =>
   `${Math.floor(point[0] / CELL_DEG)}:${Math.floor(point[1] / CELL_DEG)}`;
 
 console.log(`OSM 공개 GPS 트랙을 받는 중 (${south},${west} ~ ${north},${east})`);
-const tracks = await fetchTracks();
+const chunks = chunksOf({ south, west, north, east });
+const tracks: TrackPoint[][] = [];
+for (const [index, chunk] of chunks.entries()) {
+  const found = await fetchTracks(chunk);
+  tracks.push(...found);
+  console.log(`  ${index + 1}/${chunks.length} · 트랙 ${found.length}개 · 누적 ${tracks.length}개`);
+}
 console.log(`트랙 ${tracks.length}개 · 좌표 ${tracks.reduce((n, t) => n + t.length, 0)}개`);
 
 // How many separate tracks touch each cell, and where their points average to.
