@@ -52,21 +52,32 @@ jobs:
           NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID }}
           NEXT_PUBLIC_TILE_OUTDOORS: ${{ secrets.NEXT_PUBLIC_TILE_OUTDOORS }}
           NEXT_PUBLIC_VWORLD_API_KEY: ${{ secrets.NEXT_PUBLIC_VWORLD_API_KEY }}
-        run: npm run cf:build
+        run: node scripts/cloudflare-ci.mjs build
 
       - name: 배포
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy
+        run: node scripts/cloudflare-ci.mjs deploy
 
       # A successful `wrangler deploy` has uploaded a version; it has not
       # always been the version serving traffic. This reads back what the edge
-      # actually runs and fails the job if it is not what was just built.
+      # actually runs, then checks the build ID served from the custom domain.
       - name: 배포본 확인
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           sleep 30
-          npx wrangler deployments status
+          node scripts/cloudflare-ci.mjs status
+          expected="$(cat .open-next/assets/BUILD_ID)"
+          for attempt in 1 2 3 4; do
+            actual="$(curl --fail --silent --show-error "https://khuac.com/BUILD_ID?verify=${GITHUB_SHA}")" || actual=""
+            if [ "$actual" = "$expected" ]; then
+              echo "Production serves the expected build."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Production build ID does not match this deployment."
+          exit 1
