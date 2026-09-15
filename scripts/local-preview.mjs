@@ -41,5 +41,31 @@ console.log("Cloudflare workerd preview → http://localhost:3100 (no commit, pu
 // key that refused.
 console.log("   ※ 반드시 localhost:3100 으로 여세요. 127.0.0.1 로 열면 지도 키가 거부합니다.");
 await run(["build"]);
+
+/**
+ * Opens the browser once the server answers, on the name the map key knows.
+ *
+ * Wrangler prints its own link as 127.0.0.1:3100, and following it leaves the
+ * map blank - the Google Maps key is restricted to a list of referrers, that
+ * list holds localhost, and a browser treats the two names as different
+ * origins. Every waypoint lookup then comes back PERMISSION_DENIED, which
+ * reads as a broken course rather than a refused key.
+ */
+async function openWhenReady() {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      await fetch(`http://localhost:${port}/`, { redirect: "manual", signal: AbortSignal.timeout(2000) });
+      spawn("cmd", ["/c", "start", "", `http://localhost:${port}`], { detached: true, stdio: "ignore" }).unref();
+      console.log(`
+브라우저를 열었습니다 → http://localhost:${port}`);
+      return;
+    } catch {
+      // Still building, or workerd has not bound the port yet.
+    }
+  }
+}
+void openWhenReady();
+
 // OpenNext populates the LOCAL R2 cache before starting Wrangler/workerd.
 await run(["preview", "--local", "--ip", "127.0.0.1", "--port", String(port), "--var", "NEXTJS_ENV:production"]);
