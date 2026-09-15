@@ -27,12 +27,15 @@ export function isStaleDeployment(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   // Next names the action in its own message; the 404 is what reaches the
   // browser when the Worker could not find it.
+  // Only the two sentences that name this exact failure. "status: 404" and
+  // "Unexpected response" were in here too, which was survivable while this
+  // was called from one place and is not now that it listens to every
+  // rejection on the page: a photo that 404s or any other unlucky wording
+  // would reload the page under somebody mid-sentence, and a reload nobody
+  // asked for is worse than the error it replaces.
   return message.includes("Failed to find Server Action")
-    // What the browser is shown when the id is gone, which is not the same
-    // sentence the Worker logs: "Server Action ... was not found on the server".
-    || message.includes("was not found on the server")
-    || message.includes("Unexpected response")
-    || message.includes("status: 404");
+    // What the browser is shown; the Worker's own log words it differently.
+    || message.includes("was not found on the server");
 }
 
 /**

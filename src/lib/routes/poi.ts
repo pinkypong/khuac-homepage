@@ -148,3 +148,61 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
   // are twenty kilometres apart on the ground.
   return wanted.length >= 3 && got.length >= 3 && editDistance(wanted, got) <= 1;
 }
+
+/**
+ * Place types a hiking waypoint is never one of.
+ *
+ * 보국문 is a gate on the 북한산성 ridge. 북한산보국문 is a station on the
+ * 우이신설선, 2.7km away at the bottom of the valley - and it is what Places
+ * returns first for "북한산 보국문", because the station's name contains the
+ * query exactly while the gate's does not.
+ *
+ * Worth naming as a class rather than one station at a time: Korean transit is
+ * full of stops named after the mountain above them (북한산우이, 도봉산, 관악산).
+ */
+export const NOT_A_WAYPOINT = new Set([
+  "subway_station",
+  "train_station",
+  "light_rail_station",
+  "transit_station",
+  "transit_depot",
+  "bus_station",
+  "bus_stop",
+  "airport",
+  // The same station listed a second time - "북한산보국문역(우이신설선)" -
+  // carries none of the types above, only this one.
+  "transportation_service",
+]);
+
+/** Names that are asking for a station, so the rule above does not apply. */
+const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
+/** Names that are asking for a station specifically. */
+const STATION_NAME = /역$|역\s/;
+
+/** Two waypoints closer than this are one place under two names. */
+export const SAME_PLACE_M = 60;
+
+/**
+ * Whether a search result can stand for the waypoint that was asked for.
+ *
+ * Every caller that resolves a waypoint needs all of these and they were
+ * written out five times, each under a comment promising to keep the others in
+ * step. A comment is not a mechanism; this is.
+ */
+export function isUsableWaypoint(
+  asked: string,
+  found: string,
+  types: readonly string[],
+  place: string,
+): boolean {
+  const isTransit = types.some((type) => NOT_A_WAYPOINT.has(type));
+  // Plenty of courses start at a station - 사당역, 도봉산역 - and refusing
+  // transit for those found nothing, then took whatever was left: 사당역
+  // resolved to 사당역포차, a bar named after it.
+  if (isTransit && !ASKING_FOR_TRANSIT.test(asked)) return false;
+  // And a name ending in 역 is answered only by an actual station. Google
+  // lists Korean stations without the suffix, so 망월사역 comes back as
+  // "망월사" - and so does the temple a kilometre up the hill.
+  if (STATION_NAME.test(asked) && !isTransit) return false;
+  return isPlausibleMatch(asked, found, place);
+}

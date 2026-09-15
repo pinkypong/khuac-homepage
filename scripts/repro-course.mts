@@ -12,13 +12,8 @@ import { readFileSync } from "node:fs";
 import { snapRouteToTrails, dropOutlierWaypoints, type SnapDiagnostics } from "../src/lib/routes/snap.ts";
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
 import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
-import { findClubPoi, isPlausibleMatch, type ClubPoi } from "../src/lib/routes/poi.ts";
+import { findClubPoi, isUsableWaypoint, type ClubPoi } from "../src/lib/routes/poi.ts";
 
-/** Kept in step with NOT_A_WAYPOINT in src/app/map/suggested-route.tsx. */
-const NOT_A_WAYPOINT = new Set([
-  "subway_station", "train_station", "light_rail_station", "transit_station",
-  "transit_depot", "bus_station", "bus_stop", "airport", "transportation_service",
-]);
 
 function env(name: string): string {
   const match = readFileSync(".env.local", "utf8").match(new RegExp(`^${name}=(.*)$`, "m"));
@@ -56,8 +51,8 @@ async function search(textQuery: string, asked: string) {
   const body = await response.json() as {
     places?: { displayName: { text: string }; location: { latitude: number; longitude: number }; types: string[] }[];
   };
-  return (body.places ?? []).find((p) => !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t))
-    && isPlausibleMatch(asked, p.displayName.text, place));
+  return (body.places ?? []).find((p) =>
+    isUsableWaypoint(asked, p.displayName.text, p.types ?? [], place));
 }
 
 const clubPois: ClubPoi[] = await (async () => {

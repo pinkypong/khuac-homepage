@@ -5,7 +5,7 @@ import { AdvancedMarker, CollisionBehavior, Polyline, useMap, useMapsLibrary } f
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
 import { loadClubPois, snapSuggestedRoute } from "./route-actions";
-import { findClubPoi, isPlausibleMatch, type ClubPoi } from "@/lib/routes/poi";
+import { findClubPoi, isUsableWaypoint, SAME_PLACE_M, type ClubPoi } from "@/lib/routes/poi";
 import { recoverFromStaleDeployment } from "../stale-deployment";
 import { dropOutlierWaypoints, type RouteLeg } from "@/lib/routes/snap";
 import type { TrackPoint } from "@/lib/gps/track";
@@ -43,9 +43,6 @@ function thin(waypoints: string[]): string[] {
   return [waypoints[0], ...picked, waypoints[waypoints.length - 1]];
 }
 
-/** Two waypoints closer than this are one place under two names. */
-const SAME_PLACE_M = 60;
-
 /**
  * Drops a waypoint that resolved to where the one before it already is.
  *
@@ -65,56 +62,6 @@ function collapseRepeats<T extends { lat: number; lng: number }>(points: T[]): T
     return haversineDistanceMeters(previous, point) > SAME_PLACE_M;
   });
 }
-
-/**
- * Names that are asking for a station, so the rule below does not apply.
- *
- * Plenty of courses start at one - 사당역, 도봉산역, 망월사역, 우이동 버스종점 -
- * and refusing transit for those found nothing, then took whatever was left:
- * 사당역 resolved to 사당역포차, a bar named after the station, because the
- * name check quite correctly saw 사당역 inside it.
- */
-const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
-
-/**
- * A name ending in 역 has to come back as an actual station.
- *
- * Not as a name containing 역, which was the first attempt and failed on the
- * data: Google lists Korean stations without the suffix, so 망월사역 comes back
- * as "망월사" and 북한산보국문역 as "북한산보국문". Requiring the word threw
- * the stations away; not requiring anything let the temple 망월사 answer for
- * the station a kilometre below it. The place type is what actually knows.
- */
-const STATION_NAME = /역$|역\s/;
-
-/**
- * Place types a hiking waypoint is never one of.
- *
- * 보국문 is a gate on the 북한산성 ridge. 북한산보국문 is a station on the
- * 우이신설선, 2.7km away at the bottom of the valley - and it is what Places
- * returns first for "북한산 보국문", because the station's name contains the
- * query exactly while the gate's does not. The course walked to a subway
- * entrance and the line looked plausible the whole way.
- *
- * Stations are worth naming as a class rather than fixing one at a time:
- * Korean transit is full of stops named after the mountain above them
- * (북한산우이, 도봉산, 관악산), so every such mountain has this waiting in it.
- */
-const NOT_A_WAYPOINT = new Set([
-  "subway_station",
-  "train_station",
-  "light_rail_station",
-  "transit_station",
-  "transit_depot",
-  "bus_station",
-  "bus_stop",
-  "airport",
-  // The same station listed a second time, as "북한산보국문역(우이신설선)",
-  // carries none of the station types above - only this one. Rejecting the
-  // specific types alone left the second entry to be picked instead, 55m from
-  // the first. Trailhead car parks are typed "parking" and stay eligible.
-  "transportation_service",
-]);
 
 /**
  * Draws a course the assistant suggested onto the club's own map.
@@ -215,16 +162,11 @@ export function SuggestedRoute({
           maxResultCount: 5,
           ...bias,
         });
-        const transitWanted = ASKING_FOR_TRANSIT.test(name);
-        const mustBeStation = STATION_NAME.test(name);
+        // Places always answers with its best guess and never says how good it
+        // was: asked for 밤골탐방지원센터, which it does not carry, it returned
+        // 북한산성탐방지원센터 on the far side of the ridge.
         return found.find((place) =>
-          (transitWanted || !(place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)))
-          && (!mustBeStation || (place.types ?? []).some((type) => NOT_A_WAYPOINT.has(type)))
-          // Places always answers with its best guess and never says how good
-          // it was: asked for 밤골탐방지원센터, which it does not carry, it
-          // returned 북한산성탐방지원센터 on the far side of the ridge and the
-          // course began in the wrong valley.
-          && isPlausibleMatch(name, place.displayName ?? "", placeName));
+          isUsableWaypoint(name, place.displayName ?? "", place.types ?? [], placeName));
       }
 
       try {
@@ -367,7 +309,7 @@ export function SuggestedRoute({
           describing - and the line is the thing worth seeing. Where it starts
           and where it comes out are what a reader needs; the rest is on the
           card beside the map. */}
-      {pins && [resolved[0], resolved[resolved.length - 1]].map((point, i) => (
+      {pins && (resolved.length === 1 ? [resolved[0]] : [resolved[0], resolved[resolved.length - 1]]).map((point, i, ends) => (
         <AdvancedMarker
           key={`${point.name}-${i}`}
           position={point}
@@ -379,7 +321,7 @@ export function SuggestedRoute({
             className="rounded-full border border-white/90 px-1.5 py-px text-[9px] font-semibold leading-tight text-white shadow"
             style={{ backgroundColor: SUGGESTION_COLOR }}
           >
-            {i === 0 ? "출발 " : "도착 "}{point.name}
+            {ends.length === 1 ? "" : i === 0 ? "출발 " : "도착 "}{point.name}
           </span>
         </AdvancedMarker>
       ))}

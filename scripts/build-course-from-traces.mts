@@ -22,20 +22,12 @@
  */
 import { readFileSync } from "node:fs";
 import { groupSegmentsByTile } from "../src/lib/routes/tiles.ts";
-import { findClubPoi, isPlausibleMatch, type ClubPoi } from "../src/lib/routes/poi.ts";
+import { findClubPoi, isUsableWaypoint, SAME_PLACE_M, type ClubPoi } from "../src/lib/routes/poi.ts";
 import { dropOutlierWaypoints } from "../src/lib/routes/snap.ts";
 import type { TrailSegment } from "../src/lib/routes/trails.ts";
 import type { TrackPoint } from "../src/lib/gps/track.ts";
 import { chooseLine, fetchTracks, lengthOf, metres, type Box } from "./trace-lines.mts";
 
-/** Kept in step with src/app/map/suggested-route.tsx. */
-const NOT_A_WAYPOINT = new Set([
-  "subway_station", "train_station", "light_rail_station", "transit_station",
-  "transit_depot", "bus_station", "bus_stop", "airport", "transportation_service",
-]);
-const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
-const STATION_NAME = /역$|역\s/;
-const SAME_PLACE_M = 60;
 
 /** How near a track has to pass a waypoint to be talking about that stretch. */
 const END_TOLERANCE_M = 120;
@@ -86,12 +78,8 @@ async function search(textQuery: string, asked: string, centre: TrackPoint) {
   const body = await response.json() as {
     places?: { displayName: { text: string }; location: { latitude: number; longitude: number }; types: string[] }[];
   };
-  const transitWanted = ASKING_FOR_TRANSIT.test(asked);
-  const mustBeStation = STATION_NAME.test(asked);
   return (body.places ?? []).find((p) =>
-    (transitWanted || !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
-    && (!mustBeStation || (p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
-    && isPlausibleMatch(asked, p.displayName.text, place));
+    isUsableWaypoint(asked, p.displayName.text, p.types ?? [], place));
 }
 
 // The mountain itself, to bias the first lookups toward; replaced by the

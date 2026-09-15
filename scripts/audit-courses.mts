@@ -20,30 +20,11 @@ import { snapRouteToTrails, dropOutlierWaypoints, type SnapDiagnostics } from ".
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
 import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
 import { haversineDistanceMeters } from "../src/lib/gps/haversine.ts";
-import { findClubPoi, isPlausibleMatch, type ClubPoi } from "../src/lib/routes/poi.ts";
+import { findClubPoi, isUsableWaypoint, SAME_PLACE_M, type ClubPoi } from "../src/lib/routes/poi.ts";
 import type { TrackPoint } from "../src/lib/gps/track.ts";
 
-/** Kept in step with NOT_A_WAYPOINT in src/app/map/suggested-route.tsx. */
-const NOT_A_WAYPOINT = new Set([
-  "subway_station", "train_station", "light_rail_station", "transit_station",
-  "transit_depot", "bus_station", "bus_stop", "airport", "transportation_service",
-]);
-/** Kept in step with ASKING_FOR_TRANSIT there too. */
-const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
 
-/**
- * A name ending in 역 has to come back as an actual station.
- *
- * Not as a name containing 역, which was the first attempt and failed on the
- * data: Google lists Korean stations without the suffix, so 망월사역 comes back
- * as "망월사" and 북한산보국문역 as "북한산보국문". Requiring the word threw
- * the stations away; not requiring anything let the temple 망월사 answer for
- * the station a kilometre below it. The place type is what actually knows.
- */
-const STATION_NAME = /역$|역\s/;
 
-/** Kept in step with SAME_PLACE_M there too. */
-const SAME_PLACE_M = 60;
 
 function env(name: string): string {
   const match = readFileSync(".env.local", "utf8").match(new RegExp(`^${name}=(.*)$`, "m"));
@@ -95,12 +76,8 @@ async function search(textQuery: string, asked: string, place: string, centre: {
   const body = await response.json() as {
     places?: { displayName: { text: string }; location: { latitude: number; longitude: number }; types: string[] }[];
   };
-  const transitWanted = ASKING_FOR_TRANSIT.test(asked);
-  const mustBeStation = STATION_NAME.test(asked);
   return (body.places ?? []).find((p) =>
-    (transitWanted || !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
-    && (!mustBeStation || (p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)))
-    && isPlausibleMatch(asked, p.displayName.text, place));
+    isUsableWaypoint(asked, p.displayName.text, p.types ?? [], place));
 }
 
 const clubPois: ClubPoi[] = await (async () => {
