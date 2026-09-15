@@ -207,8 +207,12 @@ for (const [index, { place, centre, names }] of COURSES.entries()) {
     const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
     return { points, legs: snapRouteToTrails(points, segments, diagnostics), diagnostics };
   };
+  // The same guard the map applies: a course that returns to a place it has
+  // already been has its order carried by the answer, not by the geometry.
+  const outAndBack = kept.some((point, i) =>
+    kept.slice(i + 2).some((other) => haversineDistanceMeters(point, other) <= SAME_PLACE_M));
   let drawn = draw(kept);
-  if (kept.length >= 4) {
+  if (kept.length >= 4 && !outAndBack) {
     const order = [...kept.keys()].slice(1, -1)
       .sort((a, b) => haversineDistanceMeters(kept[0], kept[a]) - haversineDistanceMeters(kept[0], kept[b]));
     const other = draw([kept[0], ...order.map((i) => kept[i]), kept[kept.length - 1]]);

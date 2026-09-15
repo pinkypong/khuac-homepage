@@ -5,8 +5,8 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, splitSurveyGaps, type TrailSegment } from "@/lib/routes/trails";
-import { snapRouteToTrails, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
-import type { ClubPoi } from "@/lib/routes/poi";
+import { prepareRouteSnap, walkPreparedRoute, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
+import { SAME_PLACE_M, type ClubPoi } from "@/lib/routes/poi";
 import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside, TILE_DEG } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
 import { isValidGps } from "@/lib/gps/validate";
@@ -115,7 +115,7 @@ export async function snapSuggestedRoute(
   if (waypoints.length > 12 || waypoints.some((point) => !isValidGps(point.lat, point.lng))) {
     throw new Error("경로 좌표를 확인해주세요.");
   }
-  if (waypoints.length < 2) return { legs: [], trailsLoaded: true, order: waypoints.map((_, i) => i) };
+  if (waypoints.length < 2) return { legs: [], trailsLoaded: true, order: waypoints.map((_, index) => index) };
 
   // A box around the whole course rather than a circle around its middle. The
   // circle was capped at a 3km radius, so a 6km course from 밤골 to 도선사 had
@@ -147,7 +147,16 @@ export async function snapSuggestedRoute(
   // the same whether a waypoint was 500m from the nearest path or the path
   // simply does not connect.
   const diagnostics: SnapDiagnostics = { snapDistances: [], legs: [] };
-  let legs = snapRouteToTrails(waypoints, segments, diagnostics);
+  const written = waypoints.map((_, index) => index);
+  // Prepared once. Projecting the waypoints and building the path graph is
+  // almost all of the cost - 273ms of the 정릉 course's snap, measured - and
+  // none of it depends on the order they are visited in, so the second order
+  // below is walked over this same graph rather than rebuilding it. Two full
+  // snaps per request is most of a CPU budget this Worker has already exceeded
+  // once in production.
+  let prepared = prepareRouteSnap(waypoints, segments);
+  if (!prepared) return { legs: [], trailsLoaded: true, order: written };
+  let legs = walkPreparedRoute(prepared, written, diagnostics);
   if (legs.some((leg) => !leg.onTrail)) {
     // A real approach may go around a ridge outside the initial box. Try a
     // larger area once, retaining usable geometry if the provider is down.
@@ -155,8 +164,8 @@ export async function snapSuggestedRoute(
       north: bounds.north + 0.012, east: bounds.east + 0.012 };
     if (expanded.north - expanded.south <= 0.25 && expanded.east - expanded.west <= 0.25) {
       segments = mergeTileSegments([segments, await trailsForBounds(supabase, expanded)]);
-      diagnostics.legs = [];
-      legs = snapRouteToTrails(waypoints, segments, diagnostics);
+      prepared = prepareRouteSnap(waypoints, segments) ?? prepared;
+      legs = walkPreparedRoute(prepared, written, diagnostics);
     }
   }
   // The order the answer wrote is usually the order it is walked and sometimes
@@ -173,8 +182,8 @@ export async function snapSuggestedRoute(
     .slice(1, -1)
     .sort((a, b) => straightMetres(waypoints[0], waypoints[a]) - straightMetres(waypoints[0], waypoints[b]));
   const order = [0, ...sorted, waypoints.length - 1];
-  const reordered = order.some((index, i) => index !== i)
-    ? snapRouteToTrails(order.map((index) => waypoints[index]), segments)
+  const reordered = order.some((index, i) => index !== i) && !isOutAndBack(waypoints)
+    ? walkPreparedRoute(prepared, order)
     : null;
 
   // Fewer gaps first, then shorter. A gap is the worse fault - it is a piece
@@ -196,11 +205,35 @@ export async function snapSuggestedRoute(
   }));
   return takeSorted
     ? { legs: reordered!, trailsLoaded: true, order }
-    : { legs, trailsLoaded: true, order: waypoints.map((_, i) => i) };
+    : { legs, trailsLoaded: true, order: written };
 }
 
 const straightMetres = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
   haversineDistanceMeters(a, b);
+
+/**
+ * Whether the course returns to somewhere it has already been.
+ *
+ * Two waypoints at the same spot with others between them is an out-and-back,
+ * and on 북한산 it is usually a gate: 백운봉암문 was renamed from 위문 in 2015,
+ * so the summit course reads 백운봉암문, 백운대, 위문 - up to the gate, out to
+ * the peak, back through the gate. Both names resolve to the same point.
+ *
+ * Which is exactly what the shorter-line rule below would delete. Sorting those
+ * three by distance from the start puts the two gate names together and walks
+ * the summit spur once instead of twice: 5.69km becomes 5.53, and the shorter
+ * line wins while describing a walk nobody took. A course that comes back on
+ * itself has its order carried by the answer, not by the geometry, so it is
+ * left exactly as written.
+ */
+function isOutAndBack(waypoints: { lat: number; lng: number }[]): boolean {
+  for (let i = 0; i < waypoints.length; i++) {
+    for (let j = i + 2; j < waypoints.length; j++) {
+      if (haversineDistanceMeters(waypoints[i], waypoints[j]) <= SAME_PLACE_M) return true;
+    }
+  }
+  return false;
+}
 
 function trackLengthMetres(points: [number, number][]): number {
   let total = 0;

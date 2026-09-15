@@ -565,13 +565,31 @@ function trimLabelSpurs(legs: RouteLeg[]): RouteLeg[] {
   return legs;
 }
 
-export function snapRouteToTrails(
+/**
+ * Everything about a set of waypoints that does not depend on their order.
+ *
+ * Projecting the waypoints onto the paths and building the graph is nearly all
+ * of the work - 273ms of a 225ms-and-up snap, measured on the 정릉 course - and
+ * none of it changes when the same waypoints are visited in a different order.
+ * Drawing a course in two orders to see which doubles back less was doing all
+ * of it twice, which on a Worker is most of a CPU budget that has already been
+ * exceeded once in production.
+ *
+ * Held apart so the graph is built once and walked as many times as wanted.
+ */
+export interface PreparedRoute {
+  graph: Graph;
+  /** Where each waypoint landed on the network, in the order given. */
+  snapped: (number | null)[];
+  points: TrackPoint[];
+}
+
+export function prepareRouteSnap(
   waypoints: { lat: number; lng: number }[],
   segments: TrailSegment[],
-  diagnostics?: SnapDiagnostics,
-): RouteLeg[] {
+): PreparedRoute | null {
   const points: TrackPoint[] = waypoints.map((w) => [w.lat, w.lng]);
-  if (points.length < 2) return [];
+  if (points.length < 2) return null;
 
   const projected = projectOntoTrails(points, segments);
   const graph = buildTrailGraph(projected.segments);
@@ -591,10 +609,31 @@ export function snapRouteToTrails(
     const close = there <= Math.max(here * 3, REROUTE_SLACK_M);
     return bigger && close ? onChosen : nearest;
   });
+  return { graph, snapped, points };
+}
+
+/**
+ * Walks a prepared set of waypoints in one particular order.
+ *
+ * `order` is indices into the waypoints as they were given, so the caller can
+ * try the order an answer wrote and the order it is walked without paying for
+ * the graph twice. Diagnostics come back in the order walked, since that is
+ * the order the legs are in.
+ */
+export function walkPreparedRoute(
+  prepared: PreparedRoute,
+  order: number[],
+  diagnostics?: SnapDiagnostics,
+): RouteLeg[] {
+  const { graph, snapped: allSnapped, points: allPoints } = prepared;
+  const points = order.map((index) => allPoints[index]);
+  const snapped = order.map((index) => allSnapped[index]);
+
   if (diagnostics) {
     diagnostics.snapDistances = snapped.map((id, i) =>
       id === null ? null : Math.round(metres(graph.nodes[id], points[i])),
     );
+    diagnostics.legs = [];
   }
   const legs: RouteLeg[] = [];
 
@@ -636,6 +675,17 @@ export function snapRouteToTrails(
   }
 
   return trimLabelSpurs(legs);
+}
+
+/** The whole of it, in the order the waypoints were given. */
+export function snapRouteToTrails(
+  waypoints: { lat: number; lng: number }[],
+  segments: TrailSegment[],
+  diagnostics?: SnapDiagnostics,
+): RouteLeg[] {
+  const prepared = prepareRouteSnap(waypoints, segments);
+  if (!prepared) return [];
+  return walkPreparedRoute(prepared, prepared.points.map((_, i) => i), diagnostics);
 }
 
 /**
