@@ -9,10 +9,15 @@
  * draws as "the route". It is mapped trail geometry now and is saved with new
  * albums, but the ones already made opened as a bare pin.
  *
- * The description is enough to rebuild them: "AI 추천 코스: A → B → C" is the
- * course, and the same lookup and snapping the map does turns it back into a
- * line. An album whose course cannot be drawn end to end is left alone rather
- * than given half of one.
+ * An album that kept its waypoints already holds the points themselves, and
+ * those are used as they stand - they are what the member saw drawn, they cost
+ * nothing to read, and looking the same names up again would spend a billed
+ * Places request to arrive somewhere slightly different. Older albums have only
+ * the sentence, "AI 추천 코스: A → B → C", and those names are looked up.
+ *
+ * Either way the line is rebuilt by the same snapping the map does. An album
+ * whose course cannot be drawn end to end is left alone rather than given half
+ * of one.
  */
 import { readFileSync } from "node:fs";
 import { snapRouteToTrails, dropOutlierWaypoints } from "../src/lib/routes/snap.ts";
@@ -102,25 +107,36 @@ async function segmentsFor(points: { lat: number; lng: number }[]): Promise<Trai
 }
 
 for (const hike of hikes) {
-  const course = hike.description?.match(/AI 추천 코스:\s*(.+)/)?.[1];
-  if (!course) {
-    console.log(`${hike.title}: 코스 설명이 없어 건너뜁니다`);
-    continue;
-  }
-  const names = course.split("→").map((name) => name.trim()).filter(Boolean);
   const place = hike.locations?.name ?? "";
   const centre = hike.locations ?? { lat: 37.5, lng: 127.0 };
 
-  const found: { name: string; lat: number; lng: number }[] = [];
-  for (const name of names) {
-    const known = findClubPoi(name, clubPois);
-    if (known) {
-      found.push({ name, lat: known.lat, lng: known.lng });
+  // The points the album already holds, where it holds them. These are what
+  // the member saw drawn; looking the same names up again would cost a billed
+  // request each and could land somewhere slightly different.
+  const stored = Array.isArray(hike.route_waypoints)
+    ? hike.route_waypoints.filter((point) =>
+      typeof point?.lat === "number" && typeof point?.lng === "number" && typeof point?.name === "string")
+    : [];
+
+  let found: { name: string; lat: number; lng: number }[] = stored;
+  if (found.length < 2) {
+    const course = hike.description?.match(/AI 추천 코스:\s*(.+)/)?.[1];
+    if (!course) {
+      console.log(`${hike.title}: 경유지도 코스 설명도 없어 건너뜁니다`);
       continue;
     }
-    let best = await search(`${place} ${name}`, name, place, centre);
-    if (!best) best = await search(name, name, place, centre);
-    if (best) found.push({ name, lat: best.location.latitude, lng: best.location.longitude });
+    const names = course.split("→").map((name) => name.trim()).filter(Boolean);
+    found = [];
+    for (const name of names) {
+      const known = findClubPoi(name, clubPois);
+      if (known) {
+        found.push({ name, lat: known.lat, lng: known.lng });
+        continue;
+      }
+      let best = await search(`${place} ${name}`, name, place, centre);
+      if (!best) best = await search(name, name, place, centre);
+      if (best) found.push({ name, lat: best.location.latitude, lng: best.location.longitude });
+    }
   }
 
   const collapsed = found.filter((point, i) =>
