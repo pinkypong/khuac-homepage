@@ -263,10 +263,29 @@ const MAX_ZOOM: Partial<Record<MapTypeChoice, number>> = {
   terrain: 17,
 };
 
+/**
+ * The base map a raster overlay is drawn on top of.
+ *
+ * Google's own labels, roads and shading would show through the gaps in any
+ * layer that is not fully opaque, and two maps disagreeing about where a ridge
+ * is reads as a rendering fault. Roadmap is the quietest of the three.
+ */
+const OVERLAY_BASE: MapTypeChoice = "roadmap";
+
 /** Stands in for the stock 지도/위성 switcher. "hybrid" rather than "satellite"
     so place names stay on the imagery - finding mountains by name is the point.
-    Third-party layers join the same row: once registered with the map's own
-    type registry, switching to one is the same setMapTypeId call as the rest. */
+
+    Third-party layers join the same row, but they are drawn as overlays rather
+    than registered as map types. `map.mapTypes.set` is refused outright when
+    the map has a mapId - "A Map's custom map types cannot be set when a mapId
+    is present" - and the mapId is not optional: AdvancedMarker, which every
+    photo and folder pin on this map is, requires one. Registering the layer
+    silently did nothing and then setMapTypeId was called with an id that was
+    never added, which is why the trail map opened blank.
+
+    overlayMapTypes carries no such restriction. The tiles are opaque, so an
+    overlay covers the base map as completely as a base layer would, and
+    markers keep drawing above it. */
 function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | null) => void }) {
   const map = useMap();
   const layers = useMemo(() => availableTileLayers(), []);
@@ -275,7 +294,7 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
   // only when no trail layer is configured.
   const defaultLayer = layers[0] ?? null;
   const [mapType, setMapType] = useState<MapTypeChoice>(defaultLayer?.id ?? "roadmap");
-  const appliedDefault = useRef(false);
+  const active = layers.find((layer) => layer.id === mapType) ?? null;
 
   // Applied whenever the mode changes rather than only on the click that
   // changed it: the cap has to hold while someone keeps zooming, and setting
@@ -287,47 +306,41 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
     if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
   }, [map, mapType, layers]);
 
+  // One effect owns both halves of the switch - the base type and the overlay -
+  // so they can never disagree about which mode is showing.
   useEffect(() => {
-    if (!map || layers.length === 0) return;
-    for (const layer of layers) {
-      map.mapTypes.set(
-        layer.id,
+    if (!map) return;
+    map.setMapTypeId(active ? OVERLAY_BASE : mapType);
+    // Cleared before adding rather than diffed: there is only ever one of
+    // these, and clear() is the one operation that cannot leave a stale layer
+    // underneath a new one.
+    map.overlayMapTypes.clear();
+    if (active) {
+      map.overlayMapTypes.push(
         new google.maps.ImageMapType({
-          name: layer.label,
+          name: active.label,
           tileSize: new google.maps.Size(256, 256),
-          maxZoom: layer.maxZoom,
-          getTileUrl: (point, zoom) => layer.tileUrl(point, zoom),
+          maxZoom: active.maxZoom,
+          getTileUrl: (point, zoom) => active.tileUrl(point, zoom),
         }),
       );
     }
-    // Applied here rather than as a <Map> prop: setMapTypeId only works once
-    // the type is in the registry above. The ref keeps a later re-run from
-    // yanking the map back after someone has switched away from it.
-    if (defaultLayer && !appliedDefault.current) {
-      appliedDefault.current = true;
-      map.setMapTypeId(defaultLayer.id);
-      onLayerChange(defaultLayer);
-    }
-  }, [map, layers, defaultLayer, onLayerChange]);
+    onLayerChange(active);
+    return () => {
+      map.overlayMapTypes.clear();
+    };
+  }, [map, mapType, active, onLayerChange]);
 
   // Trail layers first: the leftmost button is the one reached for most.
   const choices = [...layers.map(({ id, label }) => ({ id, label })), ...GOOGLE_MAP_TYPES];
 
   return (
-    <div>
     <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
       {choices.map(({ id, label }) => (
         <button
           key={id}
           type="button"
-          onClick={() => {
-            if (!map) return;
-            map.setMapTypeId(id);
-            // Applied before the type takes effect so the view never lands on
-            // upscaled tiles for a frame. Null restores the map's own limit.
-            setMapType(id);
-            onLayerChange(layers.find((layer) => layer.id === id) ?? null);
-          }}
+          onClick={() => setMapType(id)}
           className={
             "border-l border-neutral-300 px-3 py-1.5 first:border-l-0 md:px-2.5 md:py-1 " +
             (mapType === id
@@ -338,7 +351,6 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
           {label}
         </button>
       ))}
-    </div>
     </div>
   );
 }
