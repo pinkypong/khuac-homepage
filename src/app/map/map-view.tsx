@@ -248,11 +248,18 @@ const GOOGLE_MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
 /**
  * How far each mode can be zoomed before it stops showing anything real.
  *
- * Satellite imagery is capped dynamically below using MaxZoomService for
- * the current location. 22 is the initial ceiling, not a promised resolution.
+ * Google's aerial imagery over Korean mountains runs out around zoom 19, and
+ * past that the map keeps going with nothing to draw: not a blurrier picture
+ * but a flat grey field with the labels still floating on it.
+ *
+ * Asking MaxZoomService what this spot supports was tried and was worse. It
+ * answered 20 over 북한산 and the imagery was already gone - so the map both
+ * showed the empty grey and announced in a box that twenty levels were
+ * available. A fixed ceiling that is sometimes one level conservative beats a
+ * measured one that is confidently wrong.
  */
 const MAX_ZOOM: Partial<Record<MapTypeChoice, number>> = {
-  hybrid: 22,
+  hybrid: 19,
   terrain: 17,
 };
 
@@ -269,7 +276,6 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
   const defaultLayer = layers[0] ?? null;
   const [mapType, setMapType] = useState<MapTypeChoice>(defaultLayer?.id ?? "roadmap");
   const appliedDefault = useRef(false);
-  const [imageryLimit, setImageryLimit] = useState<number | null>(null);
 
   // Applied whenever the mode changes rather than only on the click that
   // changed it: the cap has to hold while someone keeps zooming, and setting
@@ -280,32 +286,6 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
     map.setOptions({ maxZoom: cap, tilt: 0 });
     if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
   }, [map, mapType, layers]);
-
-  useEffect(() => {
-    if (!map || mapType !== "hybrid") return;
-    let current = true;
-    let generation = 0;
-    const cache = new globalThis.Map<string, number>();
-    const service = new google.maps.MaxZoomService();
-    const update = async () => {
-      const center = map.getCenter();
-      if (!center) return;
-      const request = ++generation;
-      const key = `${center.lat().toFixed(3)},${center.lng().toFixed(3)}`;
-      try {
-        const max = cache.get(key) ?? (await service.getMaxZoomAtLatLng(center)).zoom;
-        if (!current || request !== generation || !Number.isFinite(max)) return;
-        cache.set(key, max);
-        const cap = Math.min(22, max);
-        setImageryLimit(cap);
-        if (map.get("maxZoom") !== cap) map.setOptions({ maxZoom: cap });
-        if ((map.getZoom() ?? 0) > cap) map.setZoom(cap);
-      } catch { /* Keep the map's own imagery handling if lookup is unavailable. */ }
-    };
-    const listener = map.addListener("idle", () => { void update(); });
-    void update();
-    return () => { current = false; listener.remove(); };
-  }, [map, mapType]);
 
   useEffect(() => {
     if (!map || layers.length === 0) return;
@@ -359,11 +339,6 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
         </button>
       ))}
     </div>
-    {mapType === "hybrid" && imageryLimit !== null && (
-      <p className="mx-2 max-w-72 rounded bg-white/95 px-2 py-1 text-[11px] text-neutral-600">
-        이 위치의 위성 영상은 {imageryLimit}단계까지 제공됩니다. 등산로는 선으로 겹쳐 표시합니다.
-      </p>
-    )}
     </div>
   );
 }
@@ -511,6 +486,9 @@ export function MapView({
       // phone there is no keyboard to shortcut and it only crowds the
       // attribution line it sits beside.
       keyboardShortcuts={false}
+      // The pan pad - a circle of four arrows - does on a phone what dragging
+      // the map already does, while covering the part of the map it sits on.
+      cameraControl={false}
       className="h-full w-full"
       onZoomChanged={(event) => setShowLabels(event.detail.zoom <= LABEL_MAX_ZOOM)}
       onClick={(event) => {
