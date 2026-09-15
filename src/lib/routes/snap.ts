@@ -31,6 +31,30 @@ const SNAP_TOLERANCE_M = 400;
 const JUNCTION_TOLERANCE_M = 2;
 
 /**
+ * The same, for a line drawn from GPS traces to fill a gap.
+ *
+ * Two metres is right between ways from one survey, where a shared junction is
+ * a shared node and a gap is a rounding error. A traced line has no shared node
+ * with anything: it is somebody's walk, recorded by a different device on a
+ * different day, and its ends land a few metres off the ways it joins. Held to
+ * two metres it becomes an island the router cannot reach, which is what
+ * happened to 대성문-보국문 - the line was there, 0.65km against the 1.27km the
+ * router was finding, and it was never used.
+ *
+ * Only these lines get the allowance. Applying it to the agency imports as well
+ * was tried: it fixed three legs and broke five, because those are dense and
+ * run parallel to OSM for kilometres, so joining them freely gives the router
+ * new ways to cut corners. A traced line is one curated line between two named
+ * points, and its ends are the only places it can join.
+ */
+const TRACED_JUNCTION_TOLERANCE_M = 30;
+
+/** The id band scripts/fill-gap-from-traces.mts writes into. */
+const TRACED_ID_MAX = -2_000_000;
+const TRACED_ID_MIN = -5_000_000;
+const isTraced = (id: number) => id <= TRACED_ID_MAX && id >= TRACED_ID_MIN;
+
+/**
  * How far a trail route may wander before it stops being believable.
  *
  * The ratio alone was written for flat ground and rejected real mountain
@@ -156,14 +180,72 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
             const bWays = graph.ways.get(b);
             if (aWays && bWays && [...aWays].some((w) => bWays.has(w))) continue;
             const gap = metres(graph.nodes[a], graph.nodes[b]);
-            if (gap <= JUNCTION_TOLERANCE_M) addEdge(graph, a, b, gap);
+            const traced = [...(aWays ?? [])].some(isTraced) || [...(bWays ?? [])].some(isTraced);
+            const tolerance = traced ? TRACED_JUNCTION_TOLERANCE_M : JUNCTION_TOLERANCE_M;
+            if (gap <= tolerance) addEdge(graph, a, b, gap);
           }
         }
       }
     }
   }
 
+  /**
+   * A traced line is tied into the network at its two ends.
+   *
+   * The junction pass above can only join an end to another end, which is
+   * right for ways that meet at a fork. A traced line does not meet anything
+   * at a fork: it runs from one named place to another, and the way it should
+   * join passes straight through both without ending there. The 성곽 path goes
+   * by 대성문 rather than stopping at it, so the line drawn between 대성문 and
+   * 보국문 - 0.65km against the 1.27km the router was finding - sat beside the
+   * network untouched.
+   *
+   * So these ends are joined to the nearest node of any other way, wherever on
+   * that way it falls. Only these: doing it for every way would let the router
+   * hop between paths that merely pass close to one another.
+   */
+  for (const segment of segments) {
+    if (!isTraced(segment.id)) continue;
+    for (const end of [segment.points[0], segment.points[segment.points.length - 1]]) {
+      const from = nearestNodeWithin(graph, end, 0.5, () => true);
+      if (from === null) continue;
+      const ours = graph.ways.get(from);
+      const to = nearestNodeWithin(graph, end, TRACED_JUNCTION_TOLERANCE_M, (id) => {
+        const theirs = graph.ways.get(id);
+        if (!theirs || !ours) return false;
+        return ![...theirs].some((way) => ours.has(way));
+      });
+      if (to !== null) addEdge(graph, from, to, metres(graph.nodes[from], graph.nodes[to]));
+    }
+  }
+
   return graph;
+}
+
+/** The nearest node to a point within a radius, among those a rule allows. */
+function nearestNodeWithin(
+  graph: Graph,
+  point: TrackPoint,
+  radiusM: number,
+  allowed: (id: number) => boolean,
+): number | null {
+  const reach = Math.ceil(radiusM / 33);
+  const [cy, cx] = cellKey(point[0], point[1]).split(":").map(Number);
+  let best: number | null = null;
+  let bestDistance = radiusM;
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      for (const id of graph.cells.get(`${cy + dy}:${cx + dx}`) ?? []) {
+        if (!allowed(id)) continue;
+        const distance = metres(graph.nodes[id], point);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = id;
+        }
+      }
+    }
+  }
+  return best;
 }
 
 /**

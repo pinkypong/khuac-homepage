@@ -30,7 +30,14 @@ export function splitSurveyGaps(segments: TrailSegment[]): TrailSegment[] {
         parts.push([point]);
       } else last.push(point);
     }
-    return parts.filter((points) => points.length >= 2).map((points, i) => ({
+    const kept = parts.filter((points) => points.length >= 2);
+    // A segment with no gaps in it keeps its id. Renumbering unconditionally
+    // meant every row from official_trails came out with a new identity, and
+    // the id is how a line traced from GPS is recognised as one - so those
+    // lines lost the allowance that ties them into the network and sat beside
+    // it unused. Only a segment that really was cut needs new ids.
+    if (kept.length === 1) return [{ ...segment, points: kept[0] }];
+    return kept.map((points, i) => ({
       ...segment, id: -(Math.abs(segment.id) * 10000 + i), points,
     }));
   });
