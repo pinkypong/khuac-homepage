@@ -12,7 +12,7 @@ import {
 } from "@/lib/assistant/intent";
 import { findMatchingPlace, type PlaceCandidateHike } from "@/lib/assistant/resolve";
 import { buildClubHistoryContext } from "@/lib/assistant/context";
-import { suggestRoutes, type RouteSuggestion } from "@/lib/assistant/routes";
+import { extractRoutes, searchRoutes, type RouteSuggestion } from "@/lib/assistant/routes";
 import {
   daysInRange,
   fetchForecast,
@@ -37,6 +37,9 @@ export interface AssistantAnswer {
   /** Only set when the question asked for routes. Waypoints are place names,
       not coordinates - geocoding them into pins happens in the browser. */
   routes?: RouteSuggestion[];
+  /** True while the search answer is here and the cards are not. The browser
+      asks for them next; until it does, the prose is the whole answer. */
+  routesPending?: boolean;
   /** The mountain the routes belong to, which is the folder an album built
       from one of them is filed under. Not the same as `place`: a question can
       ask about somewhere the club has no record of, and that is precisely
@@ -265,26 +268,73 @@ export async function askAssistant(question: string, refresh = false): Promise<A
   // there was the wrong instinct: not having gone somewhere is not a reason to
   // withhold what is knowable about it.
   if (isRouteQuestion(trimmed)) {
-    const result = await suggestRoutes(placeSummary?.name ?? null, trimmed, [clubHistory, weatherContext].filter(Boolean).join("\n") || null, isClimbingQuestion(trimmed));
+    // Returned as soon as the search answer exists. Turning it into cards is a
+    // second model call that cannot start until this one has finished, and
+    // waiting for both before showing anything is what made a slow answer feel
+    // like a broken one.
+    const found = await searchRoutes(
+      placeSummary?.name ?? null,
+      trimmed,
+      [clubHistory, weatherContext].filter(Boolean).join("\n") || null,
+      isClimbingQuestion(trimmed),
+    );
     return store(supabase, key, trimmed, memberId, {
       intent,
-      text: result.text,
+      text: found.text,
       place: placeSummary,
-      routes: result.routes,
+      routes: [],
+      // The browser asks for the cards next. Stored this way too, so a reader
+      // who leaves and comes back finds the answer rather than nothing.
+      routesPending: true,
       // The club's own folder name wins when the question matched one, so
       // asking about a mountain already on the map adds to that folder rather
       // than starting a second one under the model's spelling of it.
-      routePlaceName: place?.location.name ?? result.placeName,
-      // Replaces the prose answer when courses were extracted: the cards say
-      // the same things in a form that can be tapped onto the map, and the
-      // two side by side were the same answer twice.
-      summary: result.summary,
-      sources: result.sources,
+      routePlaceName: place?.location.name ?? null,
+      summary: null,
+      sources: found.sources,
     });
   }
+
   const context = [clubHistory, weatherContext].filter((c): c is string => c !== null);
   const text = await generateText(buildAssistantPrompt(trimmed, context));
   return store(supabase, key, trimmed, memberId, { intent, text, place: placeSummary });
+}
+
+/**
+ * The cards for an answer whose search half is already on screen.
+ *
+ * Kept as its own request because the two model calls are serial and together
+ * took 33 seconds, of which our own code was 30 milliseconds. Nothing here is
+ * re-searched: the prose and its sources come back out of the cache row the
+ * first call wrote, and this pays only for the formatting.
+ */
+export async function finishRouteAnswer(question: string): Promise<AssistantAnswer | null> {
+  const { supabase, memberId } = await requireApprovedMember();
+  const trimmed = question.trim();
+  if (!trimmed) return null;
+  const key = cacheKey(trimmed);
+
+  const { data } = await supabase
+    .from("assistant_cache")
+    .select("answer")
+    .eq("question_key", key)
+    .maybeSingle();
+  const stored = (data as { answer: AssistantAnswer } | null)?.answer ?? null;
+  // Someone else finished it, or the row is gone. Either way there is nothing
+  // to do and nothing to correct on screen.
+  if (!stored || !stored.routesPending) return stored;
+
+  const result = await extractRoutes(stored.text, stored.sources ?? [], stored.routePlaceName ?? null);
+  return store(supabase, key, trimmed, memberId, {
+    ...stored,
+    routes: result.routes,
+    routePlaceName: stored.routePlaceName ?? result.placeName,
+    // Replaces the prose answer when courses were extracted: the cards say the
+    // same things in a form that can be tapped onto the map, and the two side
+    // by side were the same answer twice.
+    summary: result.summary,
+    routesPending: false,
+  });
 }
 
 /** Where the club's activity sits, used to settle same-named mountains. */

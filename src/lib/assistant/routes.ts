@@ -93,7 +93,16 @@ export function normalizeRoutes(value: unknown, sources: GroundedSource[]): Rout
   }).slice(0, 6);
 }
 
-export async function suggestRoutes(
+/**
+ * The search answer, which is the half a reader can start reading.
+ *
+ * Structuring it into cards is a second model call that cannot begin until
+ * this one has finished, and together they took 33 seconds of which our own
+ * code was 30 milliseconds. Split, the prose arrives when it arrives and the
+ * cards land on top of it, so nobody watches an empty panel for the whole of
+ * both.
+ */
+export async function searchRoutes(
   placeName: string | null,
   question: string,
   clubContext: string | null,
@@ -144,7 +153,16 @@ export async function suggestRoutes(
     chars: grounded.text.length,
     sources: grounded.sources.length,
   }));
+  return grounded;
+}
 
+/** The same answer as cards. Second call; needs the first one's text. */
+export async function extractRoutes(
+  text: string,
+  sources: GroundedSource[],
+  placeName: string | null,
+) {
+  const grounded = { text, sources };
   // Numbered so the extraction call can cite one source per course instead
   // of being handed the whole list for every one of them.
   const sourceList = grounded.sources.map((source, i) => `${i + 1}. ${source.label} (${source.url})`).join(String.fromCharCode(10));

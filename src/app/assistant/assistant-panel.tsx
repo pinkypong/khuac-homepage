@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { askAssistant, forgetQuestion, recentQuestions, type AssistantAnswer, type RecentQuestion } from "./actions";
+import { askAssistant, finishRouteAnswer, forgetQuestion, recentQuestions, type AssistantAnswer, type RecentQuestion } from "./actions";
 import { parseMarkdown, type InlineToken } from "@/lib/assistant/markdown";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
@@ -133,6 +133,8 @@ export function AssistantPanel({
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<AssistantAnswer | null>(null);
   const [recent, setRecent] = useState<RecentQuestion[]>([]);
+  /** The second half is still coming: the answer is readable, the cards are not. */
+  const [filling, setFilling] = useState(false);
 
   // What the club has already paid for. Asking one of these again is free, so
   // they are offered ahead of the examples.
@@ -153,7 +155,24 @@ export function AssistantPanel({
     setError(null);
     setAnswer(null);
     try {
-      setAnswer(await askAssistant(trimmed, refresh));
+      const first = await askAssistant(trimmed, refresh);
+      setAnswer(first);
+      // The search answer is readable now; the cards are a second model call
+      // and arrive on top of it. Waiting for both before showing anything is
+      // what made a thirty-second answer feel like a broken one.
+      if (first.routesPending) {
+        setPending(false);
+        setFilling(true);
+        try {
+          const whole = await finishRouteAnswer(trimmed);
+          if (whole) setAnswer(whole);
+        } catch {
+          // The prose is already on screen and says the same things. Leaving
+          // it there beats replacing a real answer with an error.
+        } finally {
+          setFilling(false);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "답을 가져오지 못했습니다.");
     } finally {
@@ -312,6 +331,14 @@ export function AssistantPanel({
                 </a>
               ))}
             </div>
+          )}
+
+          {/* Said plainly, because the answer above is complete prose and a
+              reader has no other way to know more is coming. */}
+          {filling && (
+            <p className="mt-3 border-t border-neutral-100 pt-3 text-[11px] text-neutral-500" role="status">
+              코스를 지도에 올릴 수 있게 정리하는 중…
+            </p>
           )}
 
           {answer.routes && answer.routes.length > 0 && (
