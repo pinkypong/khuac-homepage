@@ -195,9 +195,7 @@ export function SuggestedRoute({
       // came back on the far side of 북한산 - and one bad lookup dragged the
       // whole course into a straight line across the massif. Dropping it here
       // rather than server-side keeps its pin off the map too.
-      const resolvedPoints = points.flatMap((point, sequenceIndex) =>
-        point ? [{ ...point, sequenceIndex }] : []);
-      const found = dropOutlierWaypoints(resolvedPoints);
+      const found = dropOutlierWaypoints(points.flatMap((point) => point ? [point] : []));
       const placed = new Set(found.map((p) => p.name));
       // Reported rather than swallowed: these are the local terms - 해골바위,
       // 밤골 - that a member can fix once by hand, and they cannot do that if
@@ -222,11 +220,17 @@ export function SuggestedRoute({
       snapSuggestedRoute(found.map(({ lat, lng }) => ({ lat, lng })))
         .then((snapped) => {
           if (cancelled) return;
-          const checked = snapped.legs.map((leg, i) =>
-            found[i + 1].sequenceIndex - found[i].sequenceIndex > 1
-              ? { points: [], onTrail: false } : leg);
-          setLegs(checked);
-          onTrailsUnavailable(!snapped.trailsLoaded || checked.some((leg) => !leg.onTrail));
+          // A leg that spans a waypoint we could not place is still drawn.
+          //
+          // 해골바위 is not on any map, and blanking the leg it sits in erased
+          // the whole 밤골 approach - four kilometres of mapped trail thrown
+          // away for one name. Local usage names a great many features no
+          // gazetteer carries, so that rule would keep deleting the longest
+          // and most useful part of a course. The trail between the two ends
+          // is real either way, and the notice beside the map already says
+          // which name went unplaced and offers to record it.
+          setLegs(snapped.legs);
+          onTrailsUnavailable(!snapped.trailsLoaded || snapped.legs.some((leg) => !leg.onTrail));
         })
         .catch((error) => {
           if (cancelled) return;
