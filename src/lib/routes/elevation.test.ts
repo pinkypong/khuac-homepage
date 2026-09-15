@@ -189,3 +189,47 @@ describe("stackLabels", () => {
     expect(rows).toEqual([0, 0, 0]);
   });
 });
+
+describe("gradientBands: short stretches", () => {
+  const profileOf = (heights: number[], spacing = 90) => ({
+    points: heights.map((elevation, i) => ({ along: i * spacing, elevation })),
+    distanceM: (heights.length - 1) * spacing,
+    surfaceM: 0, ascentM: 0, descentM: 0,
+    lowM: Math.min(...heights), highM: Math.max(...heights),
+  });
+
+  it("folds a brief breather into the climb around it, and rejoins the two halves", () => {
+    // Up, a level stretch, up again. Told that nothing under 1.2km is worth a
+    // colour of its own, the breather goes into a neighbour - and the two
+    // climbs, now touching and the same grade, become one piece of walking.
+    const heights = [
+      ...Array.from({ length: 10 }, (_, i) => 100 + i * 25),
+      ...Array.from({ length: 7 }, () => 325),
+      ...Array.from({ length: 10 }, (_, i) => 325 + i * 25),
+    ];
+    expect(gradientBands(profileOf(heights), 250, 400)).toHaveLength(3);
+    expect(gradientBands(profileOf(heights), 250, 1200)).toHaveLength(1);
+  });
+
+  it("still splits where a long stretch really changes", () => {
+    const heights = [
+      ...Array.from({ length: 14 }, () => 100),
+      ...Array.from({ length: 14 }, (_, i) => 100 + i * 35),
+    ];
+    const bands = gradientBands(profileOf(heights));
+    expect(bands.length).toBeGreaterThan(1);
+    expect(bands[0].steepness).toBe("flat");
+  });
+
+  it("covers the course end to end however much it merged", () => {
+    const profile = profileOf([100, 300, 305, 310, 600, 602, 900, 901, 902, 903, 1200]);
+    const bands = gradientBands(profile);
+    expect(bands[0].fromAlong).toBe(0);
+    expect(bands[bands.length - 1].toAlong).toBe(profile.distanceM);
+    for (let i = 1; i < bands.length; i++) expect(bands[i].fromAlong).toBe(bands[i - 1].toAlong);
+  });
+
+  it("leaves a course too short to split as one band", () => {
+    expect(gradientBands(profileOf([100, 150, 200]))).toHaveLength(1);
+  });
+});

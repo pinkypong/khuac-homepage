@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { gradientBands, stackLabels, type Steepness } from "@/lib/routes/elevation";
 import type { CourseElevation } from "./elevation-actions";
 
@@ -9,31 +9,52 @@ import type { CourseElevation } from "./elevation-actions";
  *
  * Green, blue, yellow, red, black, the way park boards and ski runs both go, so
  * a member who has read one of those signs already knows what the chart means
- * without being taught. Graded on the size of the gradient rather than its
- * direction: a 30% descent is not easy for being downhill.
+ * without being taught. At full strength, because these are worn as a signal
+ * rather than as decoration and a muted red is not a warning.
+ *
+ * Graded on the size of the gradient rather than its direction: a 30% descent
+ * is not easy for being downhill.
  */
-const GRADE: Record<Steepness, { fill: string; text: string; label: string }> = {
-  flat: { fill: "#0F766E", text: "text-[#0F766E]", label: "평탄" },
-  gentle: { fill: "#2563EB", text: "text-[#2563EB]", label: "완만" },
-  moderate: { fill: "#CA8A04", text: "text-[#CA8A04]", label: "보통" },
-  steep: { fill: "#DC2626", text: "text-[#DC2626]", label: "가파름" },
-  severe: { fill: "#1F2937", text: "text-[#1F2937]", label: "매우 가파름" },
+const GRADE: Record<Steepness, { line: string; text: string; label: string }> = {
+  flat: { line: "#059669", text: "text-[#059669]", label: "평탄" },
+  gentle: { line: "#2563EB", text: "text-[#2563EB]", label: "완만" },
+  moderate: { line: "#EAB308", text: "text-[#A16207]", label: "보통" },
+  steep: { line: "#EF4444", text: "text-[#DC2626]", label: "가파름" },
+  severe: { line: "#111827", text: "text-[#111827]", label: "매우 가파름" },
 };
 
 const ORDER: Steepness[] = ["flat", "gentle", "moderate", "steep", "severe"];
 
-const HEIGHT = 128;
+/** The silhouette under the line: the hill, not the difficulty. */
+const GROUND = "#94A3B8";
+
 const WIDTH = 1000;
+/** Drawn at this height and scaled to whatever the member has dragged it to. */
+const VIEW_HEIGHT = 128;
 /** Each row of names, in pixels. */
 const LABEL_ROW = 24;
+
+const DEFAULT_HEIGHT = 80;
+const MIN_HEIGHT = 44;
+const MAX_HEIGHT = 240;
+/** Below this the legend is more crowding than help. */
+const LEGEND_FROM = 64;
+const STORED_HEIGHT = "khuac:profile-height";
 
 /**
  * The course seen side-on, the way the park draws it.
  *
  * A card saying "약 7.1km, 약 4시간" does not say whether that is a walk or a
- * ladder. This does, and it says where: the ground under the line is coloured
- * by how steep it is, and the names along the bottom are the ones the course is
+ * ladder. This does, and it says where: the line is coloured by how steep the
+ * ground under it is, and the names along the bottom are the ones the course is
  * described by, so "the long steep bit" has a name to plan around.
+ *
+ * The colour is on the line rather than on the area beneath it. Filling the
+ * whole silhouette put the loudest thing on the screen underneath the map and
+ * left nothing quiet for the eye to rest on, and it fails as the chart gets
+ * smaller - a block of red at forty pixels tall is a smear, while a line stays
+ * a line. The silhouette is still drawn, in one neutral, because the shape of
+ * the hill is the context that makes the colours mean anything.
  *
  * Drawn from a 90m elevation model, which is coarse enough that the curve is
  * the shape of the hill rather than a survey of it. Nothing here is offered to
@@ -41,6 +62,51 @@ const LABEL_ROW = 24;
  */
 export function ElevationProfile({ data }: { data: CourseElevation }) {
   const { profile, sections, waypointAlong, names } = data;
+  const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  // State rather than only a ref: a ref does not re-render, so the effect that
+  // listens for the drag would never run and the handle would not move.
+  const [dragging, setDragging] = useState(false);
+  const grabbed = useRef<{ from: number; at: number }>({ from: 0, at: DEFAULT_HEIGHT });
+
+  // Remembered per browser, because the right size depends on the screen it is
+  // being read on and nobody wants to set it twice.
+  useEffect(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(STORED_HEIGHT));
+      if (Number.isFinite(saved) && saved >= MIN_HEIGHT && saved <= MAX_HEIGHT) setHeight(saved);
+    } catch {
+      // Private browsing refuses storage; the default is a fine answer.
+    }
+  }, []);
+
+  const resize = useCallback((next: number) => {
+    const clamped = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.round(next)));
+    setHeight(clamped);
+    try {
+      window.localStorage.setItem(STORED_HEIGHT, String(clamped));
+    } catch {
+      // As above.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+    // Dragging down gives the height to the map above, which takes whatever is
+    // left; dragging up gives it back to the chart.
+    const move = (event: PointerEvent) => {
+      event.preventDefault();
+      resize(grabbed.current.at - (event.clientY - grabbed.current.from));
+    };
+    const stop = () => setDragging(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [dragging, resize]);
 
   const geometry = useMemo(() => {
     const { points, distanceM, lowM, highM } = profile;
@@ -48,19 +114,24 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
     // A little headroom above and below so the curve never touches the frame,
     // and a floor of 50m of range so a flat course is not drawn as a mountain.
     const span = Math.max(highM - lowM, 50);
-    const base = lowM - span * 0.08;
-    const top = highM + span * 0.12;
+    const base = lowM - span * 0.06;
+    const top = highM + span * 0.14;
 
     const x = (along: number) => (along / distanceM) * WIDTH;
-    const y = (elevation: number) => HEIGHT - ((elevation - base) / (top - base)) * HEIGHT;
+    const y = (elevation: number) => VIEW_HEIGHT - ((elevation - base) / (top - base)) * VIEW_HEIGHT;
+    const at = (point: { along: number; elevation: number }) =>
+      `${x(point.along).toFixed(1)} ${y(point.elevation).toFixed(1)}`;
 
-    const ridge = points
-      .map((point, i) => `${i === 0 ? "M" : "L"} ${x(point.along).toFixed(1)} ${y(point.elevation).toFixed(1)}`)
-      .join(" ");
+    const ground = [
+      `M ${x(0).toFixed(1)} ${VIEW_HEIGHT}`,
+      ...points.map((point) => `L ${at(point)}`),
+      `L ${x(distanceM).toFixed(1)} ${VIEW_HEIGHT}`,
+      "Z",
+    ].join(" ");
 
-    // One filled shape per stretch of a single difficulty. Each takes a metre
-    // of its neighbours at the join so the bands meet rather than leaving a
-    // hairline of background between them.
+    // One stroke per stretch of a single difficulty. Neighbouring stretches
+    // share the point between them, so the line is continuous across a change
+    // of colour rather than broken at every one.
     const bands = gradientBands(profile)
       .map((band, i) => {
         const within = points.filter(
@@ -69,17 +140,12 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
         return {
           key: `${i}-${band.steepness}`,
           steepness: band.steepness,
-          path: [
-            `M ${x(within[0].along).toFixed(1)} ${HEIGHT}`,
-            ...within.map((point) => `L ${x(point.along).toFixed(1)} ${y(point.elevation).toFixed(1)}`),
-            `L ${x(within[within.length - 1].along).toFixed(1)} ${HEIGHT}`,
-            "Z",
-          ].join(" "),
+          path: within.map((point, k) => `${k === 0 ? "M" : "L"} ${at(point)}`).join(" "),
         };
       })
       .filter((band): band is { key: string; steepness: Steepness; path: string } => band !== null);
 
-    return { ridge, bands, x, seen: new Set(bands.map((band) => band.steepness)) };
+    return { ground, bands, x, seen: new Set(bands.map((band) => band.steepness)) };
   }, [profile]);
 
   // Which row each name sits on. 백운대 and 백운봉암문 are 340m apart on a
@@ -100,104 +166,130 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
   const tallest = Math.max(0, ...rows.filter((row): row is number => row !== null));
 
   return (
-    <section aria-label="코스 고도 단면" className="border-t border-neutral-200 bg-white px-3 pb-2 pt-2">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-neutral-600">
-        <span className="font-medium text-neutral-900">{km(profile.distanceM)}km</span>
-        <span>
-          상승 <strong className="font-medium text-neutral-800">{Math.round(profile.ascentM)}m</strong>
-          {" · "}
-          하강 <strong className="font-medium text-neutral-800">{Math.round(profile.descentM)}m</strong>
-        </span>
-        <span>최고 {Math.round(profile.highM)}m</span>
-        {hardest && hardest.steepness !== "flat" && (
-          <span className={GRADE[hardest.steepness].text}>
-            가장 힘든 구간 {hardest.from} → {hardest.to} ({km(hardest.distanceM)}km,
-            평균 {Math.round(hardest.gradient * 100)}%)
+    <section aria-label="코스 고도 단면" className="bg-white">
+      {/* The same grab strip as the divider between the map and the album, in
+          the other direction. Dragging it down hands the height to the map,
+          which takes whatever this leaves. */}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="고도 그래프 높이 조절"
+        tabIndex={0}
+        onPointerDown={(event) => {
+          grabbed.current = { from: event.clientY, at: height };
+          setDragging(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          resize(height + (event.key === "ArrowUp" ? 16 : -16));
+        }}
+        className={"h-1.5 w-full touch-none cursor-row-resize border-t border-neutral-200 transition-colors "
+          + (dragging ? "bg-neutral-400" : "bg-neutral-100 hover:bg-neutral-300")}
+      />
+
+      <div className="px-3 pb-2 pt-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-neutral-600">
+          <span className="font-medium text-neutral-900">{km(profile.distanceM)}km</span>
+          <span>
+            상승 <strong className="font-medium text-neutral-800">{Math.round(profile.ascentM)}m</strong>
+            {" · "}
+            하강 <strong className="font-medium text-neutral-800">{Math.round(profile.descentM)}m</strong>
           </span>
-        )}
-      </div>
+          <span>최고 {Math.round(profile.highM)}m</span>
+          {hardest && hardest.steepness !== "flat" && (
+            <span className={GRADE[hardest.steepness].text}>
+              가장 힘든 구간 {hardest.from} → {hardest.to} ({km(hardest.distanceM)}km,
+              평균 {Math.round(hardest.gradient * 100)}%)
+            </span>
+          )}
+        </div>
 
-      <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        preserveAspectRatio="none"
-        className="mt-1 h-[104px] w-full"
-        role="img"
-        aria-label={`${km(profile.distanceM)}킬로미터, 누적 상승 ${Math.round(profile.ascentM)}미터`}
-      >
-        {geometry.bands.map((band) => (
-          <path key={band.key} d={band.path} fill={GRADE[band.steepness].fill} fillOpacity={0.5} />
-        ))}
-        <path
-          d={geometry.ridge}
-          fill="none"
-          stroke="#1F2937"
-          strokeWidth={1.75}
-          strokeOpacity={0.75}
-          vectorEffect="non-scaling-stroke"
-        />
-        {waypointAlong.map((along, i) => (
-          <line
-            key={`tick-${i}`}
-            x1={geometry.x(along)}
-            x2={geometry.x(along)}
-            y1={0}
-            y2={HEIGHT}
-            stroke="#111"
-            strokeOpacity={rows[i] === null ? 0.08 : 0.24}
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-      </svg>
+        <svg
+          viewBox={`0 0 ${WIDTH} ${VIEW_HEIGHT}`}
+          preserveAspectRatio="none"
+          style={{ height }}
+          className="mt-1 w-full"
+          role="img"
+          aria-label={`${km(profile.distanceM)}킬로미터, 누적 상승 ${Math.round(profile.ascentM)}미터`}
+        >
+          <path d={geometry.ground} fill={GROUND} fillOpacity={0.16} />
+          {waypointAlong.map((along, i) => (
+            <line
+              key={`tick-${i}`}
+              x1={geometry.x(along)}
+              x2={geometry.x(along)}
+              y1={0}
+              y2={VIEW_HEIGHT}
+              stroke="#0F172A"
+              strokeOpacity={rows[i] === null ? 0.07 : 0.16}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {geometry.bands.map((band) => (
+            <path
+              key={band.key}
+              d={band.path}
+              fill="none"
+              stroke={GRADE[band.steepness].line}
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+        </svg>
 
-      {/* The names are HTML rather than SVG text: the chart is stretched to the
-          pane's width with preserveAspectRatio="none", which would stretch
-          lettering with it. Each is centred on its own tick and dropped onto
-          whichever row is clear there, with a hairline back up to the tick so a
-          name on the second row is still attached to the point it belongs to. */}
-      <div className="relative" style={{ height: (tallest + 1) * LABEL_ROW }}>
-        {waypointAlong.map((along, i) => {
-          const row = rows[i];
-          if (row === null) return null;
-          const left = `${Math.min(99, Math.max(1, (along / Math.max(profile.distanceM, 1)) * 100))}%`;
-          return (
-            <span key={`label-${i}`}>
-              {row > 0 && (
+        {/* The names are HTML rather than SVG text: the chart is stretched to
+            the pane's width with preserveAspectRatio="none", which would
+            stretch lettering with it. Each is centred on its own tick and
+            dropped onto whichever row is clear there, with a hairline back up
+            to the tick so a name on the second row is still attached to the
+            point it belongs to. */}
+        <div className="relative" style={{ height: (tallest + 1) * LABEL_ROW }}>
+          {waypointAlong.map((along, i) => {
+            const row = rows[i];
+            if (row === null) return null;
+            const left = `${Math.min(99, Math.max(1, (along / Math.max(profile.distanceM, 1)) * 100))}%`;
+            return (
+              <span key={`label-${i}`}>
+                {row > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-0 w-px bg-neutral-300"
+                    style={{ left, height: row * LABEL_ROW }}
+                  />
+                )}
+                <span
+                  className="absolute max-w-[8rem] -translate-x-1/2 truncate text-center text-[10px] leading-tight text-neutral-600"
+                  style={{ left, top: row * LABEL_ROW }}
+                  title={names[i]}
+                >
+                  {names[i]}
+                  <br />
+                  <span className="text-neutral-400">{km(along)}km</span>
+                </span>
+              </span>
+            );
+          })}
+        </div>
+
+        {used.length > 1 && height >= LEGEND_FROM && (
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-neutral-500">
+            {used.map((step) => (
+              <span key={step} className="inline-flex items-center gap-1">
                 <span
                   aria-hidden="true"
-                  className="absolute top-0 w-px bg-neutral-300"
-                  style={{ left, height: row * LABEL_ROW }}
+                  className="inline-block h-0.5 w-3.5 rounded-full"
+                  style={{ backgroundColor: GRADE[step].line }}
                 />
-              )}
-              <span
-                className="absolute max-w-[8rem] -translate-x-1/2 truncate text-center text-[10px] leading-tight text-neutral-600"
-                style={{ left, top: row * LABEL_ROW }}
-                title={names[i]}
-              >
-                {names[i]}
-                <br />
-                <span className="text-neutral-400">{km(along)}km</span>
+                {GRADE[step].label}
               </span>
-            </span>
-          );
-        })}
+            ))}
+          </div>
+        )}
       </div>
-
-      {used.length > 1 && (
-        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] text-neutral-500">
-          {used.map((step) => (
-            <span key={step} className="inline-flex items-center gap-1">
-              <span
-                aria-hidden="true"
-                className="inline-block h-2 w-3 rounded-[1px]"
-                style={{ backgroundColor: GRADE[step].fill, opacity: 0.55 }}
-              />
-              {GRADE[step].label}
-            </span>
-          ))}
-          <span className="text-neutral-400">· 250m 구간의 평균 경사</span>
-        </div>
-      )}
     </section>
   );
 }

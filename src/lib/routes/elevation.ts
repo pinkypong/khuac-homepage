@@ -278,6 +278,21 @@ export function sectionsOf(
  */
 export const BAND_WINDOW_M = 250;
 
+/**
+ * The shortest stretch worth giving a colour of its own.
+ *
+ * Fifteen bands on a six-kilometre course is a chart that changes colour every
+ * few millimetres, and a reader cannot hold that many pieces at once - it reads
+ * as texture rather than as information. A band has to be long enough to be a
+ * part of the walk somebody would describe: "the first kilometre is flat", not
+ * "there is a level step at 2.85".
+ *
+ * Shorter ones are not dropped. They are folded into whichever neighbour they
+ * are nearer in gradient, and the grade of that neighbour is worked out again
+ * over the whole of it, so the colour still comes from the ground.
+ */
+export const MIN_BAND_M = 500;
+
 export interface GradientBand {
   fromAlong: number;
   toAlong: number;
@@ -296,7 +311,11 @@ export interface GradientBand {
  * takes the gradient across a window, grades that, and merges neighbours that
  * came out the same, so a band is as long as the ground stays the same shape.
  */
-export function gradientBands(profile: CourseProfile, window = BAND_WINDOW_M): GradientBand[] {
+export function gradientBands(
+  profile: CourseProfile,
+  window = BAND_WINDOW_M,
+  minBand = MIN_BAND_M,
+): GradientBand[] {
   const { points } = profile;
   if (points.length < 2) return [];
 
@@ -316,22 +335,59 @@ export function gradientBands(profile: CourseProfile, window = BAND_WINDOW_M): G
     start = i;
   }
 
-  // Merged so one long climb is one band rather than a row of stripes.
+  // One long climb should be one band, not a row of stripes, and a brief step
+  // inside it should not break it into three. Grades that match are merged,
+  // then the shortest band still under the minimum is folded into a neighbour,
+  // and the two are alternated: folding can leave two neighbours at the same
+  // grade, and those are one piece of walking however they came to be.
+  let out = mergeByGrade(raw);
+  while (out.length > 1) {
+    let at = -1;
+    for (let i = 0; i < out.length; i++) {
+      if (out[i].toAlong - out[i].fromAlong >= minBand) continue;
+      if (at === -1 || out[i].toAlong - out[i].fromAlong < out[at].toAlong - out[at].fromAlong) at = i;
+    }
+    if (at === -1) break;
+
+    const before = out[at - 1];
+    const after = out[at + 1];
+    const gap = (other: GradientBand | undefined) =>
+      other === undefined ? Infinity : Math.abs(other.gradient - out[at].gradient);
+    // Into whichever neighbour the ground is more like. A short level step
+    // between two climbs belongs to the gentler of them, not to whichever
+    // happens to come first.
+    if (gap(before) <= gap(after)) absorb(before, out[at]);
+    else absorb(after!, out[at]);
+    out.splice(at, 1);
+    out = mergeByGrade(out);
+  }
+  return out;
+}
+
+/** Neighbouring stretches of the same grade, going the same way, as one. */
+function mergeByGrade(bands: GradientBand[]): GradientBand[] {
   const out: GradientBand[] = [];
-  for (const band of raw) {
+  for (const band of bands) {
     const previous = out[out.length - 1];
     if (previous && previous.steepness === band.steepness
       && Math.sign(previous.gradient) === Math.sign(band.gradient)) {
-      const span = band.toAlong - previous.fromAlong;
-      const rise = previous.gradient * (previous.toAlong - previous.fromAlong)
-        + band.gradient * (band.toAlong - band.fromAlong);
-      previous.toAlong = band.toAlong;
-      previous.gradient = span > 0 ? rise / span : previous.gradient;
+      absorb(previous, band);
       continue;
     }
     out.push({ ...band });
   }
   return out;
+}
+
+/** Grows `keep` to cover `extra`, re-grading it over the whole span. */
+function absorb(keep: GradientBand, extra: GradientBand): void {
+  const rise = keep.gradient * (keep.toAlong - keep.fromAlong)
+    + extra.gradient * (extra.toAlong - extra.fromAlong);
+  keep.fromAlong = Math.min(keep.fromAlong, extra.fromAlong);
+  keep.toAlong = Math.max(keep.toAlong, extra.toAlong);
+  const span = keep.toAlong - keep.fromAlong;
+  keep.gradient = span > 0 ? rise / span : keep.gradient;
+  keep.steepness = steepnessOf(keep.gradient);
 }
 
 /**

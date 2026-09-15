@@ -94,3 +94,31 @@ describe("weatherSubject", () => {
 it.each(["북한산 이번주 날씨", "북한산 이번 주 날씨", "북한산 금주 날씨"])("recognizes this week: %s", q => {
  expect(extractTimeframe(q)).toBe("this_week");
 });
+
+describe("어프로치", () => {
+  it("reads an approach as a route, because that is what it is", () => {
+    expect(isRouteQuestion("인수봉 고독길 어프로치")).toBe(true);
+    expect(isRouteQuestion("선인봉 접근로 알려줘")).toBe(true);
+    expect(isRouteQuestion("숨은벽 들머리")).toBe(true);
+    expect(isRouteQuestion("백운대 하산로")).toBe(true);
+  });
+
+  it("still leaves a question that is not asking for one alone", () => {
+    expect(isRouteQuestion("인수봉 오늘 날씨")).toBe(false);
+  });
+});
+
+describe("등산 as a word, not as a syllable", () => {
+  it("does not read a gear question as a request for courses", () => {
+    // Both contain 등산 and 추천, and neither is asking where to walk.
+    expect(isRouteQuestion("등산화 추천해줘")).toBe(false);
+    expect(isRouteQuestion("등산복 추천")).toBe(false);
+    expect(isRouteQuestion("등산스틱 추천해줘")).toBe(false);
+  });
+
+  it("still reads a real one", () => {
+    expect(isRouteQuestion("북한산 등산 추천해줘")).toBe(true);
+    expect(isRouteQuestion("초보 산행 추천")).toBe(true);
+    expect(isRouteQuestion("관악산 등산로")).toBe(true);
+  });
+});

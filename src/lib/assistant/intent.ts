@@ -65,7 +65,17 @@ export function classifyQuery(query: string): QueryIntent {
   return "complex";
 }
 
-const ROUTE_WORDS = ["루트", "코스", "능선", "등산로", "등산길", "산행길", "경로"];
+// 어프로치 is the walk in to the foot of a climb, and it is a route by every
+// measure that matters here: named places in an order, on real paths, with a
+// length. This club's own card advertises 어프로치 next to 코스추천, and yet
+// "인수봉 고독길 어프로치" answered with prose and no cards, because the word
+// was not on this list - so there was nothing to put on the map and nothing to
+// make an album from. 접근로 and 들머리 are the same thing said differently,
+// and 하산로 is it in reverse.
+const ROUTE_WORDS = [
+  "루트", "코스", "능선", "등산로", "등산길", "산행길", "경로",
+  "어프로치", "접근로", "들머리", "하산로",
+];
 
 /**
  * A complex question that is specifically asking for named routes, as opposed
@@ -74,7 +84,15 @@ const ROUTE_WORDS = ["루트", "코스", "능선", "등산로", "등산길", "�
  * plain narrative instead.
  */
 export function isRouteQuestion(query: string): boolean {
-  return containsAny(query, ROUTE_WORDS) || (containsAny(query, ["등산", "산행"]) && containsAny(query, ["추천", "초보", "시간", "갈 만", "갈만"]));
+  if (containsAny(query, ROUTE_WORDS)) return true;
+  // "등산 추천" is asking for somewhere to walk. "등산화 추천" is asking for
+  // boots, and it was reaching the same twenty-seven-second search for named
+  // courses because both contain 등산 and 추천. The word only counts when it
+  // stands on its own: anything that carries straight on into another syllable
+  // - 등산화, 등산복, 등산스틱, 산행기 - is a different noun. Compounds that
+  // really are routes (등산로, 등산길, 산행길) are on the list above already.
+  const walking = /(등산|산행)(?![가-힣])/.test(query);
+  return walking && containsAny(query, ["추천", "초보", "시간", "갈 만", "갈만"]);
 }
 
 // Everything a weather question is built from apart from the place itself.
