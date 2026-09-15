@@ -120,7 +120,7 @@ if (courses.size === 0 || dryRun) {
 
 const list = [...courses.values()];
 for (let i = 0; i < list.length; i += 20) {
-  const response = await fetch(`${url}/rest/v1/course_library`, {
+  const response = await fetch(`${url}/rest/v1/course_library?on_conflict=mountain,name`, {
     method: "POST",
     headers: { ...headers, "content-type": "application/json", prefer: "resolution=merge-duplicates" },
     body: JSON.stringify(list.slice(i, i + 20)),
