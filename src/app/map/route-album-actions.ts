@@ -104,6 +104,15 @@ export async function createAlbumFromRoute(input: {
     .filter(Boolean)
     .join("\n");
 
+  // A line that arrived and could not be read is a bug, and saving the album
+  // without it hides that: the album opens as a pin and looks like a course
+  // that simply had no route. Nothing to refuse the member over - the album is
+  // still worth having - but it is worth saying out loud.
+  const track = sanitizeTrack(unflattenTrack(input.track));
+  if (input.track && !track) {
+    console.error("[route-album] 보내온 선을 읽지 못했습니다", input.track.length);
+  }
+
   const { data: hike, error: hikeError } = await supabase
     .from("hikes")
     .insert({
@@ -114,7 +123,7 @@ export async function createAlbumFromRoute(input: {
       description,
       lat: spot.lat,
       lng: spot.lng,
-      track: sanitizeTrack(unflattenTrack(input.track)),
+      track,
       // The named points, with coordinates, so the map can put each label
       // where it belongs instead of listing them all on the opening pin.
       route_waypoints: points.map((p) => ({ name: p.name, lat: p.lat, lng: p.lng })),

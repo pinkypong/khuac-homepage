@@ -248,6 +248,15 @@ export function MapShell({
     center: { lat: number; lng: number } | null;
     placeName: string;
     resolved: RouteWaypoint[] | null;
+    /** The line as drawn, kept beside the waypoints it was drawn through.
+
+        Held here rather than in a state of its own, which is where it used to
+        live and how an album came to be saved with six waypoints and no line:
+        the waypoints are handed up as soon as the names resolve, the line only
+        once the router answers, and when that answer was lost to a dropped
+        connection the two states disagreed with nothing to notice it. In one
+        object they are replaced together or not at all. */
+    track: TrackPoint[] | null;
   } | null>(null);
   const [creatingAlbum, setCreatingAlbum] = useState(false);
   // A course waypoint nothing could place, and the point a member is putting
@@ -274,9 +283,6 @@ export function MapShell({
     chosen: number[];
   } | null>(null);
   const [trailBusy, setTrailBusy] = useState(false);
-  // The drawn line for the course being previewed, kept so an album made from
-  // it opens with the route on the map rather than as a bare pin.
-  const [routeTrack, setRouteTrack] = useState<TrackPoint[] | null>(null);
   // The course seen side-on, under the map. Held here rather than in the map
   // because it belongs to whichever course is being looked at, and that is
   // either a previewed suggestion or an open album - the map knows about
@@ -441,6 +447,7 @@ export function MapShell({
       // the course name stands in - the member can rename the folder after.
       placeName: place.name ?? route.name,
       resolved: null,
+      track: null,
     });
     showMap();
   }
@@ -468,7 +475,7 @@ export function MapShell({
         routeName: route.name,
         placeName: current.placeName,
         waypoints,
-        track: routeTrack ? flattenTrack(routeTrack) : null,
+        track: current.track ? flattenTrack(current.track) : null,
         distanceText: route.distanceText,
         notes: route.notes,
       });
@@ -493,10 +500,12 @@ export function MapShell({
   // The line to profile: the previewed course while one is being looked at,
   // and otherwise the open album's own track. A member's GPX is the better
   // record of the two and wins whenever there is no suggestion on screen.
-  const profileTrack = routeTrack ?? pinnedHike?.track ?? null;
-  const profileKey = profileTrack ? `${routeTrack ? "route" : pinnedHike?.id}:${profileTrack.length}` : null;
-  const profileNames = routeTrack
-    ? (suggestedRoute?.resolved ?? [])
+  const profileTrack = suggestedRoute?.track ?? pinnedHike?.track ?? null;
+  const profileKey = profileTrack
+    ? `${suggestedRoute?.track ? "route" : pinnedHike?.id}:${profileTrack.length}`
+    : null;
+  const profileNames = suggestedRoute?.track
+    ? (suggestedRoute.resolved ?? [])
     : (pinnedHike?.routeWaypoints ?? []);
 
   useEffect(() => {
@@ -596,7 +605,9 @@ export function MapShell({
                 }
                 onRouteMissing={setMissingNames}
                 onRouteDerived={setDerivedNames}
-                onRouteTrack={setRouteTrack}
+                onRouteTrack={(track) =>
+                  setSuggestedRoute((current) => (current ? { ...current, track } : current))
+                }
                 onTrailsUnavailable={setTrailsUnavailable}
               /></MapErrorBoundary>
             ) : (
