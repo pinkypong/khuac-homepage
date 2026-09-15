@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { snapRouteToTrails, dropOutlierWaypoints, type SnapDiagnostics } from "../src/lib/routes/snap.ts";
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
 import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
+import { findClubPoi, isPlausibleMatch, type ClubPoi } from "../src/lib/routes/poi.ts";
 
 /** Kept in step with NOT_A_WAYPOINT in src/app/map/suggested-route.tsx. */
 const NOT_A_WAYPOINT = new Set([
@@ -37,7 +38,7 @@ if (!place || names.length < 2) throw new Error("사용법: <산이름> <경유�
 // The map biases to the place it is centred on; 북한산 is close enough for this.
 const centre = { latitude: 37.64, longitude: 126.98 };
 
-async function search(textQuery: string) {
+async function search(textQuery: string, asked: string) {
   const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
@@ -55,13 +56,34 @@ async function search(textQuery: string) {
   const body = await response.json() as {
     places?: { displayName: { text: string }; location: { latitude: number; longitude: number }; types: string[] }[];
   };
-  return (body.places ?? []).find((p) => !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t)));
+  return (body.places ?? []).find((p) => !(p.types ?? []).some((t) => NOT_A_WAYPOINT.has(t))
+    && isPlausibleMatch(asked, p.displayName.text, place));
 }
+
+const clubPois: ClubPoi[] = await (async () => {
+  const response = await fetch(`${supabaseUrl}/rest/v1/route_pois?select=name,aliases,lat,lng`, { headers });
+  return response.ok ? await response.json() as ClubPoi[] : [];
+})();
 
 const resolved: { name: string; lat: number; lng: number; as: string }[] = [];
 for (const name of names) {
-  let best = await search(`${place} ${name}`.trim());
-  if (!best) best = await search(name);
+  // A raw "lat,lng" stands in for a name, so a leg can be probed between two
+  // points that no gazetteer or search would return.
+  const literal = name.match(/^(-?\d+\.\d+),(-?\d+\.\d+)$/);
+  if (literal) {
+    resolved.push({ name, lat: Number(literal[1]), lng: Number(literal[2]), as: "좌표" });
+    console.log(`${name} → 좌표 직접 지정`);
+    continue;
+  }
+  // The club's own gazetteer first, exactly as the browser does.
+  const known = findClubPoi(name, clubPois);
+  if (known) {
+    resolved.push({ name, lat: known.lat, lng: known.lng, as: `${known.name} (동아리 등록)` });
+    console.log(`${name} → ${known.name} (동아리 등록) · ${known.lat.toFixed(5)},${known.lng.toFixed(5)}`);
+    continue;
+  }
+  let best = await search(`${place} ${name}`.trim(), name);
+  if (!best) best = await search(name, name);
   if (!best) {
     console.log(`${name} → 찾지 못함 (생략)`);
     continue;

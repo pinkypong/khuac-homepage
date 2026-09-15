@@ -20,7 +20,7 @@ import { snapRouteToTrails, dropOutlierWaypoints, type SnapDiagnostics } from ".
 import { mergeTileSegments, tilesForBounds } from "../src/lib/routes/tiles.ts";
 import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
 import { haversineDistanceMeters } from "../src/lib/gps/haversine.ts";
-import { isPlausibleMatch } from "../src/lib/routes/poi.ts";
+import { findClubPoi, isPlausibleMatch, type ClubPoi } from "../src/lib/routes/poi.ts";
 import type { TrackPoint } from "../src/lib/gps/track.ts";
 
 /** Kept in step with NOT_A_WAYPOINT in src/app/map/suggested-route.tsx. */
@@ -77,9 +77,22 @@ async function search(textQuery: string, asked: string) {
     && isPlausibleMatch(asked, p.displayName.text, PLACE));
 }
 
+const clubPois: ClubPoi[] = await (async () => {
+  const response = await fetch(`${supabaseUrl}/rest/v1/route_pois?select=name,aliases,lat,lng`, { headers });
+  return response.ok ? await response.json() as ClubPoi[] : [];
+})();
+console.log(`동아리 지명 ${clubPois.length}개`);
+
 async function resolve(name: string) {
   const cached = lookups.get(name);
   if (cached !== undefined) return cached;
+  // The club's own gazetteer first, exactly as the browser does.
+  const known = findClubPoi(name, clubPois);
+  if (known) {
+    const point = { name: `${known.name} (동아리 등록)`, lat: known.lat, lng: known.lng };
+    lookups.set(name, point);
+    return point;
+  }
   let best = await search(`${PLACE} ${name}`, name);
   if (!best) best = await search(name, name);
   const point = best
