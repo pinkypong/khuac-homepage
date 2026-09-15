@@ -135,6 +135,8 @@ export function AssistantPanel({
   const [recent, setRecent] = useState<RecentQuestion[]>([]);
   /** The second half is still coming: the answer is readable, the cards are not. */
   const [filling, setFilling] = useState(false);
+  /** The cards did not arrive, and saying so beats an answer that looks whole. */
+  const [cardsFailed, setCardsFailed] = useState(false);
 
   // What the club has already paid for. Asking one of these again is free, so
   // they are offered ahead of the examples.
@@ -154,6 +156,7 @@ export function AssistantPanel({
     setPending(true);
     setError(null);
     setAnswer(null);
+    setCardsFailed(false);
     try {
       const first = await askAssistant(trimmed, refresh);
       setAnswer(first);
@@ -165,10 +168,13 @@ export function AssistantPanel({
         setFilling(true);
         try {
           const whole = await finishRouteAnswer(trimmed);
-          if (whole) setAnswer(whole);
+          if (whole?.routesPending === false) setAnswer(whole);
+          else setCardsFailed(true);
         } catch {
-          // The prose is already on screen and says the same things. Leaving
-          // it there beats replacing a real answer with an error.
+          // The prose stays - it is a real answer and says the same things -
+          // but the reader is told the cards are missing rather than left with
+          // an answer that looks complete and has no map buttons on it.
+          setCardsFailed(true);
         } finally {
           setFilling(false);
         }
@@ -339,6 +345,22 @@ export function AssistantPanel({
             <p className="mt-3 border-t border-neutral-100 pt-3 text-[11px] text-neutral-500" role="status">
               코스를 지도에 올릴 수 있게 정리하는 중…
             </p>
+          )}
+
+          {cardsFailed && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-100 pt-3">
+              <span className="text-[11px] text-neutral-600">
+                답변은 받았지만 지도에 올릴 코스 목록을 만들지 못했습니다.
+              </span>
+              <button
+                type="button"
+                onClick={() => void ask(question || answer.text, true)}
+                disabled={pending || filling}
+                className="rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              >
+                다시 시도
+              </button>
+            </div>
           )}
 
           {answer.routes && answer.routes.length > 0 && (
