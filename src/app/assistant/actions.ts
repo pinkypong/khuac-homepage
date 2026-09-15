@@ -73,6 +73,22 @@ export async function recentQuestions(): Promise<RecentQuestion[]> {
     .map((row) => ({ question: row.question, ageLabel: ageLabel(row.created_at) }));
 }
 
+/**
+ * Takes a question off the recent list.
+ *
+ * The cached answer goes with it, so the next person to ask pays for it again.
+ * That is the whole cost, and it is smaller than leaving a question somebody
+ * asked by mistake on screen for a fortnight.
+ */
+export async function forgetQuestion(question: string): Promise<void> {
+  const { supabase } = await requireApprovedMember();
+  const { error } = await supabase
+    .from("assistant_cache")
+    .delete()
+    .eq("question_key", cacheKey(question));
+  if (error) throw new Error(error.message);
+}
+
 interface LocationRow {
   id: string;
   name: string;

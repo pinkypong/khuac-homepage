@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { askAssistant, recentQuestions, type AssistantAnswer, type RecentQuestion } from "./actions";
+import { askAssistant, forgetQuestion, recentQuestions, type AssistantAnswer, type RecentQuestion } from "./actions";
 import { parseMarkdown, type InlineToken } from "@/lib/assistant/markdown";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
@@ -200,19 +200,42 @@ export function AssistantPanel({
           <p className="mb-1 text-[10px] font-medium text-neutral-400">최근 검색 · 다시 보기는 무료</p>
           <div className="flex flex-wrap gap-1.5">
             {recent.map((item) => (
-              <button
+              // The question and its dismissal are two buttons rather than one
+              // with a corner that does something else: a chip you tap to ask
+              // again should not be able to delete the answer by a few pixels.
+              <span
                 key={item.question}
-                type="button"
-                onClick={() => {
-                  setQuestion(item.question);
-                  void ask(item.question);
-                }}
-                disabled={pending}
-                className="max-w-full truncate rounded-full border border-[#e0cdd1] bg-[#faf5f6] px-2.5 py-1 text-xs text-[#5b1a23] disabled:opacity-50"
+                className="flex max-w-full items-center rounded-full border border-[#e0cdd1] bg-[#faf5f6] text-xs text-[#5b1a23]"
               >
-                {item.question}
-                <span className="ml-1 text-[10px] text-neutral-400">{item.ageLabel}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuestion(item.question);
+                    void ask(item.question);
+                  }}
+                  disabled={pending}
+                  className="min-w-0 truncate py-1 pl-2.5 pr-1 disabled:opacity-50"
+                >
+                  {item.question}
+                  <span className="ml-1 text-[10px] text-neutral-400">{item.ageLabel}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`'${item.question}' 검색 기록 지우기`}
+                  onClick={() => {
+                    // Off the list at once. The answer it held is gone either
+                    // way, and waiting on the round trip to admit that only
+                    // makes the tap feel broken.
+                    setRecent((current) => current.filter((row) => row.question !== item.question));
+                    void forgetQuestion(item.question).catch(() => {
+                      void recentQuestions().then(setRecent).catch(() => {});
+                    });
+                  }}
+                  className="shrink-0 px-2 py-1 text-neutral-400 hover:text-[#5b1a23]"
+                >
+                  ×
+                </button>
+              </span>
             ))}
           </div>
         </div>

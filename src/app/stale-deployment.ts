@@ -28,6 +28,9 @@ export function isStaleDeployment(error: unknown): boolean {
   // Next names the action in its own message; the 404 is what reaches the
   // browser when the Worker could not find it.
   return message.includes("Failed to find Server Action")
+    // What the browser is shown when the id is gone, which is not the same
+    // sentence the Worker logs: "Server Action ... was not found on the server".
+    || message.includes("was not found on the server")
     || message.includes("Unexpected response")
     || message.includes("status: 404");
 }
