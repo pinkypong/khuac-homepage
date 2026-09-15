@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import { groupSegmentsByTile } from "../src/lib/routes/tiles.ts";
 import { haversineDistanceMeters } from "../src/lib/gps/haversine.ts";
-import type { TrailSegment } from "../src/lib/routes/trails.ts";
+import { splitSurveyGaps, type TrailSegment } from "../src/lib/routes/trails.ts";
 
 const ENDPOINT =
   "https://api.odcloud.kr/api/15003467/v1/uddi:33b2e50e-6039-4649-a9da-8d5b89180b78_201709281349";
@@ -150,17 +150,32 @@ for (;;) {
   page++;
 }
 
-const segments: TrailSegment[] = [];
-let nextId = ID_OFFSET;
+const lines: TrailSegment[] = [];
 for (const course of courses.values()) {
   const points = thin(course.points);
   if (points.length < 2) continue;
-  segments.push({ id: nextId++, name: course.name, kind: "path", points });
+  lines.push({ id: 0, name: course.name, kind: "path", points });
 }
+
+/**
+ * A published course is not always one continuous line.
+ *
+ * Several of them concatenate pieces that are nowhere near each other, and the
+ * jump between two pieces is a straight edge hundreds of kilometres long. The
+ * tiler walks along every edge so a sparse road cannot cross a tile unnoticed,
+ * which turns one of those jumps into a stripe of tiles painted across the
+ * country: 111 courses produced 17,155 tiles, and the upload died of a
+ * statement timeout at the 310th.
+ *
+ * Splitting here rather than at read time means what we store is already the
+ * geometry the router wants, and every reader gets it without repeating the work.
+ */
+let nextId = ID_OFFSET;
+const segments: TrailSegment[] = splitSurveyGaps(lines).map((segment) => ({ ...segment, id: nextId++ }));
 
 const rawPoints = [...courses.values()].reduce((n, c) => n + c.points.length, 0);
 const keptPoints = segments.reduce((n, s) => n + s.points.length, 0);
-console.log(`코스 ${segments.length}개 · 좌표 ${rawPoints} -> ${keptPoints} (${MIN_SPACING_M}m 간격으로 정리)`);
+console.log(`코스 ${lines.length}개 -> 구간 ${segments.length}개 · 좌표 ${rawPoints} -> ${keptPoints} (${MIN_SPACING_M}m 간격으로 정리)`);
 
 const byTile = groupSegmentsByTile(segments);
 console.log(`타일 ${byTile.size}개`);
