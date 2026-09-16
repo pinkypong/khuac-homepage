@@ -170,11 +170,11 @@ export function HikeDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="border-b border-neutral-200 px-4 py-3">
+      <div className="border-b border-club-line px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <button
             onClick={onBackToLocation}
-            className="min-w-0 truncate rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-50 md:py-1"
+            className="min-w-0 truncate rounded border border-club-line px-2 py-1.5 text-xs text-club-ink-soft hover:bg-club-paper md:py-1"
           >
             ← {location.name}
           </button>
@@ -186,14 +186,14 @@ export function HikeDetail({
           <button
             type="button"
             onClick={onShowOnMap}
-            className="shrink-0 rounded bg-neutral-900 px-2.5 py-1.5 text-xs font-medium text-white md:hidden"
+            className="shrink-0 rounded bg-club-ink px-2.5 py-1.5 text-xs font-medium text-white md:hidden"
           >
             {mappedPhotos > 0 ? `지도에서 사진 위치 ${mappedPhotos}곳 보기` : "지도에서 경로 보기"}
           </button>
           )}
           <button
             onClick={onBackToRoot}
-            className="hidden shrink-0 text-xs text-neutral-500 hover:underline md:block"
+            className="hidden shrink-0 text-xs text-club-muted hover:underline md:block"
           >
             전체 지도
           </button>
@@ -209,7 +209,7 @@ export function HikeDetail({
               }}
               autoFocus
               aria-label="활동 이름"
-              className="min-w-0 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
+              className="min-w-0 rounded border border-club-line px-2 py-1 text-base md:text-sm"
             />
             <textarea
               value={renaming.description}
@@ -220,7 +220,7 @@ export function HikeDetail({
               rows={4}
               aria-label="메모"
               placeholder={"이 산행에 대해 남길 메모\n물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것"}
-              className="min-w-0 resize-y rounded border border-neutral-300 px-2 py-1 text-base leading-relaxed md:text-sm"
+              className="min-w-0 resize-y rounded border border-club-line px-2 py-1 text-base leading-relaxed md:text-sm"
             />
             {/* What kind of outing it was. Editable because it is guessed: an
                 album made from a course is filed by reading the words in it,
@@ -238,7 +238,7 @@ export function HikeDetail({
                     "rounded border px-2 py-1 text-[11px] transition-colors "
                     + (renaming.activityType === type
                       ? "border-transparent font-medium text-white"
-                      : "border-neutral-300 text-neutral-600 hover:bg-neutral-50")
+                      : "border-club-line text-club-muted hover:bg-club-paper")
                   }
                   style={renaming.activityType === type
                     ? { backgroundColor: ACTIVITY_COLOR[type] }
@@ -258,20 +258,20 @@ export function HikeDetail({
                   if (e.key === "Escape") setRenaming(null);
                 }}
                 aria-label="활동 날짜"
-                className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
+                className="min-w-0 flex-1 rounded border border-club-line px-2 py-1 text-base md:text-sm"
               />
               <button
                 type="button"
                 onClick={submitRename}
                 disabled={savingName}
-                className="shrink-0 rounded bg-neutral-900 px-2.5 py-1.5 text-xs text-white disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
+                className="shrink-0 rounded bg-club-ink px-2.5 py-1.5 text-xs text-white disabled:opacity-50 md:px-2 md:py-1 md:text-[11px]"
               >
                 저장
               </button>
               <button
                 type="button"
                 onClick={() => setRenaming(null)}
-                className="shrink-0 rounded border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-600 md:px-2 md:py-1 md:text-[11px]"
+                className="shrink-0 rounded border border-club-line px-2.5 py-1.5 text-xs text-club-muted md:px-2 md:py-1 md:text-[11px]"
               >
                 취소
               </button>
@@ -281,7 +281,7 @@ export function HikeDetail({
         <div className="mt-2 flex items-center gap-2">
           <h1 className="min-w-0 truncate text-lg font-semibold">{hike.title}</h1>
           <span
-            className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium text-white"
+            className="shrink-0 rounded px-1.5 py-px text-[11px] font-medium text-white"
             style={{ backgroundColor: ACTIVITY_COLOR[hike.activityType] }}
           >
             {ACTIVITY_LABEL[hike.activityType]}
@@ -289,7 +289,7 @@ export function HikeDetail({
           <button
             type="button"
             onClick={() => openEditor()}
-            className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 md:py-0.5 md:text-[11px]"
+            className="shrink-0 rounded border border-club-line px-2 py-1 text-xs text-club-muted hover:bg-club-paper md:py-0.5 md:text-[11px]"
           >
             수정
           </button>
@@ -305,7 +305,7 @@ export function HikeDetail({
           )}
         </div>
         )}
-        <p className="mt-0.5 text-xs text-neutral-500">
+        <p className="mt-0.5 text-xs text-club-muted">
           {new Date(hike.date).toLocaleDateString("ko-KR")}
           {distance ? " · " + distance : ""}
           {" · 사진 " + hike.photos.length + "장"}
@@ -326,14 +326,14 @@ export function HikeDetail({
         {(hike.courseInfo || waypointNames.length > 0 || hike.description) ? (
           <section
             aria-label="코스 정보"
-            className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5"
+            className="mb-4 rounded-sm border border-club-line bg-club-paper px-3 py-2.5"
           >
             <div className="mb-1.5 flex items-center justify-between gap-2">
-              <h2 className="text-[11px] font-semibold tracking-wide text-neutral-500">코스</h2>
+              <h2 className="text-[11px] font-semibold tracking-wide text-club-muted">코스</h2>
               <button
                 type="button"
                 onClick={openEditor}
-                className="shrink-0 rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[10px] text-neutral-600 hover:bg-neutral-50"
+                className="shrink-0 rounded border border-club-line bg-white px-1.5 py-0.5 text-[11px] text-club-muted hover:bg-club-paper"
               >
                 수정
               </button>
@@ -342,10 +342,10 @@ export function HikeDetail({
             {/* The points, from the column that holds them with coordinates -
                 the same ones the map draws and the profile labels. */}
             {waypointNames.length > 0 && (
-              <p className="text-sm leading-relaxed text-neutral-800">
+              <p className="text-sm leading-relaxed text-club-ink">
                 {waypointNames.map((name, i) => (
                   <span key={`${name}-${i}`}>
-                    {i > 0 && <span aria-hidden="true" className="px-1 text-neutral-400">›</span>}
+                    {i > 0 && <span aria-hidden="true" className="px-1 text-club-faint">›</span>}
                     {name}
                   </span>
                 ))}
@@ -358,23 +358,23 @@ export function HikeDetail({
                 claiming to be the same thing is worse than one. */}
             {(hike.courseInfo?.durationText || hike.courseInfo?.difficulty
               || (!hike.track && hike.courseInfo?.distanceText)) && (
-              <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-neutral-600">
+              <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-club-muted">
                 {!hike.track && hike.courseInfo?.distanceText && (
                   <div className="flex items-baseline gap-1">
-                    <dt className="text-neutral-400">거리</dt>
-                    <dd className="text-neutral-700">{hike.courseInfo.distanceText}</dd>
+                    <dt className="text-club-faint">거리</dt>
+                    <dd className="text-club-ink-soft">{hike.courseInfo.distanceText}</dd>
                   </div>
                 )}
                 {hike.courseInfo?.durationText && (
                   <div className="flex items-baseline gap-1">
-                    <dt className="text-neutral-400">소요</dt>
-                    <dd className="text-neutral-700">{hike.courseInfo.durationText}</dd>
+                    <dt className="text-club-faint">소요</dt>
+                    <dd className="text-club-ink-soft">{hike.courseInfo.durationText}</dd>
                   </div>
                 )}
                 {hike.courseInfo?.difficulty && (
                   <div className="flex items-baseline gap-1">
-                    <dt className="text-neutral-400">난이도</dt>
-                    <dd className="text-neutral-700">{hike.courseInfo.difficulty}</dd>
+                    <dt className="text-club-faint">난이도</dt>
+                    <dd className="text-club-ink-soft">{hike.courseInfo.difficulty}</dd>
                   </div>
                 )}
               </dl>
@@ -383,7 +383,7 @@ export function HikeDetail({
             {/* The caveats. Set apart because 비법정탐방로 or 예약 필요 is the
                 one line that changes whether somebody can go at all. */}
             {hike.courseInfo?.notes && (
-              <p className="mt-2 whitespace-pre-line border-l-2 border-amber-300 pl-2 text-xs leading-relaxed text-neutral-700">
+              <p className="mt-2 whitespace-pre-line border-l-2 border-amber-300 pl-2 text-xs leading-relaxed text-club-ink-soft">
                 {hike.courseInfo.notes}
               </p>
             )}
@@ -391,9 +391,9 @@ export function HikeDetail({
             {/* What a member wrote, last, under their own heading - so an
                 answer's words and a member's are never mistaken for each other. */}
             {hike.description && (
-              <div className="mt-2 border-t border-neutral-200 pt-2">
-                <h3 className="mb-0.5 text-[10px] font-semibold tracking-wide text-neutral-400">메모</h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-700">
+              <div className="mt-2 border-t border-club-line pt-2">
+                <h3 className="mb-0.5 text-[11px] font-semibold tracking-wide text-club-faint">메모</h3>
+                <p className="whitespace-pre-line text-sm leading-relaxed text-club-ink-soft">
                   {hike.description}
                 </p>
               </div>
@@ -403,7 +403,7 @@ export function HikeDetail({
               <button
                 type="button"
                 onClick={openEditor}
-                className="mt-2 text-[11px] text-neutral-500 underline-offset-2 hover:text-neutral-800 hover:underline"
+                className="mt-2 text-[11px] text-club-muted underline-offset-2 hover:text-club-ink hover:underline"
               >
                 + 메모 적기
               </button>
@@ -413,7 +413,7 @@ export function HikeDetail({
           <button
             type="button"
             onClick={openEditor}
-            className="mb-4 w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs text-neutral-500 hover:border-neutral-500 hover:text-neutral-700"
+            className="mb-4 w-full rounded-sm border border-dashed border-club-line py-2 text-xs text-club-muted hover:border-club-muted hover:text-club-ink-soft"
           >
             + 코스 정보 적기 (경유지 · 거리 · 물 · 예약 · 주의할 점)
           </button>
@@ -422,13 +422,13 @@ export function HikeDetail({
         <button
           type="button"
           onClick={() => setUploadOpen(true)}
-          className="mb-4 w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-600 hover:border-neutral-500 md:py-2 md:text-xs"
+          className="mb-4 w-full rounded-sm border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
         >
           + 이 활동에 사진 올리기
         </button>
 
         {photos.length === 0 ? (
-          <p className="py-8 text-center text-sm text-neutral-500">아직 올라온 사진이 없습니다.</p>
+          <p className="py-8 text-center text-sm text-club-muted">아직 올라온 사진이 없습니다.</p>
         ) : (
           <ul className="club-photo-grid grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo, index) => (
@@ -436,7 +436,7 @@ export function HikeDetail({
                 <button
                   type="button"
                   onClick={() => setOpenIndex(index)}
-                  className="relative block w-full overflow-hidden border border-neutral-200 bg-neutral-100"
+                  className="relative block w-full overflow-hidden border border-club-line bg-club-sunken"
                   style={{ aspectRatio: "4 / 5" }}
                 >
                   {/* Plain <img>: /api/images already resizes. */}
@@ -447,7 +447,7 @@ export function HikeDetail({
                     loading="lazy"
                     className="h-full w-full object-cover"
                   />
-                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-left text-[10px] text-white">
+                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-left text-[11px] text-white">
                     {photo.uploaderName}
                   </span>
                 </button>
@@ -474,10 +474,10 @@ export function HikeDetail({
             of the two states this activity is in, so folding it away costs no
             information. */}
         {location.type !== "climbing_gym" && (
-          <details className="mt-5 border-t border-neutral-200 pt-4">
-            <summary className="cursor-pointer list-none text-xs text-neutral-500 hover:text-neutral-800">
+          <details className="mt-5 border-t border-club-line pt-4">
+            <summary className="cursor-pointer list-none text-xs text-club-muted hover:text-club-ink">
               경로 직접 등록
-              <span className="ml-1.5 text-[11px] text-neutral-400">
+              <span className="ml-1.5 text-[11px] text-club-faint">
                 {hike.trackSource === "gpx" ? "· GPX 등록됨" : hike.track ? "· 경로 있음" : "· 경로 없음"}
               </span>
             </summary>
@@ -485,7 +485,7 @@ export function HikeDetail({
             <p className="text-xs font-medium">
               {hike.trackSource === "gpx" ? "GPX 경로 등록됨" : "GPX 경로 없음"}
             </p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">
+            <p className="mt-0.5 text-[11px] text-club-muted">
               {hike.trackSource === "gpx"
                 ? "다시 올리면 기존 경로를 덮어씁니다."
                 : "램블러·산스마일 등에서 내보낸 GPX를 올리면 지도에 실제 경로가 그려집니다."}
@@ -498,22 +498,22 @@ export function HikeDetail({
               disabled={uploading}
               className="mt-2 w-full text-xs"
             />
-            {uploading && <p className="mt-1 text-[11px] text-neutral-500">업로드 중…</p>}
+            {uploading && <p className="mt-1 text-[11px] text-club-muted">업로드 중…</p>}
             {gpxError && <p className="mt-1 text-[11px] text-red-600">{gpxError}</p>}
 
             {/* Hardly any outing has a GPX - nobody remembers to record one -
                 so the usual case needs a way to draw the route that is not a
                 file nobody has. These are real OpenStreetMap paths, picked by
                 the person who walked them. */}
-            <div className="mt-3 border-t border-neutral-200 pt-3">
-              <p className="text-[11px] text-neutral-500">
+            <div className="mt-3 border-t border-club-line pt-3">
+              <p className="text-[11px] text-club-muted">
                 GPX 파일이 없다면, 지도에서 걸었던 등산로를 직접 골라 경로를 만들 수 있습니다.
               </p>
               <button
                 type="button"
                 onClick={onStartTrailPick}
                 disabled={trailBusy}
-                className="mt-2 w-full rounded-lg border border-neutral-400 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+                className="mt-2 w-full rounded-sm border border-club-faint py-2 text-xs font-medium text-club-ink hover:bg-club-paper disabled:opacity-50"
               >
                 {trailBusy ? "등산로 불러오는 중…" : "지도에서 등산로 고르기"}
               </button>
@@ -524,7 +524,7 @@ export function HikeDetail({
 
         {/* Keyed by hike so switching activities inside the panel remounts the
             thread instead of showing the previous one's comments. */}
-        <div className="mt-5 border-t border-neutral-200 pt-4">
+        <div className="mt-5 border-t border-club-line pt-4">
           <CommentThread key={hike.id} subjectKind="hike" subjectId={hike.id} />
         </div>
       </div>

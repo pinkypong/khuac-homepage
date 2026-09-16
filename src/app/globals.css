@@ -14,6 +14,21 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* The club's own greys, which are warm - paper and stone, the colours the
+     header and the toolbar have always been. Tailwind's neutral-* is cool, and
+     every component written with it sat slightly blue against the ground it
+     was on. Named here so a new component reaches for the right one by
+     default instead of guessing. */
+  --color-club-burgundy: #5b1a23;
+  --color-club-paper: #f5f5f1;   /* the app's ground */
+  --color-club-surface: #ffffff; /* a card on it */
+  --color-club-sunken: #ecece6;  /* a panel set into it */
+  --color-club-line: #deded8;    /* every border in the header and toolbar */
+  --color-club-ink: #202320;     /* body text */
+  --color-club-ink-soft: #3f423c;
+  --color-club-muted: #6b6b63;   /* secondary */
+  --color-club-faint: #9a9a90;   /* units, counts, the quietest labels */
 }
 
 body {
@@ -37,7 +52,8 @@ body {
 }
 
 /* KHUAC: shared desktop and iPhone working surface. */
-:root { --club-burgundy: #5b1a23; --club-paper: #f5f5f1; }
+/* One source: the CSS below keeps its old names, pointing at the theme. */
+:root { --club-burgundy: var(--color-club-burgundy); --club-paper: var(--color-club-paper); }
 .club-app { background: var(--club-paper); color:#202320; font-family:var(--font-geist-sans), 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
 .club-header { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:18px 28px; padding-top:max(18px,env(safe-area-inset-top)); background:#fff; border-bottom:1px solid #deded8; }
 .club-brand { display:flex; align-items:center; gap:12px; flex-shrink:0; }

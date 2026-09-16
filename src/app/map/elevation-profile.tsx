@@ -20,13 +20,14 @@ const GRADE: Record<Steepness, { line: string; text: string; label: string }> = 
   gentle: { line: "#2563EB", text: "text-[#2563EB]", label: "완만" },
   moderate: { line: "#EAB308", text: "text-[#A16207]", label: "보통" },
   steep: { line: "#EF4444", text: "text-[#DC2626]", label: "가파름" },
-  severe: { line: "#111827", text: "text-[#111827]", label: "매우 가파름" },
+  severe: { line: "#202320", text: "text-[#202320]", label: "매우 가파름" },
 };
 
 const ORDER: Steepness[] = ["flat", "gentle", "moderate", "steep", "severe"];
 
-/** The silhouette under the line: the hill, not the difficulty. */
-const GROUND = "#94A3B8";
+/** The silhouette under the line: the hill, not the difficulty. Warm stone,
+    because the club's greys are warm and a slate hill sat blue on paper. */
+const GROUND = "#A8A89C";
 
 const WIDTH = 1000;
 /** Drawn at this height and scaled to whatever the member has dragged it to. */
@@ -184,17 +185,17 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
           event.preventDefault();
           resize(height + (event.key === "ArrowUp" ? 16 : -16));
         }}
-        className={"h-1.5 w-full touch-none cursor-row-resize border-t border-neutral-200 transition-colors "
-          + (dragging ? "bg-neutral-400" : "bg-neutral-100 hover:bg-neutral-300")}
+        className={"h-1.5 w-full touch-none cursor-row-resize border-t border-club-line transition-colors "
+          + (dragging ? "bg-club-faint" : "bg-club-sunken hover:bg-club-line")}
       />
 
       <div className="px-3 pb-2 pt-1.5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-neutral-600">
-          <span className="font-medium text-neutral-900">{km(profile.distanceM)}km</span>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-club-muted">
+          <span className="font-medium text-club-ink">{km(profile.distanceM)}km</span>
           <span>
-            상승 <strong className="font-medium text-neutral-800">{Math.round(profile.ascentM)}m</strong>
+            상승 <strong className="font-medium text-club-ink">{Math.round(profile.ascentM)}m</strong>
             {" · "}
-            하강 <strong className="font-medium text-neutral-800">{Math.round(profile.descentM)}m</strong>
+            하강 <strong className="font-medium text-club-ink">{Math.round(profile.descentM)}m</strong>
           </span>
           <span>최고 {Math.round(profile.highM)}m</span>
           {hardest && hardest.steepness !== "flat" && (
@@ -221,7 +222,7 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
               x2={geometry.x(along)}
               y1={0}
               y2={VIEW_HEIGHT}
-              stroke="#0F172A"
+              stroke="#202320"
               strokeOpacity={rows[i] === null ? 0.07 : 0.16}
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
@@ -257,18 +258,18 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
                 {row > 0 && (
                   <span
                     aria-hidden="true"
-                    className="absolute top-0 w-px bg-neutral-300"
+                    className="absolute top-0 w-px bg-club-line"
                     style={{ left, height: row * LABEL_ROW }}
                   />
                 )}
                 <span
-                  className="absolute max-w-[8rem] -translate-x-1/2 truncate text-center text-[10px] leading-tight text-neutral-600"
+                  className="absolute max-w-[8rem] -translate-x-1/2 truncate text-center text-[11px] leading-tight text-club-muted"
                   style={{ left, top: row * LABEL_ROW }}
                   title={names[i]}
                 >
                   {names[i]}
                   <br />
-                  <span className="text-neutral-400">{km(along)}km</span>
+                  <span className="text-club-faint">{km(along)}km</span>
                 </span>
               </span>
             );
@@ -276,7 +277,7 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
         </div>
 
         {used.length > 1 && height >= LEGEND_FROM && (
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[10px] text-neutral-500">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-club-muted">
             {used.map((step) => (
               <span key={step} className="inline-flex items-center gap-1">
                 <span
