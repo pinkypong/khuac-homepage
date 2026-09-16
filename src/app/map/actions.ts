@@ -134,25 +134,43 @@ export async function renameLocation(locationId: string, name: string) {
  * The member who was there knows, and the row policy already lets any approved
  * member correct a name that Places got wrong; this is the same kind of repair.
  */
-export async function updateActivity(
-  hikeId: string,
-  title: string,
-  date: string,
-  activityType?: ActivityType,
-): Promise<ActionResult> {
+/** As long as a course description is allowed to be. Long enough for the
+    walk, the water, the reservation and what to watch for; short enough that
+    the box stays a box. */
+const MAX_NOTES = 4000;
+
+export async function updateActivity(input: {
+  hikeId: string;
+  title: string;
+  date: string;
+  activityType?: ActivityType;
+  /** The course notes. Empty clears them; undefined leaves them alone. */
+  description?: string;
+}): Promise<ActionResult> {
   const { supabase } = await requireApprovedMember();
 
-  const trimmed = title.trim();
-  if (!trimmed) return refused("활동 이름을 입력해주세요.");
-  if (!date) return refused("날짜를 선택해주세요.");
-  if (activityType !== undefined && !ACTIVITY_TYPES.includes(activityType)) {
+  const title = input.title.trim();
+  if (!title) return refused("활동 이름을 입력해주세요.");
+  if (!input.date) return refused("날짜를 선택해주세요.");
+  if (input.activityType !== undefined && !ACTIVITY_TYPES.includes(input.activityType)) {
     return refused("활동 종류를 확인해주세요.");
+  }
+  const description = input.description?.trim();
+  if (description !== undefined && description.length > MAX_NOTES) {
+    return refused(`코스 정보는 ${MAX_NOTES.toLocaleString()}자 이내로 적어주세요.`);
   }
 
   const { error } = await supabase
     .from("hikes")
-    .update({ title: trimmed, date, ...(activityType ? { activity_type: activityType } : {}) })
-    .eq("id", hikeId);
+    .update({
+      title,
+      date: input.date,
+      ...(input.activityType ? { activity_type: input.activityType } : {}),
+      // Cleared rather than blanked: an empty box means there is nothing to
+      // say, and the column already has a word for that.
+      ...(description !== undefined ? { description: description || null } : {}),
+    })
+    .eq("id", input.hikeId);
   if (error) return refusedByDatabase("활동 수정", error);
 
   revalidatePath("/map");

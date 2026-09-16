@@ -51,8 +51,9 @@ export function HikeDetail({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Keyed by hike id so moving to another activity can't carry a stale draft.
-  const [renaming, setRenaming] = useState<
-    { hikeId: string; title: string; date: string; activityType: ActivityType } | null>(null);
+  const [renaming, setRenaming] = useState<{
+    hikeId: string; title: string; date: string; activityType: ActivityType; description: string;
+  } | null>(null);
   const [savingName, setSavingName] = useState(false);
 
   // Tapping a photo pin on the map asks for that picture, so open it here and
@@ -91,11 +92,27 @@ export function HikeDetail({
     }
   }
 
+  function openEditor() {
+    setRenaming({
+      hikeId: hike.id,
+      title: hike.title,
+      date: hike.date,
+      activityType: hike.activityType,
+      description: hike.description ?? "",
+    });
+  }
+
   async function submitRename() {
     if (!renaming) return;
     setSavingName(true);
     try {
-      const result = await updateActivity(hike.id, renaming.title, renaming.date, renaming.activityType);
+      const result = await updateActivity({
+        hikeId: hike.id,
+        title: renaming.title,
+        date: renaming.date,
+        activityType: renaming.activityType,
+        description: renaming.description,
+      });
       if (!result.ok) {
         window.alert(result.reason);
         return;
@@ -189,6 +206,17 @@ export function HikeDetail({
               aria-label="활동 이름"
               className="min-w-0 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
             />
+            <textarea
+              value={renaming.description}
+              onChange={(e) => setRenaming({ ...renaming, description: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setRenaming(null);
+              }}
+              rows={4}
+              aria-label="코스 정보"
+              placeholder={"경유지 · 거리 · 소요시간\n물 뜨는 곳, 예약 필요 여부, 주의할 점"}
+              className="min-w-0 resize-y rounded border border-neutral-300 px-2 py-1 text-base leading-relaxed md:text-sm"
+            />
             {/* What kind of outing it was. Editable because it is guessed: an
                 album made from a course is filed by reading the words in it,
                 and a guess from words is wrong sometimes. */}
@@ -255,9 +283,7 @@ export function HikeDetail({
           </span>
           <button
             type="button"
-            onClick={() => setRenaming({
-              hikeId: hike.id, title: hike.title, date: hike.date, activityType: hike.activityType,
-            })}
+            onClick={() => openEditor()}
             className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 md:py-0.5 md:text-[11px]"
           >
             수정
@@ -279,12 +305,43 @@ export function HikeDetail({
           {distance ? " · " + distance : ""}
           {" · 사진 " + hike.photos.length + "장"}
         </p>
-        {hike.description && (
-          <p className="mt-2 text-sm text-neutral-700">{hike.description}</p>
-        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        {/* The course, above the photos, because opening an album to plan a
+            walk asks "what was this route" before it asks what it looked like.
+            In the scrolling part rather than the header it shares with the
+            title: notes worth writing are longer than a line, and a header
+            that grows with them pushes the photos off the screen. */}
+        {hike.description ? (
+          <section
+            aria-label="코스 정보"
+            className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5"
+          >
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <h2 className="text-[11px] font-semibold tracking-wide text-neutral-500">코스 정보</h2>
+              <button
+                type="button"
+                onClick={openEditor}
+                className="shrink-0 rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[10px] text-neutral-600 hover:bg-neutral-50"
+              >
+                수정
+              </button>
+            </div>
+            <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-700">
+              {hike.description}
+            </p>
+          </section>
+        ) : (
+          <button
+            type="button"
+            onClick={openEditor}
+            className="mb-4 w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs text-neutral-500 hover:border-neutral-500 hover:text-neutral-700"
+          >
+            + 코스 정보 적기 (경유지 · 거리 · 물 · 예약 · 주의할 점)
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => setUploadOpen(true)}
