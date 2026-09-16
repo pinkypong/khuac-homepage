@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ACTIVITY_TYPES, ACTIVITY_LABEL } from "./activity";
+import type { CourseInfo } from "./course-info";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -48,6 +49,8 @@ export interface MapHike {
   track: TrackPoint[] | null;
   /** The course's named points, where it was made from one. */
   routeWaypoints: { name: string; lat: number; lng: number }[] | null;
+  /** What the answer knew about the course, where it came from one. */
+  courseInfo: CourseInfo | null;
   trackSource: "gpx" | null;
   photos: MapPhoto[];
 }
@@ -477,7 +480,10 @@ export function MapShell({
         waypoints,
         track: current.track ? flattenTrack(current.track) : null,
         distanceText: route.distanceText,
+        durationText: route.durationText,
+        difficulty: route.difficulty,
         notes: route.notes,
+        sources: route.sourceUrls,
         question: asked,
       });
       if (!result.ok) {

@@ -102,6 +102,11 @@ export function HikeDetail({
     });
   }
 
+  // The points as the album stores them, which is also what the map draws.
+  const waypointNames = (hike.routeWaypoints ?? [])
+    .map((point) => point.name)
+    .filter((name): name is string => Boolean(name && name.trim()));
+
   async function submitRename() {
     if (!renaming) return;
     setSavingName(true);
@@ -213,8 +218,8 @@ export function HikeDetail({
                 if (e.key === "Escape") setRenaming(null);
               }}
               rows={4}
-              aria-label="코스 정보"
-              placeholder={"경유지 · 거리 · 소요시간\n물 뜨는 곳, 예약 필요 여부, 주의할 점"}
+              aria-label="메모"
+              placeholder={"이 산행에 대해 남길 메모\n물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것"}
               className="min-w-0 resize-y rounded border border-neutral-300 px-2 py-1 text-base leading-relaxed md:text-sm"
             />
             {/* What kind of outing it was. Editable because it is guessed: an
@@ -312,14 +317,19 @@ export function HikeDetail({
             walk asks "what was this route" before it asks what it looked like.
             In the scrolling part rather than the header it shares with the
             title: notes worth writing are longer than a line, and a header
-            that grows with them pushes the photos off the screen. */}
-        {hike.description ? (
+            that grows with them pushes the photos off the screen.
+
+            Laid out as the separate things it is. It was one string - the
+            waypoints as a sentence, the distance as prose, the caveats run in
+            after them - and a reader looking for "do I need a reservation" had
+            to read all of it to find out. */}
+        {(hike.courseInfo || waypointNames.length > 0 || hike.description) ? (
           <section
             aria-label="코스 정보"
             className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5"
           >
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <h2 className="text-[11px] font-semibold tracking-wide text-neutral-500">코스 정보</h2>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <h2 className="text-[11px] font-semibold tracking-wide text-neutral-500">코스</h2>
               <button
                 type="button"
                 onClick={openEditor}
@@ -328,9 +338,76 @@ export function HikeDetail({
                 수정
               </button>
             </div>
-            <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-700">
-              {hike.description}
-            </p>
+
+            {/* The points, from the column that holds them with coordinates -
+                the same ones the map draws and the profile labels. */}
+            {waypointNames.length > 0 && (
+              <p className="text-sm leading-relaxed text-neutral-800">
+                {waypointNames.map((name, i) => (
+                  <span key={`${name}-${i}`}>
+                    {i > 0 && <span aria-hidden="true" className="px-1 text-neutral-400">›</span>}
+                    {name}
+                  </span>
+                ))}
+              </p>
+            )}
+
+            {/* Time and difficulty are what the answer knew and the geometry
+                cannot say. Distance only when there is no line: a drawn one is
+                measured, the profile under the map shows it, and two numbers
+                claiming to be the same thing is worse than one. */}
+            {(hike.courseInfo?.durationText || hike.courseInfo?.difficulty
+              || (!hike.track && hike.courseInfo?.distanceText)) && (
+              <dl className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-neutral-600">
+                {!hike.track && hike.courseInfo?.distanceText && (
+                  <div className="flex items-baseline gap-1">
+                    <dt className="text-neutral-400">거리</dt>
+                    <dd className="text-neutral-700">{hike.courseInfo.distanceText}</dd>
+                  </div>
+                )}
+                {hike.courseInfo?.durationText && (
+                  <div className="flex items-baseline gap-1">
+                    <dt className="text-neutral-400">소요</dt>
+                    <dd className="text-neutral-700">{hike.courseInfo.durationText}</dd>
+                  </div>
+                )}
+                {hike.courseInfo?.difficulty && (
+                  <div className="flex items-baseline gap-1">
+                    <dt className="text-neutral-400">난이도</dt>
+                    <dd className="text-neutral-700">{hike.courseInfo.difficulty}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
+
+            {/* The caveats. Set apart because 비법정탐방로 or 예약 필요 is the
+                one line that changes whether somebody can go at all. */}
+            {hike.courseInfo?.notes && (
+              <p className="mt-2 whitespace-pre-line border-l-2 border-amber-300 pl-2 text-xs leading-relaxed text-neutral-700">
+                {hike.courseInfo.notes}
+              </p>
+            )}
+
+            {/* What a member wrote, last, under their own heading - so an
+                answer's words and a member's are never mistaken for each other. */}
+            {hike.description && (
+              <div className="mt-2 border-t border-neutral-200 pt-2">
+                <h3 className="mb-0.5 text-[10px] font-semibold tracking-wide text-neutral-400">메모</h3>
+                <p className="whitespace-pre-line text-sm leading-relaxed text-neutral-700">
+                  {hike.description}
+                </p>
+              </div>
+            )}
+
+            {!hike.description && (
+              <button
+                type="button"
+                onClick={openEditor}
+                className="mt-2 text-[11px] text-neutral-500 underline-offset-2 hover:text-neutral-800 hover:underline"
+              >
+                + 메모 적기
+              </button>
+            )}
           </section>
         ) : (
           <button

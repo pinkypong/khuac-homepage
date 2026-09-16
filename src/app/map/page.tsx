@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { asCourseInfo } from "./course-info";
 import { UNKNOWN_MEMBER_NAME, memberDirectory } from "@/lib/supabase/member-names";
 import type { TrackPoint } from "@/lib/gps/track";
 import type { ActivityType, LocationType } from "@/types/database";
@@ -23,6 +24,7 @@ interface LocationRow {
     lng: number | null;
     track: TrackPoint[] | null;
     route_waypoints: { name: string; lat: number; lng: number }[] | null;
+    course_info: unknown;
     photos: {
       id: string;
       storage_key_original: string;
@@ -56,7 +58,7 @@ export default async function MapPage() {
       .from("locations")
       .select(
         "id, name, type, region, elevation, lat, lng, created_at, " +
-          "hikes(id, title, date, description, activity_type, lat, lng, track, route_waypoints, " +
+          "hikes(id, title, date, description, activity_type, lat, lng, track, route_waypoints, course_info, " +
           "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
       )
       .not("lat", "is", null)
@@ -121,6 +123,7 @@ export default async function MapPage() {
           // themselves as pins on the map instead.
           track: hike.track,
           routeWaypoints: hike.route_waypoints,
+          courseInfo: asCourseInfo(hike.course_info),
           trackSource: hike.track ? "gpx" : null,
           photos,
         };

@@ -43,7 +43,10 @@ export async function createAlbumFromRoute(input: {
       share that junction's point object. See flattenTrack. */
   track: number[] | null;
   distanceText: string | null;
+  durationText?: string | null;
+  difficulty?: string | null;
   notes: string | null;
+  sources?: { url: string; label: string }[];
   /** What was asked to get this course, when it is still to hand. The course's
       own name usually says whether it is a climb, and sometimes only the
       question does - "북한산 인수봉 어프로치" names a mountain and a rock face
@@ -102,13 +105,17 @@ export async function createAlbumFromRoute(input: {
   // the map frames the whole route, and the pin only says where it begins.
   const spot = points[0];
 
-  const description = [
-    `AI 추천 코스: ${points.map((p) => p.name).join(" → ")}`,
-    input.distanceText,
-    input.notes,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // No description is written. It used to hold the waypoints as a sentence,
+  // which route_waypoints already holds properly, and the distance as prose -
+  // leaving nothing readable and no room for what a member wants to say. The
+  // course's own facts go in course_info; description stays theirs.
+  const courseInfo = {
+    distanceText: input.distanceText,
+    durationText: input.durationText ?? null,
+    difficulty: input.difficulty ?? null,
+    notes: input.notes,
+    sources: input.sources ?? [],
+  };
 
   // A line that arrived and could not be read is a bug, and saving the album
   // without it hides that: the album opens as a pin and looks like a course
@@ -124,7 +131,7 @@ export async function createAlbumFromRoute(input: {
   // different place each time: in the question, in the course's name, or only
   // down in its notes.
   const activityType = activityForCourse(
-    input.question, routeName, placeName, input.notes, points.map((p) => p.name).join(" "));
+    input.question, routeName, placeName, input.notes, points.map((point) => point.name).join(" "));
 
   const { data: hike, error: hikeError } = await supabase
     .from("hikes")
@@ -133,7 +140,7 @@ export async function createAlbumFromRoute(input: {
       title: routeName,
       date: new Date().toISOString().slice(0, 10),
       activity_type: activityType,
-      description,
+      course_info: courseInfo,
       lat: spot.lat,
       lng: spot.lng,
       track,
