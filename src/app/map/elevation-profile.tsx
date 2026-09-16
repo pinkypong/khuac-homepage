@@ -116,7 +116,7 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
     // and a floor of 50m of range so a flat course is not drawn as a mountain.
     const span = Math.max(highM - lowM, 50);
     const base = lowM - span * 0.06;
-    const top = highM + span * 0.14;
+    const top = highM + span * 0.22;
 
     const x = (along: number) => (along / distanceM) * WIDTH;
     const y = (elevation: number) => VIEW_HEIGHT - ((elevation - base) / (top - base)) * VIEW_HEIGHT;
@@ -198,10 +198,21 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
             하강 <strong className="font-medium text-club-ink">{Math.round(profile.descentM)}m</strong>
           </span>
           <span>최고 {Math.round(profile.highM)}m</span>
+          {/* The colour belongs on the line. A red sentence here was the loudest
+              thing on the panel and said what the red stretch already says, so
+              only a short rule of it is kept, to tie the two together. */}
           {hardest && hardest.steepness !== "flat" && (
-            <span className={GRADE[hardest.steepness].text}>
-              가장 힘든 구간 {hardest.from} → {hardest.to} ({km(hardest.distanceM)}km,
-              평균 {Math.round(hardest.gradient * 100)}%)
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="inline-block h-[3px] w-3.5 shrink-0 rounded-full"
+                style={{ backgroundColor: GRADE[hardest.steepness].line }}
+              />
+              <span>
+                가장 힘든 곳{" "}
+                <strong className="font-medium text-club-ink">{hardest.from} → {hardest.to}</strong>
+                {" "}{km(hardest.distanceM)}km · 평균 {Math.round(hardest.gradient * 100)}%
+              </span>
             </span>
           )}
         </div>
@@ -214,7 +225,7 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
           role="img"
           aria-label={`${km(profile.distanceM)}킬로미터, 누적 상승 ${Math.round(profile.ascentM)}미터`}
         >
-          <path d={geometry.ground} fill={GROUND} fillOpacity={0.16} />
+          <path d={geometry.ground} fill={GROUND} fillOpacity={0.3} />
           {waypointAlong.map((along, i) => (
             <line
               key={`tick-${i}`}
@@ -252,7 +263,16 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
           {waypointAlong.map((along, i) => {
             const row = rows[i];
             if (row === null) return null;
-            const left = `${Math.min(99, Math.max(1, (along / Math.max(profile.distanceM, 1)) * 100))}%`;
+            const share = (along / Math.max(profile.distanceM, 1)) * 100;
+          const left = `${share}%`;
+          // A name centred on a point at the very edge hangs half outside the
+          // box and is clipped - 백운탐방지원센터 read as 탐방지원센터. The two
+          // ends turn inward instead, which is also where a reader looks for
+          // where a course starts and where it comes out.
+          const end = share < 6 ? "start" : share > 94 ? "end" : "middle";
+          const place = end === "start" ? { left: 0 }
+            : end === "end" ? { right: 0 }
+              : { left, transform: "translateX(-50%)" };
             return (
               <span key={`label-${i}`}>
                 {row > 0 && (
@@ -263,8 +283,11 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
                   />
                 )}
                 <span
-                  className="absolute max-w-[8rem] -translate-x-1/2 truncate text-center text-[11px] leading-tight text-club-muted"
-                  style={{ left, top: row * LABEL_ROW }}
+                  className={
+                    "absolute max-w-[8rem] truncate text-[11px] leading-tight text-club-muted "
+                    + (end === "start" ? "text-left" : end === "end" ? "text-right" : "text-center")
+                  }
+                  style={{ ...place, top: row * LABEL_ROW }}
                   title={names[i]}
                 >
                   {names[i]}
@@ -277,7 +300,7 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
         </div>
 
         {used.length > 1 && height >= LEGEND_FROM && (
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-club-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-club-line pt-1.5 text-[11px] text-club-muted">
             {used.map((step) => (
               <span key={step} className="inline-flex items-center gap-1">
                 <span
