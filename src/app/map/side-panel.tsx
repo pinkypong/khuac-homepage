@@ -183,7 +183,7 @@ export function SidePanel({
     route: RouteSuggestion,
     place: { name: string | null; center: { lat: number; lng: number } | null },
   ) => void;
-  onCreateAlbum: (route: RouteSuggestion) => void;
+  onCreateAlbum: (route: RouteSuggestion, asked: string) => void;
   activeRouteName: string | null;
   creatingAlbum: boolean;
   /** False beside the map, where the 앨범 screen already carries these lists. */

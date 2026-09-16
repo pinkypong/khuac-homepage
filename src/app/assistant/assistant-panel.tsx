@@ -124,11 +124,15 @@ export function AssistantPanel({
     route: RouteSuggestion,
     place: { name: string | null; center: { lat: number; lng: number } | null },
   ) => void;
-  onCreateAlbum?: (route: RouteSuggestion) => void;
+  onCreateAlbum?: (route: RouteSuggestion, asked: string) => void;
   activeRouteName?: string | null;
   creatingAlbum?: boolean;
 } = {}) {
   const [question, setQuestion] = useState("");
+  // The question this answer came from, kept apart from the box - the box is
+  // the next question, and by the time somebody makes an album from a course
+  // they may well have started typing one.
+  const [asked, setAsked] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<AssistantAnswer | null>(null);
@@ -162,6 +166,7 @@ export function AssistantPanel({
     setPending(true);
     setError(null);
     setAnswer(null);
+    setAsked(trimmed);
     setSearching(false);
     const slow = setTimeout(() => setSearching(true), 5000);
     try {
@@ -446,7 +451,7 @@ export function AssistantPanel({
                       <div className="border-t border-[#e8d9dc] px-2.5 py-2">
                         <button
                           type="button"
-                          onClick={() => onCreateAlbum(route)}
+                          onClick={() => onCreateAlbum(route, asked)}
                           disabled={creatingAlbum}
                           className="rounded bg-[#5b1a23] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50"
                         >

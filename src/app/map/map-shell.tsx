@@ -452,7 +452,7 @@ export function MapShell({
     showMap();
   }
 
-  async function createAlbum(route: RouteSuggestion) {
+  async function createAlbum(route: RouteSuggestion, asked: string) {
     const current = suggestedRoute;
     if (!current || current.route.name !== route.name) return;
     // A waypoint name that Places cannot place should not cost the member
@@ -478,6 +478,7 @@ export function MapShell({
         track: current.track ? flattenTrack(current.track) : null,
         distanceText: route.distanceText,
         notes: route.notes,
+        question: asked,
       });
       if (!result.ok) {
         window.alert(result.reason);

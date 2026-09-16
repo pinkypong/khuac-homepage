@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { isValidGps } from "@/lib/gps/validate";
 import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
+import { activityForCourse } from "./activity";
 import { sanitizeTrack, unflattenTrack } from "@/lib/gps/track";
 
 export interface RouteWaypoint {
@@ -43,6 +44,11 @@ export async function createAlbumFromRoute(input: {
   track: number[] | null;
   distanceText: string | null;
   notes: string | null;
+  /** What was asked to get this course, when it is still to hand. The course's
+      own name usually says whether it is a climb, and sometimes only the
+      question does - "북한산 인수봉 어프로치" names a mountain and a rock face
+      and the course that comes back may mention neither. */
+  question?: string | null;
 }): Promise<ActionResult<{ locationId: string; hikeId: string }>> {
   const { supabase, memberId } = await requireApprovedMember();
 
@@ -113,13 +119,20 @@ export async function createAlbumFromRoute(input: {
     console.error("[route-album] 보내온 선을 읽지 못했습니다", input.track.length);
   }
 
+  // Filed by what it is rather than always as a walk. Read from everything
+  // said about the course, because the word that settles it turns up in a
+  // different place each time: in the question, in the course's name, or only
+  // down in its notes.
+  const activityType = activityForCourse(
+    input.question, routeName, placeName, input.notes, points.map((p) => p.name).join(" "));
+
   const { data: hike, error: hikeError } = await supabase
     .from("hikes")
     .insert({
       location_id: locationId,
       title: routeName,
       date: new Date().toISOString().slice(0, 10),
-      activity_type: "hiking",
+      activity_type: activityType,
       description,
       lat: spot.lat,
       lng: spot.lng,

@@ -1,3 +1,4 @@
+import { isClimbingQuestion } from "@/lib/assistant/intent";
 import type { ActivityType } from "@/types/database";
 
 // Shared by the form, the panel rows and the detail header. Kept in its own
@@ -14,11 +15,15 @@ export const ACTIVITY_LABEL: Record<ActivityType, string> = {
   hiking: "산",
   indoor_climbing: "실내암장",
   outdoor_wall: "외벽",
-  climbing: "등반",
+  // 암벽등반 rather than 등반. On a filter row beside 산, 실내암장 and 외벽 -
+  // all of which are climbing in a climbing club - "등반" named the category
+  // its neighbours belong to as well, and said nothing about what makes this
+  // one different, which is that it is on real rock outdoors.
+  climbing: "암벽등반",
 };
 
-// 외벽 and 등반 are easy to mix up, so the picker spells out which is which:
-// an artificial outdoor wall (뚝섬 등) versus real rock.
+// 외벽 and 암벽등반 are still easy to mix up, so the picker spells out which is
+// which: an artificial outdoor wall (뚝섬 등) versus real rock.
 export const ACTIVITY_HINT: Record<ActivityType, string> = {
   hiking: "등산",
   indoor_climbing: "실내 클라이밍장",
@@ -64,3 +69,29 @@ export const ACTIVITY_HAS_OWN_SPOT: Record<ActivityType, boolean> = {
   indoor_climbing: false,
   outdoor_wall: false,
 };
+
+/** A gym, however the sentence gets around to saying so. */
+const INDOOR = /실내|클라이밍\s*장|암장|볼더링\s*장|더클라임|짐/;
+/** Bolted concrete rather than rock: 뚝섬, 인공암벽장, a wall at a park. */
+const OUTDOOR_WALL = /인공\s*암벽|외벽|암벽\s*장/;
+
+/**
+ * What kind of outing a course is, read from how it is described.
+ *
+ * An album made from a suggested course was filed as 산 whatever the course
+ * was, and 인수봉 고독길 어프로치 - a walk in to the foot of a rock route -
+ * landed in the hiking folder beside the trails to 백운대. The mountain in the
+ * question is not the answer: this club goes to 북한산 to climb as often as to
+ * walk, and 어프로치, 등반 and 암벽 are the words that say which.
+ *
+ * Indoors is checked first because 실내 암벽 would otherwise be read as rock,
+ * and an artificial wall before real rock for the same reason. What is left
+ * that mentions climbing at all is 암벽등반; what mentions none of it is 산.
+ */
+export function activityForCourse(...text: (string | null | undefined)[]): ActivityType {
+  const said = text.filter(Boolean).join(" ");
+  if (!said.trim()) return "hiking";
+  if (INDOOR.test(said)) return "indoor_climbing";
+  if (OUTDOOR_WALL.test(said)) return "outdoor_wall";
+  return isClimbingQuestion(said) ? "climbing" : "hiking";
+}

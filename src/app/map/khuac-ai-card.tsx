@@ -19,7 +19,7 @@ export function KhuacAiCard({
     route: RouteSuggestion,
     place: { name: string | null; center: { lat: number; lng: number } | null },
   ) => void;
-  onCreateAlbum: (route: RouteSuggestion) => void;
+  onCreateAlbum: (route: RouteSuggestion, asked: string) => void;
   activeRouteName: string | null;
   creatingAlbum: boolean;
 }) {

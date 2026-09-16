@@ -137,8 +137,11 @@ export function weatherSubject(query: string): string | null {
 // hiking trails to the summit is answering a different question. "등산",
 // "산행" and "트레킹" stay on the hiking side.
 const CLIMBING_WORDS = [
+  // 어프로치 is the walk in to the foot of a climb. It is only ever said about
+  // climbing - a hiker says 들머리 - so a course that carries the word is a
+  // climb's approach however much of it is spent walking uphill.
   "등반", "암벽", "릿지", "리지", "슬랩", "크랙", "멀티피치", "볼더링",
-  "암장", "빙벽", "퀵드로우", "확보물", "클라이밍", "개념도", "토포",
+  "암장", "빙벽", "퀵드로우", "확보물", "클라이밍", "개념도", "토포", "어프로치",
 ];
 
 /** Whether the question is about climbing rather than hiking. */
