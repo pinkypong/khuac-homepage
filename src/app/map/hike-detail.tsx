@@ -15,7 +15,8 @@ import type { MapHike, MapLocation } from "./map-shell";
 import { saveHikeTrack, updateActivity } from "./actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
-import { ACTIVITY_COLOR, ACTIVITY_LABEL } from "./activity";
+import { ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
+import type { ActivityType } from "@/types/database";
 import { isValidGps } from "@/lib/gps/validate";
 import { HikePhotoUpload } from "./hike-photo-upload";
 
@@ -50,7 +51,8 @@ export function HikeDetail({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Keyed by hike id so moving to another activity can't carry a stale draft.
-  const [renaming, setRenaming] = useState<{ hikeId: string; title: string; date: string } | null>(null);
+  const [renaming, setRenaming] = useState<
+    { hikeId: string; title: string; date: string; activityType: ActivityType } | null>(null);
   const [savingName, setSavingName] = useState(false);
 
   // Tapping a photo pin on the map asks for that picture, so open it here and
@@ -93,7 +95,11 @@ export function HikeDetail({
     if (!renaming) return;
     setSavingName(true);
     try {
-      await updateActivity(hike.id, renaming.title, renaming.date);
+      const result = await updateActivity(hike.id, renaming.title, renaming.date, renaming.activityType);
+      if (!result.ok) {
+        window.alert(result.reason);
+        return;
+      }
       setRenaming(null);
       router.refresh();
     } catch (err) {
@@ -183,6 +189,32 @@ export function HikeDetail({
               aria-label="활동 이름"
               className="min-w-0 rounded border border-neutral-300 px-2 py-1 text-base md:text-sm"
             />
+            {/* What kind of outing it was. Editable because it is guessed: an
+                album made from a course is filed by reading the words in it,
+                and a guess from words is wrong sometimes. */}
+            <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="활동 종류">
+              {ACTIVITY_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  role="radio"
+                  aria-checked={renaming.activityType === type}
+                  title={ACTIVITY_HINT[type]}
+                  onClick={() => setRenaming({ ...renaming, activityType: type })}
+                  className={
+                    "rounded border px-2 py-1 text-[11px] transition-colors "
+                    + (renaming.activityType === type
+                      ? "border-transparent font-medium text-white"
+                      : "border-neutral-300 text-neutral-600 hover:bg-neutral-50")
+                  }
+                  style={renaming.activityType === type
+                    ? { backgroundColor: ACTIVITY_COLOR[type] }
+                    : undefined}
+                >
+                  {ACTIVITY_LABEL[type]}
+                </button>
+              ))}
+            </div>
             <div className="flex items-center gap-1.5">
               <input
                 type="date"
@@ -223,7 +255,9 @@ export function HikeDetail({
           </span>
           <button
             type="button"
-            onClick={() => setRenaming({ hikeId: hike.id, title: hike.title, date: hike.date })}
+            onClick={() => setRenaming({
+              hikeId: hike.id, title: hike.title, date: hike.date, activityType: hike.activityType,
+            })}
             className="shrink-0 rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-50 md:py-0.5 md:text-[11px]"
           >
             수정
