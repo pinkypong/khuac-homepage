@@ -105,18 +105,24 @@ const km = (m: number) => (m / 1000).toFixed(m < 1000 ? 2 : 1);
 const hardest = sections.filter((s) => !s.downhill).sort((a, b) => b.ascentM - a.ascentM)[0];
 const tallest = Math.max(0, ...rows.filter((r): r is number => r !== null));
 
-const css = (await (await fetch("http://localhost:3100/login")).text())
-  .match(/\/_next\/static\/css\/[^"]+\.css/)?.[0];
-if (!css) throw new Error("3100이 떠 있어야 합니다 (npm run cf:preview)");
+// Every stylesheet the page links, not the first. Next splits the CSS, and
+// taking one of them got the half without any Tailwind utilities in it - which
+// renders as unstyled text and reads exactly like the app being broken.
+const sheets = [...new Set((await (await fetch("http://localhost:3100/login")).text())
+  .match(/\/_next\/static\/css\/[^"]+\.css/g) ?? [])];
+if (sheets.length === 0) throw new Error("3100이 떠 있어야 합니다 (npm run cf:preview)");
 
 const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
-<link rel="stylesheet" href="http://localhost:3100${css}">
+${sheets.map((sheet) => `<link rel="stylesheet" href="http://localhost:3100${sheet}">`).join("")}
 <style>body{margin:0;background:#f5f5f1;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif}
 .pane{background:#fff;border:1px solid #deded8;margin-bottom:24px}
 .w1{width:520px}.w2{width:360px}</style></head>
 <body><div class="pane w1">
 <section aria-label="코스 고도 단면" class="bg-club-surface">
-  <div class="h-1.5 w-full cursor-row-resize border-t border-club-line bg-club-sunken"></div>
+  <div class="flex items-stretch border-t border-club-line bg-club-paper">
+    <div style="display:flex;flex:1;align-items:center;justify-content:center;padding:8px 0;cursor:row-resize"><span style="display:block;height:6px;width:40px;border-radius:3px;background:#6b6b63"></span></div>
+    <button style="display:flex;width:48px;flex-shrink:0;align-items:center;justify-content:center;border-left:1px solid #deded8;color:#3f423c"><svg viewBox="0 0 16 16" class="h-4 w-4"><path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </div>
   <div class="px-3 pb-2 pt-1.5">
     <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-club-muted">
       <span class="font-medium text-club-ink">${km(profile.distanceM)}km</span>
@@ -152,7 +158,14 @@ const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 const [head, section] = html.split('<div class="pane w1">');
 const body = section.replace("</div>PANE2</body></html>", "");
 writeFileSync("profile-preview.html",
-  head + '<div class="pane w1">' + body + '</div><div class="pane w2">' + body + "</div></body></html>");
+  head + '<div class="pane w1">' + body + '</div><div class="pane w2">' + body + '</div>'
+  + '<div class="pane w2"><section class="bg-club-surface"><div class="flex items-stretch border-t border-club-line bg-club-paper">'
+  + '<div class="flex flex-1 items-center justify-center py-1.5"><span class="text-[11px] text-club-muted">'
+  + km(profile.distanceM) + 'km · 상승 ' + Math.round(profile.ascentM) + 'm</span></div>'
+  + '<button style="display:flex;width:48px;flex-shrink:0;align-items:center;justify-content:center;border-left:1px solid #deded8;color:#3f423c">'
+  + '<svg viewBox="0 0 16 16" class="h-4 w-4"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  + '</button></div></section></div>'
+  + "</body></html>");
 console.log(`${hike.title}`);
 console.log(`구간 ${bands.length}개 · 이름표 ${rows.filter((r) => r !== null).length}/${names.length}개 · ${tallest + 1}줄`);
 console.log("profile-preview.html 에 썼습니다.");

@@ -36,11 +36,14 @@ const VIEW_HEIGHT = 128;
 const LABEL_ROW = 24;
 
 const DEFAULT_HEIGHT = 80;
+/** A phone has one screen for both, and the map is the one being read. */
+const PHONE_HEIGHT = 52;
 const MIN_HEIGHT = 44;
 const MAX_HEIGHT = 240;
 /** Below this the legend is more crowding than help. */
 const LEGEND_FROM = 64;
 const STORED_HEIGHT = "khuac:profile-height";
+const STORED_OPEN = "khuac:profile-open";
 
 /**
  * The course seen side-on, the way the park draws it.
@@ -64,6 +67,10 @@ const STORED_HEIGHT = "khuac:profile-height";
 export function ElevationProfile({ data }: { data: CourseElevation }) {
   const { profile, sections, waypointAlong, names } = data;
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  // Folded away and still there. On a phone the map and this share one screen,
+  // and a member reading the map wants it back; throwing the chart away to get
+  // it means asking for the course again to see the climb.
+  const [open, setOpen] = useState(true);
   // State rather than only a ref: a ref does not re-render, so the effect that
   // listens for the drag would never run and the handle would not move.
   const [dragging, setDragging] = useState(false);
@@ -72,11 +79,23 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
   // Remembered per browser, because the right size depends on the screen it is
   // being read on and nobody wants to set it twice.
   useEffect(() => {
+    const phone = window.matchMedia("(max-width: 767px)").matches;
+    if (phone) setHeight(PHONE_HEIGHT);
     try {
       const saved = Number(window.localStorage.getItem(STORED_HEIGHT));
       if (Number.isFinite(saved) && saved >= MIN_HEIGHT && saved <= MAX_HEIGHT) setHeight(saved);
+      setOpen(window.localStorage.getItem(STORED_OPEN) !== "0");
     } catch {
-      // Private browsing refuses storage; the default is a fine answer.
+      // Private browsing refuses storage; the defaults are a fine answer.
+    }
+  }, []);
+
+  const fold = useCallback((next: boolean) => {
+    setOpen(next);
+    try {
+      window.localStorage.setItem(STORED_OPEN, next ? "1" : "0");
+    } catch {
+      // As below.
     }
   }, []);
 
@@ -168,27 +187,70 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
 
   return (
     <section aria-label="코스 고도 단면" className="bg-white">
-      {/* The same grab strip as the divider between the map and the album, in
-          the other direction. Dragging it down hands the height to the map,
-          which takes whatever this leaves. */}
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="고도 그래프 높이 조절"
-        tabIndex={0}
-        onPointerDown={(event) => {
-          grabbed.current = { from: event.clientY, at: height };
-          setDragging(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-          event.preventDefault();
-          resize(height + (event.key === "ArrowUp" ? 16 : -16));
-        }}
-        className={"h-1.5 w-full touch-none cursor-row-resize border-t border-club-line transition-colors "
-          + (dragging ? "bg-club-faint" : "bg-club-sunken hover:bg-club-line")}
-      />
+      {/* The bar between the map and the chart, and the only thing left when
+          the chart is folded. It was a hairline: a 6px strip in a grey a shade
+          off the border above it, which is not something a thumb finds and not
+          something an eye sees. It carries the app's own grabber now - the same
+          pill the mobile sheet uses - so it reads as something to pull, and a
+          chevron that folds the chart away rather than throwing it out. */}
+      <div className="flex items-stretch border-t border-club-line bg-club-paper">
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="고도 그래프 높이 조절"
+          tabIndex={open ? 0 : -1}
+          onPointerDown={(event) => {
+            if (!open) return;
+            grabbed.current = { from: event.clientY, at: height };
+            setDragging(true);
+          }}
+          onKeyDown={(event) => {
+            if (!open) return;
+            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+            event.preventDefault();
+            resize(height + (event.key === "ArrowUp" ? 16 : -16));
+          }}
+          className={
+            "flex flex-1 touch-none items-center justify-center py-2 "
+            + (open ? "cursor-row-resize" : "cursor-default")
+          }
+        >
+          {open && (
+            <span
+              aria-hidden="true"
+              className={
+                "h-1.5 w-10 rounded-full transition-colors "
+                + (dragging ? "bg-club-ink" : "bg-club-muted")
+              }
+            />
+          )}
+          {!open && (
+            <span className="text-[11px] text-club-muted">
+              {km(profile.distanceM)}km · 상승 {Math.round(profile.ascentM)}m
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => fold(!open)}
+          aria-expanded={open}
+          aria-label={open ? "고도 그래프 접기" : "고도 그래프 펼치기"}
+          className="flex w-12 shrink-0 items-center justify-center border-l border-club-line text-club-ink-soft hover:bg-club-sunken"
+        >
+          <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
+            <path
+              d={open ? "M3 6l5 5 5-5" : "M3 10l5-5 5 5"}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
 
+      {open && (
       <div className="px-3 pb-2 pt-1.5">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-club-muted">
           <span className="font-medium text-club-ink">{km(profile.distanceM)}km</span>
@@ -313,7 +375,8 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
             ))}
           </div>
         )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }
