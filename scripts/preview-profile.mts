@@ -102,6 +102,13 @@ const bands = gradientBands(profile).map((band) => {
 const seen = new Set(bands.map((b) => b.steepness));
 const used = (["flat", "gentle", "moderate", "steep", "severe"] as Steepness[]).filter((s) => seen.has(s));
 const km = (m: number) => (m / 1000).toFixed(m < 1000 ? 2 : 1);
+const stepM = [500, 200, 100, 50, 20].find((size) => (top - base) / size >= 2.2) ?? 10;
+const grid: { metres: number; y: number }[] = [];
+for (let level = Math.ceil(base / stepM) * stepM; level < top; level += stepM) {
+  const ly = y(level);
+  if (ly > 10 && ly < VIEW_HEIGHT - 6) grid.push({ metres: level, y: ly });
+}
+const peak = profile.points.reduce((b, p) => (p.elevation > b.elevation ? p : b), profile.points[0]);
 const hardest = sections.filter((s) => !s.downhill).sort((a, b) => b.ascentM - a.ascentM)[0];
 const tallest = Math.max(0, ...rows.filter((r): r is number => r !== null));
 
@@ -130,12 +137,19 @@ ${sheets.map((sheet) => `<link rel="stylesheet" href="http://localhost:3100${she
       <span>최고 ${Math.round(profile.highM)}m</span>
       ${hardest && hardest.steepness !== "flat" ? `<span class="inline-flex items-center gap-1.5"><span class="inline-block h-[3px] w-3.5 shrink-0 rounded-full" style="background:${GRADE[hardest.steepness].line}"></span><span>가장 힘든 곳 <strong class="font-medium text-club-ink">${hardest.from} → ${hardest.to}</strong> ${km(hardest.distanceM)}km · 평균 ${Math.round(hardest.gradient * 100)}%</span></span>` : ""}
     </div>
-    <svg viewBox="0 0 ${WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" class="mt-1 w-full" style="height:${CHART_HEIGHT}px">
-      <path d="${ground}" fill="${GROUND}" fill-opacity="0.3"/>
+    <div style="position:relative;margin-top:4px"><svg viewBox="0 0 ${WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" style="display:block;width:100%;height:${CHART_HEIGHT}px">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${GROUND}" stop-opacity="0.14"/><stop offset="100%" stop-color="${GROUND}" stop-opacity="0.46"/></linearGradient></defs>
+      ${grid.map((g) => `<line x1="0" x2="${WIDTH}" y1="${g.y}" y2="${g.y}" stroke="#202320" stroke-opacity="0.08" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("")}
+      <path d="${ground}" fill="url(#g)"/>
       ${along.map((a, i) => `<line x1="${x(a)}" x2="${x(a)}" y1="0" y2="${VIEW_HEIGHT}" stroke="#202320" stroke-opacity="${rows[i] === null ? 0.07 : 0.16}" stroke-width="1" vector-effect="non-scaling-stroke"/>`).join("")}
       ${bands.map((b) => `<path d="${b.path}" fill="none" stroke="${GRADE[b.steepness].line}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`).join("")}
+      <circle cx="${x(peak.along)}" cy="${y(peak.elevation)}" r="3" fill="#fff" stroke="#202320" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+      <line x1="${x(profile.distanceM * 0.62)}" x2="${x(profile.distanceM * 0.62)}" y1="0" y2="${VIEW_HEIGHT}" stroke="#202320" stroke-opacity="0.45" stroke-width="1" vector-effect="non-scaling-stroke"/>
     </svg>
-    <div class="relative" style="height:${(tallest + 1) * LABEL_ROW}px">
+    ${grid.map((g) => `<span style="position:absolute;left:0;top:${(g.y / VIEW_HEIGHT) * CHART_HEIGHT}px;transform:translateY(-50%);background:#fff;padding-right:4px;font-size:11px;line-height:1;color:#9a9a90">${g.metres}</span>`).join("")}
+    <span style="position:absolute;left:${Math.min(92, Math.max(8, (peak.along / profile.distanceM) * 100))}%;top:${Math.max(0, (y(peak.elevation) / VIEW_HEIGHT) * CHART_HEIGHT - 14)}px;transform:translateX(-50%);font-size:11px;font-weight:500;line-height:1;color:#202320">${Math.round(peak.elevation)}m</span>
+    <span style="position:absolute;left:62%;top:4px;transform:translateX(-50%);white-space:nowrap;border-radius:2px;background:#202320;padding:2px 6px;font-size:11px;line-height:1.3;color:#fff">${km(profile.distanceM * 0.62)}km · ${Math.round(profile.points.reduce((b, p) => Math.abs(p.along - profile.distanceM * 0.62) < Math.abs(b.along - profile.distanceM * 0.62) ? p : b, profile.points[0]).elevation)}m</span>
+    </div><div class="relative" style="height:${(tallest + 1) * LABEL_ROW}px">
       ${along.map((a, i) => {
         const row = rows[i];
         if (row === null) return "";

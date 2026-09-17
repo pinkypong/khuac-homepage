@@ -128,6 +128,10 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
     };
   }, [dragging, resize]);
 
+  /** Where the pointer is along the line, as a sample index. Null when away. */
+  const [cursor, setCursor] = useState<number | null>(null);
+  const plot = useRef<HTMLDivElement>(null);
+
   const geometry = useMemo(() => {
     const { points, distanceM, lowM, highM } = profile;
     if (points.length < 2 || distanceM <= 0) return null;
@@ -165,7 +169,21 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
       })
       .filter((band): band is { key: string; steepness: Steepness; path: string } => band !== null);
 
-    return { ground, bands, x, seen: new Set(bands.map((band) => band.steepness)) };
+    // Round heights to read the curve against. Without them it is a shape and
+    // nothing more - there is no telling 741m from 300m by looking, which is
+    // most of what made the chart feel like a sparkline rather than a picture
+    // of a mountain.
+    const step = [500, 200, 100, 50, 20].find((size) => (top - base) / size >= 2.2) ?? 10;
+    const lines: { metres: number; y: number }[] = [];
+    for (let level = Math.ceil(base / step) * step; level < top; level += step) {
+      const level_y = y(level);
+      // Not so near the frame that the label would sit on its edge.
+      if (level_y > 10 && level_y < VIEW_HEIGHT - 6) lines.push({ metres: level, y: level_y });
+    }
+
+    const peak = points.reduce((best, point) => (point.elevation > best.elevation ? point : best), points[0]);
+
+    return { ground, bands, x, y, lines, peak, seen: new Set(bands.map((band) => band.steepness)) };
   }, [profile]);
 
   // Which row each name sits on. 백운대 and 백운봉암문 are 340m apart on a
@@ -183,6 +201,19 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
     .filter((section) => !section.downhill)
     .sort((a, b) => b.ascentM - a.ascentM)[0];
   const used = ORDER.filter((step) => geometry.seen.has(step));
+  const reading = cursor === null ? null : profile.points[cursor] ?? null;
+
+  /** The sample under the pointer, from where it is across the plot. */
+  const readAt = (clientX: number) => {
+    const box = plot.current?.getBoundingClientRect();
+    if (!box || box.width === 0) return;
+    const wanted = Math.min(1, Math.max(0, (clientX - box.left) / box.width)) * profile.distanceM;
+    let best = 0;
+    for (let i = 1; i < profile.points.length; i++) {
+      if (Math.abs(profile.points[i].along - wanted) < Math.abs(profile.points[best].along - wanted)) best = i;
+    }
+    setCursor(best);
+  };
   const tallest = Math.max(0, ...rows.filter((row): row is number => row !== null));
 
   return (
@@ -279,15 +310,47 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
           )}
         </div>
 
+        {/* The plot, and everything measured against it. Wrapped so the pointer
+            can be read against one box and the height labels can be laid out in
+            HTML - the chart is stretched to the pane's width with
+            preserveAspectRatio="none", which would stretch lettering with it. */}
+        <div
+          ref={plot}
+          className="relative mt-1 touch-pan-y"
+          onPointerMove={(event) => readAt(event.clientX)}
+          onPointerDown={(event) => readAt(event.clientX)}
+          onPointerLeave={() => setCursor(null)}
+        >
         <svg
           viewBox={`0 0 ${WIDTH} ${VIEW_HEIGHT}`}
           preserveAspectRatio="none"
           style={{ height }}
-          className="mt-1 w-full"
+          className="block w-full"
           role="img"
-          aria-label={`${km(profile.distanceM)}킬로미터, 누적 상승 ${Math.round(profile.ascentM)}미터`}
+          aria-label={`${km(profile.distanceM)}킬로미터, 누적 상승 ${Math.round(profile.ascentM)}미터, 최고 ${Math.round(profile.highM)}미터`}
         >
-          <path d={geometry.ground} fill={GROUND} fillOpacity={0.3} />
+          <defs>
+            {/* The hill reads as mass rather than a flat grey block: darker
+                where the ground is, fading as it rises. */}
+            <linearGradient id="khuac-ground" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={GROUND} stopOpacity={0.14} />
+              <stop offset="100%" stopColor={GROUND} stopOpacity={0.46} />
+            </linearGradient>
+          </defs>
+          {geometry.lines.map((line) => (
+            <line
+              key={`grid-${line.metres}`}
+              x1={0}
+              x2={WIDTH}
+              y1={line.y}
+              y2={line.y}
+              stroke="#202320"
+              strokeOpacity={0.08}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          <path d={geometry.ground} fill="url(#khuac-ground)" />
           {waypointAlong.map((along, i) => (
             <line
               key={`tick-${i}`}
@@ -313,7 +376,72 @@ export function ElevationProfile({ data }: { data: CourseElevation }) {
               vectorEffect="non-scaling-stroke"
             />
           ))}
+          {/* The high point, which is the number a reader looks for first. */}
+          <circle
+            cx={geometry.x(geometry.peak.along)}
+            cy={geometry.y(geometry.peak.elevation)}
+            r={3}
+            fill="#fff"
+            stroke="#202320"
+            strokeWidth={1.5}
+            vectorEffect="non-scaling-stroke"
+          />
+          {reading && (
+            <>
+              <line
+                x1={geometry.x(reading.along)}
+                x2={geometry.x(reading.along)}
+                y1={0}
+                y2={VIEW_HEIGHT}
+                stroke="#202320"
+                strokeOpacity={0.45}
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
+              />
+              <circle
+                cx={geometry.x(reading.along)}
+                cy={geometry.y(reading.elevation)}
+                r={3.5}
+                fill="#202320"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
+          )}
         </svg>
+
+          {/* Heights, at the left edge, against the lines drawn for them. */}
+          {geometry.lines.map((line) => (
+            <span
+              key={`grid-label-${line.metres}`}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-0 -translate-y-1/2 bg-club-surface pr-1 text-[11px] leading-none text-club-faint"
+              style={{ top: (line.y / VIEW_HEIGHT) * height }}
+            >
+              {line.metres}
+            </span>
+          ))}
+
+          {/* The summit's own number, beside its dot. */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -translate-x-1/2 text-[11px] font-medium leading-none text-club-ink"
+            style={{
+              left: `${Math.min(92, Math.max(8, (geometry.peak.along / profile.distanceM) * 100))}%`,
+              top: Math.max(0, (geometry.y(geometry.peak.elevation) / VIEW_HEIGHT) * height - 14),
+            }}
+          >
+            {Math.round(geometry.peak.elevation)}m
+          </span>
+
+          {/* What is under the pointer. Follows it, and stays inside the box. */}
+          {reading && (
+            <span className="pointer-events-none absolute top-1 -translate-x-1/2 whitespace-nowrap rounded-sm bg-club-ink px-1.5 py-0.5 text-[11px] leading-tight text-white"
+              style={{ left: `${Math.min(88, Math.max(12, (reading.along / profile.distanceM) * 100))}%` }}
+            >
+              {km(reading.along)}km · {Math.round(reading.elevation)}m
+            </span>
+          )}
+        </div>
 
         {/* The names are HTML rather than SVG text: the chart is stretched to
             the pane's width with preserveAspectRatio="none", which would
