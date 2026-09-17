@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { activityForCourse } from "./activity";
+import { activityForCourse, withActivity } from "./activity";
+import type { ActivityType } from "@/types/database";
 
 describe("activityForCourse", () => {
   it("files an approach as rock climbing, not as a walk", () => {
@@ -33,5 +34,37 @@ describe("activityForCourse", () => {
     expect(activityForCourse("도봉산 다락능선", "도봉탐방지원센터 → 신선대")).toBe("hiking");
     expect(activityForCourse()).toBe("hiking");
     expect(activityForCourse("", null, undefined)).toBe("hiking");
+  });
+});
+
+describe("withActivity", () => {
+  const place = (name: string, ...kinds: ActivityType[]) => ({
+    name, hikes: kinds.map((activityType, i) => ({ activityType, id: `${name}-${i}` })),
+  });
+
+  it("keeps only that activity's outings inside a place", () => {
+    // 북한산 holds a walk and a climb. Filtering to one used to list both,
+    // which put 인수봉 고독길 어프로치 in the walking tab.
+    const [bukhan] = withActivity([place("북한산", "hiking", "climbing")], "climbing");
+    expect(bukhan.hikes.map((h) => h.activityType)).toEqual(["climbing"]);
+  });
+
+  it("drops a place with nothing of that activity", () => {
+    const out = withActivity([place("북한산", "hiking"), place("도봉산", "climbing")], "climbing");
+    expect(out.map((p) => p.name)).toEqual(["도봉산"]);
+  });
+
+  it("leaves everything alone under all, including a place with no outings", () => {
+    const places = [place("북한산", "hiking", "climbing"), place("관악산")];
+    const out = withActivity(places, "all");
+    expect(out).toEqual(places);
+    expect(out[1].hikes).toHaveLength(0);
+  });
+
+  it("tells the two indoor kinds apart from rock", () => {
+    const places = [place("더클라임", "indoor_climbing"), place("뚝섬", "outdoor_wall"), place("인수봉", "climbing")];
+    expect(withActivity(places, "indoor_climbing").map((p) => p.name)).toEqual(["더클라임"]);
+    expect(withActivity(places, "outdoor_wall").map((p) => p.name)).toEqual(["뚝섬"]);
+    expect(withActivity(places, "climbing").map((p) => p.name)).toEqual(["인수봉"]);
   });
 });

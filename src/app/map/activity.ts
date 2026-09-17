@@ -12,7 +12,10 @@ export const ACTIVITY_TYPES: ActivityType[] = [
 ];
 
 export const ACTIVITY_LABEL: Record<ActivityType, string> = {
-  hiking: "산",
+  // 워킹 rather than 산. Every one of these happens on a mountain, so "산"
+  // named the thing they have in common instead of the thing that tells them
+  // apart - which is whether the day is spent walking or on rock.
+  hiking: "워킹",
   indoor_climbing: "실내암장",
   outdoor_wall: "외벽",
   // 암벽등반 rather than 등반. On a filter row beside 산, 실내암장 and 외벽 -
@@ -25,7 +28,7 @@ export const ACTIVITY_LABEL: Record<ActivityType, string> = {
 // 외벽 and 암벽등반 are still easy to mix up, so the picker spells out which is
 // which: an artificial outdoor wall (뚝섬 등) versus real rock.
 export const ACTIVITY_HINT: Record<ActivityType, string> = {
-  hiking: "등산",
+  hiking: "등산로를 걷는 산행",
   indoor_climbing: "실내 클라이밍장",
   outdoor_wall: "실외 인공 암벽",
   climbing: "자연 암벽",
@@ -94,4 +97,28 @@ export function activityForCourse(...text: (string | null | undefined)[]): Activ
   if (INDOOR.test(said)) return "indoor_climbing";
   if (OUTDOOR_WALL.test(said)) return "outdoor_wall";
   return isClimbingQuestion(said) ? "climbing" : "hiking";
+}
+
+/**
+ * The places to show under one activity, with only that activity's outings.
+ *
+ * The filter used to narrow the places and not what is inside them: a place
+ * passed if any one of its outings matched, and then every outing it had was
+ * drawn. 북한산 holds a walk and a climb, so 워킹 and 암벽등반 both listed both -
+ * which is no filter at all, and put 인수봉 고독길 어프로치 in the walking tab.
+ *
+ * A place with nothing left after narrowing drops out. Not under "all", where
+ * a place with no outings yet is still a folder worth seeing.
+ */
+export function withActivity<
+  H extends { activityType: ActivityType },
+  L extends { hikes: H[] },
+>(locations: L[], activity: ActivityType | "all"): L[] {
+  if (activity === "all") return locations;
+  return locations
+    .map((location) => ({
+      ...location,
+      hikes: location.hikes.filter((hike) => hike.activityType === activity),
+    }))
+    .filter((location) => location.hikes.length > 0);
 }

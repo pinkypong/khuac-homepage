@@ -8,7 +8,7 @@ import type { TrackPoint } from "@/lib/gps/track";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ACTIVITY_TYPES, ACTIVITY_LABEL } from "./activity";
+import { ACTIVITY_TYPES, ACTIVITY_LABEL, withActivity } from "./activity";
 import type { CourseInfo } from "./course-info";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { APIProvider } from "@vis.gl/react-google-maps";
@@ -78,7 +78,7 @@ const mapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 // ssr:false is only allowed inside a client component, hence this wrapper.
 const MapView = dynamic(() => import("./map-view").then((m) => m.MapView), {
   ssr: false,
-  loading: () => <p className="p-4 text-sm text-neutral-400">지도를 불러오는 중…</p>,
+  loading: () => <p className="p-4 text-sm text-club-faint">지도를 불러오는 중…</p>,
 });
 
 const MIN_MAP_WIDTH = 320;
@@ -148,7 +148,7 @@ function TrailPickBar({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-3 pb-[calc(2.4rem+env(safe-area-inset-bottom))]">
-      <div className="pointer-events-auto mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-neutral-300 bg-white/95 p-3 shadow-lg backdrop-blur">
+      <div className="pointer-events-auto mx-auto flex max-w-md flex-col gap-2 rounded-xl border border-club-line bg-white/95 p-3 shadow-lg backdrop-blur">
         <p className="text-xs font-medium">
           {pick.chosen.length === 0
             ? "걸었던 등산로를 순서대로 눌러주세요."
@@ -164,7 +164,7 @@ function TrailPickBar({
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="flex-1 rounded-lg border border-neutral-300 py-2 text-xs font-medium disabled:opacity-50"
+            className="flex-1 rounded-lg border border-club-line py-2 text-xs font-medium disabled:opacity-50"
           >
             취소
           </button>
@@ -172,7 +172,7 @@ function TrailPickBar({
             type="button"
             onClick={onSave}
             disabled={busy || pick.chosen.length === 0}
-            className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-medium text-white disabled:opacity-50"
+            className="flex-1 rounded-lg bg-club-ink py-2 text-xs font-medium text-white disabled:opacity-50"
           >
             {busy ? "저장 중…" : "이 경로로 저장"}
           </button>
@@ -199,7 +199,14 @@ export function MapShell({
   const [activity, setActivity] = useState<ActivityType | "all">("all");
   const [mapFailed, setMapFailed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const visibleLocations = useMemo(() => locations.filter((l) => (!search.trim() || [l.name, l.region, ...l.hikes.map(h => h.title)].join(" ").toLowerCase().includes(search.trim().toLowerCase())) && (activity === "all" || l.hikes.some(h => h.activityType === activity))), [locations, search, activity]);
+  // Narrowed by activity first, so a place keeps only that activity's outings
+  // rather than all of them; then by what was typed, over what is left.
+  const visibleLocations = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return withActivity(locations, activity).filter((location) =>
+      !term || [location.name, location.region, ...location.hikes.map((hike) => hike.title)]
+        .join(" ").toLowerCase().includes(term));
+  }, [locations, search, activity]);
   /**
    * What the typed text matches, as rows to jump to rather than only as a
    * filter on the list.
@@ -620,7 +627,7 @@ export function MapShell({
             ) : (
               <div className="p-4">
                 <p className="font-medium">지도를 표시할 수 없습니다</p>
-                <p className="mt-1 text-sm text-neutral-600">
+                <p className="mt-1 text-sm text-club-muted">
                   <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>가 설정되지 않았습니다.
                 </p>
               </div>
@@ -676,7 +683,7 @@ export function MapShell({
                   <button
                     type="button"
                     onClick={() => setNamingPoi(missingNames[0])}
-                    className="pointer-events-auto m-2 rounded-full border border-neutral-300 bg-white/95 px-3 py-1.5 text-[11px] text-neutral-700 shadow-lg backdrop-blur"
+                    className="pointer-events-auto m-2 rounded-full border border-club-line bg-white/95 px-3 py-1.5 text-[11px] text-club-ink-soft shadow-lg backdrop-blur"
                   >
                     지도에 없는 &lsquo;{missingNames[0]}&rsquo; · 위치 지정
                   </button>
@@ -697,8 +704,8 @@ export function MapShell({
 
           <div
             onPointerDown={() => setDragging(true)}
-            className={`hidden w-1.5 shrink-0 cursor-col-resize bg-neutral-200 transition-colors hover:bg-neutral-400 md:block ${
-              dragging ? "bg-neutral-400" : ""
+            className={`hidden w-1.5 shrink-0 cursor-col-resize bg-club-line transition-colors hover:bg-club-faint md:block ${
+              dragging ? "bg-club-faint" : ""
             }`}
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); const width = containerRef.current?.clientWidth ?? 1200; setMapWidth(Math.max(MIN_MAP_WIDTH, Math.min(width - MIN_PANEL_WIDTH, (mapWidth ?? width * DEFAULT_MAP_WIDTH) + (e.key === "ArrowRight" ? 24 : -24)))); } }}
@@ -721,7 +728,7 @@ export function MapShell({
           <button
             type="button"
             onClick={() => setMapOpen(true)}
-            className="hidden border-b border-neutral-200 px-4 py-2 text-left text-xs text-neutral-600 hover:bg-neutral-50 md:block"
+            className="hidden border-b border-club-line px-4 py-2 text-left text-xs text-club-muted hover:bg-club-paper md:block"
           >
             지도 펼치기
           </button>
@@ -768,7 +775,7 @@ export function MapShell({
           The padding clears the home indicator on a notched device. */}
       <nav
         aria-label="화면 전환"
-        className="club-bottom-nav flex shrink-0 border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="club-bottom-nav flex shrink-0 border-t border-club-line bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {MOBILE_TABS.map(({ id, label }) => (
           <button
@@ -785,8 +792,8 @@ export function MapShell({
             className={
               "flex-1 py-3 text-sm " +
               (mobileTab === id
-                ? "font-semibold text-neutral-900 shadow-[inset_0_2px_0_0_currentColor]"
-                : "text-neutral-500")
+                ? "font-semibold text-club-ink shadow-[inset_0_2px_0_0_currentColor]"
+                : "text-club-muted")
             }
           >
             <NavIcon kind={id}/>{label}
