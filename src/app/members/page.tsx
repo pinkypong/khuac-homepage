@@ -27,12 +27,11 @@ function joinedLabel(joinedAt: string) {
   }).format(new Date(joinedAt));
 }
 
-function MemberCard({ member, number }: { member: RosterRow; number: number }) {
+function MemberCard({ member }: { member: RosterRow }) {
   const isAdmin = member.role === "admin";
 
   return (
     <li className="member-card">
-      <span className="member-index" aria-hidden="true">{String(number).padStart(2, "0")}</span>
       <span className={isAdmin ? "member-avatar member-avatar-admin" : "member-avatar"} aria-hidden="true">
         {memberInitial(member)}
       </span>
@@ -63,6 +62,7 @@ export default async function MembersPage() {
   );
   const admins = members.filter((member) => member.role === "admin");
   const regularMembers = members.filter((member) => member.role === "member");
+  const roster = [...admins, ...regularMembers];
 
   return (
     <main className="members-page min-h-app">
@@ -82,8 +82,7 @@ export default async function MembersPage() {
             <p className="members-description">현재 홈페이지 가입 승인이 완료된 부원입니다.</p>
           </div>
           <dl className="members-stats" aria-label="부원 현황">
-            <div><dt>전체</dt><dd>{members.length}</dd></div>
-            <div><dt>운영진</dt><dd>{admins.length}</dd></div>
+            <div><dt>전체 부원</dt><dd>{members.length}</dd></div>
           </dl>
         </section>
 
@@ -94,23 +93,12 @@ export default async function MembersPage() {
           </section>
         ) : (
           <div className="members-roster">
-            {admins.length > 0 && (
-              <section className="member-group" aria-labelledby="admin-heading">
-                <div className="member-section-title"><h2 id="admin-heading">운영진</h2><span>{admins.length}</span></div>
-                <ul className="member-grid member-grid-admin">
-                  {admins.map((member, index) => <MemberCard key={member.id} member={member} number={index + 1} />)}
-                </ul>
-              </section>
-            )}
-
-            {regularMembers.length > 0 && (
-              <section className="member-group" aria-labelledby="member-heading">
-                <div className="member-section-title"><h2 id="member-heading">부원</h2><span>{regularMembers.length}</span></div>
-                <ul className="member-grid">
-                  {regularMembers.map((member, index) => <MemberCard key={member.id} member={member} number={admins.length + index + 1} />)}
-                </ul>
-              </section>
-            )}
+            <section className="member-group" aria-labelledby="member-heading">
+              <div className="member-section-title"><h2 id="member-heading">부원</h2><span>{members.length}</span></div>
+              <ul className="member-grid">
+                {roster.map((member) => <MemberCard key={member.id} member={member} />)}
+              </ul>
+            </section>
           </div>
         )}
       </div>

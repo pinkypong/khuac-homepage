@@ -300,29 +300,28 @@ body {
  .member-card { min-height:88px; padding:16px; }
 }
 
-/* Member directory density refinement: a split editorial index on wide
-   screens and two compact roster panels when the app sits in a side pane. */
+/* Member directory: one roster, with the admin role kept as a quiet badge. */
 @media(min-width:901px) {
  .members-content { display:grid; grid-template-columns:minmax(260px,.72fr) minmax(0,1.55fr); gap:clamp(48px,7vw,96px); width:min(1180px,100%); }
  .members-intro { align-self:start; display:block; min-width:0; padding:0 clamp(28px,4vw,54px) 0 0; border-right:1px solid var(--color-club-ink); border-bottom:0; }
  .members-intro h1 { max-width:5em; font-size:clamp(44px,5.5vw,68px); }
  .members-description { max-width:24em; margin-top:24px; line-height:1.8; word-break:keep-all; }
  .members-stats { gap:0; margin-top:48px; padding-top:18px; border-top:1px solid var(--color-club-line); }
- .members-stats div { flex:1; min-width:0; }
- .members-stats div + div { margin-left:22px; padding-left:22px; border-left:1px solid var(--color-club-line); }
- .members-roster { display:grid; align-content:start; grid-template-columns:repeat(2,minmax(0,1fr)); gap:42px 24px; padding-top:4px; }
+ .members-stats div { min-width:84px; }
+ .members-roster { display:block; padding-top:4px; }
 }
+.member-group { min-width:0; }
 .member-section-title { margin-bottom:15px; padding-bottom:13px; border-bottom:1px solid var(--color-club-ink); }
-.member-card { position:relative; min-height:118px; gap:17px; padding:24px 42px 24px 22px; }
-.member-index { position:absolute; top:12px; right:13px; color:var(--color-club-faint); font-family:var(--font-geist-sans),sans-serif; font-size:10px; letter-spacing:.08em; }
-.member-avatar { width:58px; height:58px; font-size:18px; }
-.member-name-row strong { font-size:16px; }
+.member-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.member-card { min-height:104px; gap:15px; padding:19px; }
+.member-avatar { width:54px; height:54px; font-size:18px; }
+.member-card-copy { flex:1; }
+.member-name-row { flex-wrap:wrap; }
+.member-name-row strong { min-width:0; overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; font-size:16px; }
 @media(min-width:561px) and (max-width:900px) {
  .members-intro { align-items:flex-end; }
- .members-roster { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
- .member-grid { grid-template-columns:1fr; }
 }
 @media(max-width:560px) {
- .member-card { min-height:104px; padding:20px 40px 20px 18px; }
- .member-avatar { width:54px; height:54px; }
+ .member-grid { grid-template-columns:1fr; }
+ .member-card { min-height:96px; padding:16px; }
 }
