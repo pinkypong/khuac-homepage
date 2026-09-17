@@ -30,7 +30,9 @@ const EXTENSION_TYPES: Record<string, string> = {
   heif: "image/heif",
 };
 
-export const MAX_PHOTO_BYTES = 30 * 1024 * 1024;
+// Cloudflare Images input is limited to 20 MB. Accepting larger originals
+// succeeds at upload but fails when a tester opens a thumbnail or preview.
+export const MAX_PHOTO_BYTES = 20_000_000;
 
 export function isAllowedPhotoType(contentType: string): boolean {
   return (ALLOWED_PHOTO_TYPES as readonly string[]).includes(contentType.toLowerCase());
@@ -48,4 +50,4 @@ export function resolvePhotoType(fileName: string, fileType: string): string | n
 }
 
 export const PHOTO_LIMITS_HINT =
-  "JPG · PNG · WebP · HEIC 이미지만 올릴 수 있습니다 (동영상 불가, 최대 30MB)";
+  "JPG · PNG · WebP · HEIC 이미지만 올릴 수 있습니다 (동영상 불가, 최대 20MB)";

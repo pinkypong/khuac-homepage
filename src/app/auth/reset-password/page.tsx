@@ -31,11 +31,13 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const supabase = createClient();
     let settled = false;
+    let alive = true;
+    let timer: number | undefined;
 
     // Whoever gets there first wins: the listener below, the direct check, or
     // the timeout. Without this the three of them fight over one state value.
     const settle = (ok: boolean) => {
-      if (settled) return;
+      if (settled || !alive) return;
       settled = true;
       setReady(ok);
     };
@@ -60,7 +62,7 @@ export default function ResetPasswordPage() {
         setError(
           /expired|invalid/i.test(hashError)
             ? "링크가 만료되었거나 이미 사용되었습니다."
-            : decodeURIComponent(hashError.replace(/\+/g, " ")),
+            : hashError,
         );
         settle(false);
         return;
@@ -86,15 +88,20 @@ export default function ResetPasswordPage() {
 
       // Nothing yet. Either startup is still parsing the URL - in which case
       // the listener above answers - or there was never a token here.
-      window.setTimeout(async () => {
-        const { data: late } = await supabase.auth.getSession();
-        settle(late.session !== null);
+      timer = window.setTimeout(async () => {
+        try {
+          const { data: late } = await supabase.auth.getSession();
+          settle(late.session !== null);
+        } catch { settle(false); }
       }, 2000);
     }
 
-    redeem();
+    void redeem().catch(() => {
+      setError("링크 확인 중 연결이 끊겼습니다. 새로고침 후 다시 시도해주세요.");
+      settle(false);
+    });
 
-    return () => sub.subscription.unsubscribe();
+    return () => { alive = false; window.clearTimeout(timer); sub.subscription.unsubscribe(); };
   }, []);
 
   async function submit(event: FormEvent) {
@@ -110,14 +117,19 @@ export default function ResetPasswordPage() {
     }
 
     setPending(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
-    setPending(false);
-    if (error) {
-      setError(error.message);
-      return;
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        setError(error.message);
+        return;
+      }
+      setDone(true);
+    } catch {
+      setError("저장 중 연결이 끊겼습니다. 다시 시도해주세요.");
+    } finally {
+      setPending(false);
     }
-    setDone(true);
   }
 
   return (

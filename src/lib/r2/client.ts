@@ -29,11 +29,7 @@ function objectUrl(storageKey: string) {
 // stored in photos.storage_key_original - keep filenames out of the key
 // itself beyond the extension so nothing user-controlled ends up parsed as a
 // path segment.
-export function buildStorageKey(originalFilename: string): string {
-  const extMatch = /\.[a-zA-Z0-9]{1,8}$/.exec(originalFilename);
-  const ext = extMatch ? extMatch[0].toLowerCase() : "";
-  return `photos/${crypto.randomUUID()}${ext}`;
-}
+export { buildStorageKey } from "@/lib/photos/storage-key";
 
 export async function presignPutUrl(storageKey: string, expiresInSeconds = 300): Promise<string> {
   const client = r2Client();

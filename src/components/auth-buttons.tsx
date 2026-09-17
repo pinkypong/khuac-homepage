@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Mode = "login" | "signup";
@@ -76,6 +76,15 @@ export function AuthButtons() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const authInFlight = useRef(false);
+  async function runAuth(action: () => Promise<void>) {
+    if (authInFlight.current) return;
+    authInFlight.current = true;
+    setPending(true);
+    try { await action(); }
+    catch { setError("연결에 실패했습니다. 인터넷 연결을 확인한 뒤 다시 시도해주세요."); }
+    finally { authInFlight.current = false; setPending(false); }
+  }
   // Held true from a successful sign-in until the browser leaves this page.
   const [navigating, setNavigating] = useState(false);
   // Epoch ms, and a ticking clock to compare it against. The interval only runs
@@ -125,7 +134,12 @@ export function AuthButtons() {
 
   // Read after mount, not in useState: the server render has no localStorage
   // and a differing initial value would be a hydration mismatch.
-  useEffect(() => setEmail(readLastEmail()), []);
+  useEffect(() => {
+    setEmail(readLastEmail());
+    if (new URLSearchParams(window.location.search).get("error") === "auth") {
+      setError("로그인을 완료하지 못했습니다. 링크가 만료되었거나 취소되었습니다. 다시 로그인해주세요.");
+    }
+  }, []);
 
   // A mail link - confirming a signup, or finishing a password reset - opens in
   // a new tab, and the session lands there. This tab would otherwise sit
@@ -328,7 +342,7 @@ export function AuthButtons() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex rounded-lg border border-neutral-300 p-0.5" role="tablist">
+      <div className="flex rounded-lg border border-club-line p-0.5" role="tablist">
         {(["login", "signup"] as Mode[]).map((m) => (
           <button
             key={m}
@@ -336,11 +350,12 @@ export function AuthButtons() {
             role="tab"
             aria-selected={mode === m}
             onClick={() => switchMode(m)}
+            disabled={pending || navigating}
             className={
               "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
               (mode === m
-                ? "bg-neutral-900 text-white"
-                : "text-neutral-600 hover:bg-neutral-50")
+                ? "bg-club-ink text-white"
+                : "text-club-muted hover:bg-club-paper")
             }
           >
             {m === "login" ? "로그인" : "회원가입"}
@@ -350,70 +365,74 @@ export function AuthButtons() {
 
       <button
         type="button"
-        onClick={signInWithGoogle}
-        className="rounded border border-neutral-300 px-4 py-2 font-medium hover:bg-neutral-50"
+        onClick={() => void runAuth(signInWithGoogle)}
+        disabled={pending || navigating}
+        className="rounded border border-club-line px-4 py-2 font-medium hover:bg-club-paper"
       >
         {isSignup ? "Google로 가입" : "Google로 로그인"}
       </button>
 
-      <div className="flex items-center gap-3 text-sm text-neutral-400">
-        <div className="h-px flex-1 bg-neutral-200" />
+      <div className="flex items-center gap-3 text-sm text-club-faint">
+        <div className="h-px flex-1 bg-club-line" />
         또는
-        <div className="h-px flex-1 bg-neutral-200" />
+        <div className="h-px flex-1 bg-club-line" />
       </div>
 
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={(event) => { event.preventDefault(); void runAuth(() => submit(event)); }} className="flex flex-col gap-3">
         <input
           type="email"
+          aria-label="이메일 주소"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="이메일 주소"
           autoComplete="email"
-          className="rounded border border-neutral-300 px-3 py-2"
+          className="rounded border border-club-line px-3 py-2"
         />
         <input
           type="password"
+          aria-label="비밀번호"
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={isSignup ? `비밀번호 (${MIN_PASSWORD_LENGTH}자 이상)` : "비밀번호"}
           autoComplete={isSignup ? "new-password" : "current-password"}
-          className="rounded border border-neutral-300 px-3 py-2"
+          className="rounded border border-club-line px-3 py-2"
         />
         {isSignup && (
           <input
             type="password"
+            aria-label="비밀번호 확인"
             required
             value={passwordAgain}
             onChange={(e) => setPasswordAgain(e.target.value)}
             placeholder="비밀번호 확인"
             autoComplete="new-password"
-            className="rounded border border-neutral-300 px-3 py-2"
+            className="rounded border border-club-line px-3 py-2"
           />
         )}
         <button
           type="submit"
           disabled={pending || navigating}
-          className="rounded bg-neutral-900 px-4 py-2 font-medium text-white disabled:opacity-50"
+          className="rounded bg-club-ink px-4 py-2 font-medium text-white disabled:opacity-50"
         >
           {navigating ? "들어가는 중…" : pending ? "처리 중…" : isSignup ? "가입하기" : "로그인"}
         </button>
       </form>
 
       {!isSignup && (
-        <div className="flex flex-col gap-1.5 text-xs text-neutral-500">
-          <button type="button" onClick={sendReset} disabled={pending || cooling} className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50">
+        <div className="flex flex-col gap-1.5 text-xs text-club-muted">
+          <button type="button" onClick={() => void runAuth(sendReset)} disabled={pending || navigating || cooling} className="self-start py-1 underline hover:text-club-ink disabled:no-underline disabled:opacity-50">
             비밀번호 설정 · 재설정
           </button>
-          <button type="button" onClick={sendMagicLink} disabled={pending || cooling} className="self-start py-1 underline hover:text-neutral-800 disabled:no-underline disabled:opacity-50">
+          <button type="button" onClick={() => void runAuth(sendMagicLink)} disabled={pending || navigating || cooling} className="self-start py-1 underline hover:text-club-ink disabled:no-underline disabled:opacity-50">
             비밀번호 없이 메일로 로그인 링크 받기
           </button>
-          {cooling && <p aria-live="polite" className="text-neutral-400">{secondsLeft}초 후 다시 보낼 수 있습니다.</p>}
+          {cooling && <p aria-live="polite" className="text-club-faint">{secondsLeft}초 후 다시 보낼 수 있습니다.</p>}
         </div>
       )}
 
-      {notice && <p className="text-sm text-neutral-600">{notice}</p>}
+      {notice && <p className="text-sm text-club-muted">{notice}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );

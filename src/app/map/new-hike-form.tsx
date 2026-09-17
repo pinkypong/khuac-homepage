@@ -58,7 +58,7 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-600 hover:border-neutral-500 md:py-2 md:text-xs"
+        className="w-full rounded-lg border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
       >
         + 새 활동 등록
       </button>
@@ -66,11 +66,11 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border border-neutral-300 p-3">
+    <form onSubmit={submit} className="rounded-lg border border-club-line p-3">
       <p className="text-xs font-semibold">새 활동 등록</p>
 
       <div className="mt-2">
-        <label className="mb-1 block text-[11px] text-neutral-500">
+        <label className="mb-1 block text-xs text-club-muted">
           봉우리·코스 검색{" "}
           {spotRequired ? (
             <span className="text-red-600">(필수)</span>
@@ -85,21 +85,21 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
           }}
         />
         {spot ? (
-          <p className="mt-1 flex items-center gap-1.5 text-[11px] text-neutral-500">
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-club-muted">
             <span className="min-w-0 truncate">
               {spot.name} · {spot.lat.toFixed(5)}, {spot.lng.toFixed(5)}
             </span>
             <button
               type="button"
               onClick={() => setSpot(null)}
-              className="shrink-0 text-neutral-400 underline hover:text-neutral-700"
+              className="shrink-0 text-club-faint underline hover:text-club-ink-soft"
             >
               지우기
             </button>
           </p>
         ) : (
           spotRequired && (
-            <p className="mt-1 text-[11px] text-neutral-400">
+            <p className="mt-1 text-xs text-club-faint">
               지도에 붉은 핀으로 표시될 지점입니다.
             </p>
           )
@@ -111,17 +111,17 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
         onChange={(e) => setTitle(e.target.value)}
         placeholder="활동 이름 (예: 겨울 정기산행)"
         required
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
+        className="mt-2 w-full rounded border border-club-line px-2 py-1.5 text-base md:text-sm"
       />
       <input
         value={date}
         onChange={(e) => setDate(e.target.value)}
         type="date"
         required
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
+        className="mt-2 w-full rounded border border-club-line px-2 py-1.5 text-base md:text-sm"
       />
       <div className="mt-2">
-        <label className="mb-1 block text-[11px] text-neutral-500">활동 종류</label>
+        <label className="mb-1 block text-xs text-club-muted">활동 종류</label>
         <div className="flex flex-wrap gap-1.5">
           {ACTIVITY_TYPES.map((t) => (
             <button
@@ -132,15 +132,15 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
               className={
                 "rounded border px-3 py-1.5 text-sm md:px-2 md:py-1 md:text-xs " +
                 (activityType === t
-                  ? "border-neutral-900 bg-neutral-900 text-white"
-                  : "border-neutral-300 text-neutral-700 hover:border-neutral-500")
+                  ? "border-club-ink bg-club-ink text-white"
+                  : "border-club-line text-club-ink-soft hover:border-club-muted")
               }
             >
               {ACTIVITY_LABEL[t]}
             </button>
           ))}
         </div>
-        <p className="mt-1 text-[11px] text-neutral-400">
+        <p className="mt-1 text-xs text-club-faint">
           {ACTIVITY_HINT[activityType]}
         </p>
       </div>
@@ -150,21 +150,21 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
         onChange={(e) => setDescription(e.target.value)}
         placeholder="설명 (선택)"
         rows={2}
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 text-base md:text-sm"
+        className="mt-2 w-full rounded border border-club-line px-2 py-1.5 text-base md:text-sm"
       />
-      {error && <p className="mt-2 text-[11px] text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       <div className="mt-3 flex justify-end gap-2">
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded border border-neutral-300 px-4 py-2 text-sm md:px-3 md:py-1.5 md:text-xs"
+          className="rounded border border-club-line px-4 py-2 text-sm md:px-3 md:py-1.5 md:text-xs"
         >
           취소
         </button>
         <button
           type="submit"
           disabled={saving || (spotRequired && !spot)}
-          className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50 md:px-3 md:py-1.5 md:text-xs"
+          className="rounded bg-club-ink px-4 py-2 text-sm text-white disabled:opacity-50 md:px-3 md:py-1.5 md:text-xs"
         >
           {saving ? "저장 중…" : "등록"}
         </button>

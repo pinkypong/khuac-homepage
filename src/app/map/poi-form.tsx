@@ -61,11 +61,11 @@ export function PoiForm({
   }
 
   return (
-    <div className="pointer-events-auto m-2 w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-neutral-300 bg-white/95 p-3 shadow-lg backdrop-blur">
-      <p className="text-xs font-semibold text-neutral-900">{name} 위치 지정</p>
+    <div className="pointer-events-auto m-2 w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-club-line bg-white/95 p-3 shadow-lg backdrop-blur">
+      <p className="text-xs font-semibold text-club-ink">{name} 위치 지정</p>
 
       {!manual ? (
-        <p className="mt-1 text-[11px] text-neutral-600">
+        <p className="mt-1 text-xs text-club-muted">
           {picked
             ? `선택한 위치: ${picked.lat.toFixed(5)}, ${picked.lng.toFixed(5)}`
             : "지도를 눌러 위치를 지정하세요."}
@@ -78,7 +78,7 @@ export function PoiForm({
             onChange={(e) => setLat(e.target.value)}
             placeholder="위도 37.6640"
             aria-label="위도"
-            className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base md:text-xs"
+            className="min-w-0 flex-1 rounded border border-club-line px-2 py-1 text-base md:text-xs"
           />
           <input
             inputMode="decimal"
@@ -86,19 +86,19 @@ export function PoiForm({
             onChange={(e) => setLng(e.target.value)}
             placeholder="경도 126.9672"
             aria-label="경도"
-            className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 text-base md:text-xs"
+            className="min-w-0 flex-1 rounded border border-club-line px-2 py-1 text-base md:text-xs"
           />
         </div>
       )}
 
-      {error && <p className="mt-1 text-[11px] text-red-600">{error}</p>}
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
 
       <div className="mt-2 flex items-center gap-1.5">
         {!manual && !picked && (
           <button
             type="button"
             onClick={onPickRequest}
-            className="rounded bg-neutral-900 px-2.5 py-1.5 text-[11px] font-medium text-white"
+            className="rounded bg-club-ink px-2.5 py-1.5 text-xs font-medium text-white"
           >
             지도에서 찍기
           </button>
@@ -106,7 +106,7 @@ export function PoiForm({
         <button
           type="button"
           onClick={() => setManual(!manual)}
-          className="rounded border border-neutral-300 px-2.5 py-1.5 text-[11px] text-neutral-700"
+          className="rounded border border-club-line px-2.5 py-1.5 text-xs text-club-ink-soft"
         >
           {manual ? "지도에서 찍기" : "좌표 입력"}
         </button>
@@ -114,14 +114,14 @@ export function PoiForm({
           type="button"
           onClick={save}
           disabled={!ready || saving}
-          className="ml-auto rounded bg-[#5b1a23] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-40"
+          className="ml-auto rounded bg-[#5b1a23] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40"
         >
           {saving ? "저장 중…" : "저장"}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="rounded border border-neutral-300 px-2 py-1.5 text-[11px] text-neutral-600"
+          className="rounded border border-club-line px-2 py-1.5 text-xs text-club-muted"
         >
           닫기
         </button>

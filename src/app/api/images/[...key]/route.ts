@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { getObject, putObject } from "@/lib/r2/client";
 import { requireApprovedMember, RoleError } from "@/lib/supabase/require-role";
+import { imageOptions } from "@/lib/images/options";
 
 // Serves a photo, resized on demand and then cached back into R2.
 //
@@ -42,10 +43,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
 
   const { key } = await params;
   const storageKey = key.join("/");
+  if (key[0] !== "photos" || key.some((part) => !/^[a-zA-Z0-9_.-]+$/.test(part) || part === "." || part === "..")) {
+    return new Response("Invalid photo key", { status: 400 });
+  }
 
   const { searchParams } = new URL(request.url);
-  const width = Number(searchParams.get("w")) || undefined;
-  const quality = Math.min(100, Math.max(1, Number(searchParams.get("q")) || 80));
+  const options = imageOptions(searchParams);
+  if (!options) return new Response("Invalid image dimensions", { status: 400 });
+  const { width, quality } = options;
 
   const cacheKey = derivedKey(storageKey, width, quality);
   const cached = await getObject(cacheKey);
@@ -74,11 +79,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
     });
   }
 
-  const result = await env.IMAGES.input(new Response(original.bytes).body!)
-    .transform(width ? { width } : {})
-    .output({ format: "image/webp", quality });
-
-  const transformed = await new Response(result.image()).arrayBuffer();
+  let transformed: ArrayBuffer;
+  try {
+    const result = await env.IMAGES.input(new Response(original.bytes).body!)
+      .transform(width ? { width } : {})
+      .output({ format: "image/webp", quality });
+    transformed = await new Response(result.image()).arrayBuffer();
+  } catch {
+    // Keep older oversized JPEG/PNG originals viewable during a transform
+    // failure. Do not cache this fallback as a successful derived WebP.
+    console.error("[api/images] transform unavailable; serving original");
+    return new Response(original.bytes, { headers: {
+      "content-type": original.contentType,
+      "cache-control": "private, max-age=60",
+      "x-content-type-options": "nosniff",
+    } });
+  }
 
   // Written after the response is on its way; a failed cache write should
   // never turn a working image into an error.

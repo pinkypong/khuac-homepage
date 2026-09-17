@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { askAssistant, finishRouteAnswer, forgetQuestion, recentQuestions, type AssistantAnswer, type RecentQuestion } from "./actions";
 import { parseMarkdown, type InlineToken } from "@/lib/assistant/markdown";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
@@ -15,7 +15,7 @@ function Inline({ tokens }: { tokens: InlineToken[] }) {
     <>
       {tokens.map((token, i) =>
         token.bold ? (
-          <strong key={i} className="font-semibold text-neutral-900">
+          <strong key={i} className="font-semibold text-club-ink">
             {token.text}
           </strong>
         ) : (
@@ -37,7 +37,7 @@ function RichText({ source }: { source: string }) {
       {blocks.map((block, i) => {
         if (block.kind === "heading") {
           return (
-            <h3 key={i} className="mt-1 text-[15px] font-bold leading-snug text-neutral-900">
+            <h3 key={i} className="mt-1 text-[15px] font-bold leading-snug text-club-ink">
               <Inline tokens={block.content} />
             </h3>
           );
@@ -49,7 +49,7 @@ function RichText({ source }: { source: string }) {
               start={block.ordered ? block.start : undefined}
               key={i}
               className={
-                "flex flex-col gap-1 pl-4 text-[13px] leading-relaxed text-neutral-700 " +
+                "flex flex-col gap-1 pl-4 text-[13px] leading-relaxed text-club-ink-soft " +
                 (block.ordered ? "list-decimal" : "list-disc")
               }
             >
@@ -62,7 +62,7 @@ function RichText({ source }: { source: string }) {
           );
         }
         if (block.kind === "rule") {
-          return <hr key={i} className="border-neutral-200" />;
+          return <hr key={i} className="border-club-line" />;
         }
         if (block.kind === "table") {
           // The panel is narrow, so a wide comparison table scrolls sideways
@@ -75,7 +75,7 @@ function RichText({ source }: { source: string }) {
                     {block.header.map((cell, j) => (
                       <th
                         key={j}
-                        className="whitespace-nowrap border-b border-neutral-300 px-1.5 py-1 text-left font-semibold text-neutral-900"
+                        className="whitespace-nowrap border-b border-club-line px-1.5 py-1 text-left font-semibold text-club-ink"
                       >
                         <Inline tokens={cell} />
                       </th>
@@ -88,7 +88,7 @@ function RichText({ source }: { source: string }) {
                       {row.map((cell, k) => (
                         <td
                           key={k}
-                          className="border-b border-neutral-100 px-1.5 py-1 align-top text-neutral-700"
+                          className="border-b border-club-sunken px-1.5 py-1 align-top text-club-ink-soft"
                         >
                           <Inline tokens={cell} />
                         </td>
@@ -101,7 +101,7 @@ function RichText({ source }: { source: string }) {
           );
         }
         return (
-          <p key={i} className="text-[13px] leading-relaxed text-neutral-700">
+          <p key={i} className="text-[13px] leading-relaxed text-club-ink-soft">
             <Inline tokens={block.content} />
           </p>
         );
@@ -129,6 +129,8 @@ export function AssistantPanel({
   creatingAlbum?: boolean;
 } = {}) {
   const [question, setQuestion] = useState("");
+  const requestVersion = useRef(0);
+  useEffect(() => () => { requestVersion.current += 1; }, []);
   // The question this answer came from, kept apart from the box - the box is
   // the next question, and by the time somebody makes an album from a course
   // they may well have started typing one.
@@ -163,14 +165,18 @@ export function AssistantPanel({
   async function ask(text: string, refresh = false) {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const version = ++requestVersion.current;
+    const isCurrent = () => requestVersion.current === version;
     setPending(true);
+    setFilling(false);
     setError(null);
     setAnswer(null);
     setAsked(trimmed);
     setSearching(false);
-    const slow = setTimeout(() => setSearching(true), 5000);
+    const slow = setTimeout(() => { if (isCurrent()) setSearching(true); }, 5000);
     try {
       const first = await askAssistant(trimmed, refresh);
+      if (!isCurrent()) return;
       // A failure comes back as a value rather than as a throw, because a
       // production build replaces a thrown message with a generic one.
       if (first.failure) {
@@ -186,19 +192,21 @@ export function AssistantPanel({
         setFilling(true);
         try {
           const whole = await finishRouteAnswer(trimmed);
-          if (whole) setAnswer(whole);
+          if (whole && isCurrent()) setAnswer(whole);
         } catch {
           // The prose is already on screen and says what the cards would.
         } finally {
-          setFilling(false);
+          if (isCurrent()) setFilling(false);
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "답을 가져오지 못했습니다.");
+      if (isCurrent()) setError(err instanceof Error ? err.message : "답을 가져오지 못했습니다.");
     } finally {
       clearTimeout(slow);
-      setSearching(false);
-      setPending(false);
+      if (isCurrent()) {
+        setSearching(false);
+        setPending(false);
+      }
     }
   }
 
@@ -218,19 +226,20 @@ export function AssistantPanel({
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <form onSubmit={submit} className="flex flex-col gap-2">
+    <div className="club-ai-panel flex flex-col gap-4">
+      <form onSubmit={submit} className="club-ai-form flex flex-col gap-2">
         <input
+          aria-label="KHUAC AI에 질문"
           maxLength={2000}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="예: 관악산 등산 코스"
-          className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-base md:text-sm"
+          className="rounded-lg border border-club-line bg-white px-3 py-2 text-base md:text-sm"
         />
         <button
           type="submit"
           disabled={pending || !question.trim()}
-          className="rounded-lg bg-neutral-900 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="rounded-lg bg-club-ink py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {!pending ? "물어보기" : searching ? "저장된 코스에 없어 웹에서 찾는 중…" : "저장된 코스를 확인하는 중…"}
         </button>
@@ -238,8 +247,8 @@ export function AssistantPanel({
 
       {recent.length > 0 && (
         <div>
-          <p className="mb-1 text-[10px] font-medium text-neutral-400">최근 검색 · 다시 보기는 무료</p>
-          <div className="flex flex-wrap gap-1.5">
+          <p className="mb-1 text-xs font-medium text-club-faint">최근 검색 · 다시 보기는 무료</p>
+          <div className="club-ai-history">
             {recent.map((item) => (
               // The question and its dismissal are two buttons rather than one
               // with a corner that does something else: a chip you tap to ask
@@ -258,7 +267,7 @@ export function AssistantPanel({
                   className="min-w-0 truncate py-1 pl-2.5 pr-1 disabled:opacity-50"
                 >
                   {item.question}
-                  <span className="ml-1 text-[10px] text-neutral-400">{item.ageLabel}</span>
+                  <span className="ml-1 text-xs text-club-faint">{item.ageLabel}</span>
                 </button>
                 <button
                   type="button"
@@ -272,7 +281,7 @@ export function AssistantPanel({
                       void recentQuestions().then(setRecent).catch(() => {});
                     });
                   }}
-                  className="shrink-0 px-2 py-1 text-neutral-400 hover:text-[#5b1a23]"
+                  className="shrink-0 px-2 py-1 text-club-faint hover:text-[#5b1a23]"
                 >
                   ×
                 </button>
@@ -282,13 +291,13 @@ export function AssistantPanel({
         </div>
       )}
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="club-ai-examples flex flex-wrap gap-1.5">
         {EXAMPLES.map((example) => (
           <button
             key={example}
             type="button"
             onClick={() => setQuestion(example)}
-            className="rounded-full border border-neutral-300 px-2.5 py-1 text-xs text-neutral-600 hover:bg-white"
+            className="rounded-full border border-club-line px-2.5 py-1 text-xs text-club-muted hover:bg-white"
           >
             {example}
           </button>
@@ -298,12 +307,12 @@ export function AssistantPanel({
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {answer && (
-        <div className="rounded-lg border border-neutral-200 bg-white p-3">
+        <div className="club-ai-answer border border-club-line bg-white">
           {/* The intent badge is a debugging window left visible on purpose for
               now: it shows at a glance whether a question stayed free (바로
               답변) or spent a Gemini call, while the club is still watching
               how the classifier behaves on real questions. */}
-          <span className="inline-block rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-500">
+          <span className="inline-block rounded bg-club-sunken px-1.5 py-0.5 text-xs font-medium text-club-muted">
             {answer.intent === "location"
               ? "바로 답변 · 위치"
               : answer.intent === "weather"
@@ -311,7 +320,7 @@ export function AssistantPanel({
                 : "AI 답변"}
           </span>
           {answer.cachedAge && (
-            <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] text-neutral-400">
+            <span className="ml-1.5 inline-flex items-center gap-1 text-xs text-club-faint">
               {answer.cachedAge} 검색 결과
               <button
                 type="button"
@@ -332,7 +341,7 @@ export function AssistantPanel({
               that is searched fresh every day rather than remembered. */}
           {answer.closures && (
             <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-2.5 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">오늘 통제 정보</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">오늘 통제 정보</p>
               <p className="mt-0.5 whitespace-pre-line text-[13px] leading-relaxed text-amber-900">
                 {answer.closures}
               </p>
@@ -345,7 +354,7 @@ export function AssistantPanel({
               the whole outing stays outside them. */}
           {hasRoutes ? (
             answer.summary && (
-              <p className="mt-2 text-[13px] leading-relaxed text-neutral-700">{answer.summary}</p>
+              <p className="mt-2 text-[13px] leading-relaxed text-club-ink-soft">{answer.summary}</p>
             )
           ) : (
             <div className="mt-2">
@@ -355,14 +364,14 @@ export function AssistantPanel({
 
           {otherSources.length > 0 && (
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              {hasRoutes && <span className="text-[10px] text-neutral-400">그 밖의 출처</span>}
+              {hasRoutes && <span className="text-xs text-club-faint">그 밖의 출처</span>}
               {otherSources.map((source) => (
                 <a
                   key={source.url}
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[11px] text-neutral-500 underline underline-offset-2 hover:text-neutral-700"
+                  className="text-xs text-club-muted underline underline-offset-2 hover:text-club-ink-soft"
                 >
                   {source.label}
                 </a>
@@ -373,7 +382,7 @@ export function AssistantPanel({
           {/* Said plainly, because the answer above is complete prose and a
               reader has no other way to know more is coming. */}
           {filling && (
-            <p className="mt-3 border-t border-neutral-100 pt-3 text-[11px] text-neutral-500" role="status">
+            <p className="mt-3 border-t border-club-sunken pt-3 text-xs text-club-muted" role="status">
               코스를 지도에 올릴 수 있게 정리하는 중…
             </p>
           )}
@@ -381,7 +390,7 @@ export function AssistantPanel({
 
 
           {answer.routes && answer.routes.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-2 border-t border-neutral-100 pt-3">
+            <ul className="mt-3 flex flex-col gap-2 border-t border-club-sunken pt-3">
               {answer.routes.map((route, i) => {
                 const active = activeRouteName === route.name;
                 const meta = [route.distanceText, route.durationText, route.difficulty]
@@ -392,7 +401,7 @@ export function AssistantPanel({
                     key={i}
                     className={
                       "rounded-lg border transition-colors " +
-                      (active ? "border-[#5b1a23] bg-[#faf5f6]" : "border-neutral-200")
+                      (active ? "border-[#5b1a23] bg-[#faf5f6]" : "border-club-line")
                     }
                   >
                     <button
@@ -402,30 +411,30 @@ export function AssistantPanel({
                       className="w-full p-2.5 text-left disabled:cursor-default"
                     >
                       <span className="flex items-baseline gap-1.5">
-                        <span className="min-w-0 flex-1 text-[13px] font-bold text-neutral-900">
+                        <span className="min-w-0 flex-1 text-[13px] font-bold text-club-ink">
                           {route.name}
                         </span>
                         {onPreviewRoute && (
-                          <span className="shrink-0 text-[10px] font-medium text-[#5b1a23]">
+                          <span className="shrink-0 text-xs font-medium text-[#5b1a23]">
                             {active ? "지도에 표시됨" : "지도에서 보기 →"}
                           </span>
                         )}
                       </span>
                       {route.waypoints.length > 0 && (
-                        <span className="mt-1 block text-[12px] leading-relaxed text-neutral-700">
+                        <span className="mt-1 block text-[12px] leading-relaxed text-club-ink-soft">
                           {route.waypoints.join(" → ")}
                         </span>
                       )}
                       {meta && (
-                        <span className="mt-1 block text-[11px] font-medium text-neutral-600">{meta}</span>
+                        <span className="mt-1 block text-xs font-medium text-club-muted">{meta}</span>
                       )}
                       {route.description && (
-                        <span className="mt-1.5 block text-[12px] leading-relaxed text-neutral-700">
+                        <span className="mt-1.5 block text-[12px] leading-relaxed text-club-ink-soft">
                           {route.description}
                         </span>
                       )}
                       {route.notes && (
-                        <span className="mt-1 block text-[11px] leading-relaxed text-neutral-500">
+                        <span className="mt-1 block text-xs leading-relaxed text-club-muted">
                           {route.notes}
                         </span>
                       )}
@@ -439,7 +448,7 @@ export function AssistantPanel({
                             href={source.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-[10px] text-neutral-400 underline underline-offset-2 hover:text-neutral-600"
+                            className="text-xs text-club-faint underline underline-offset-2 hover:text-club-muted"
                           >
                             {source.label}
                           </a>
@@ -453,7 +462,7 @@ export function AssistantPanel({
                           type="button"
                           onClick={() => onCreateAlbum(route, asked)}
                           disabled={creatingAlbum}
-                          className="rounded bg-[#5b1a23] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50"
+                          className="rounded bg-[#5b1a23] px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                         >
                           {creatingAlbum ? "만드는 중…" : "이 코스로 앨범 만들기"}
                         </button>
@@ -466,15 +475,15 @@ export function AssistantPanel({
           )}
 
           {answer.forecastDays && answer.forecastDays.length > 0 && (
-            <ul className="mt-3 flex flex-col gap-1.5 border-t border-neutral-100 pt-3">
+            <ul className="mt-3 flex flex-col gap-1.5 border-t border-club-sunken pt-3">
               {answer.forecastDays.map((day) => (
                 <li key={day.date} className="flex items-center justify-between text-xs">
-                  <span className="text-neutral-500">{day.date}</span>
-                  <span className="text-neutral-700">{day.weatherLabel}</span>
-                  <span className="tabular-nums text-neutral-700">
+                  <span className="text-club-muted">{day.date}</span>
+                  <span className="text-club-ink-soft">{day.weatherLabel}</span>
+                  <span className="tabular-nums text-club-ink-soft">
                     {Math.round(day.tempMinC)}~{Math.round(day.tempMaxC)}°
                   </span>
-                  <span className="tabular-nums text-neutral-500">
+                  <span className="tabular-nums text-club-muted">
                     강수 {day.precipitationProbability}%
                   </span>
                 </li>

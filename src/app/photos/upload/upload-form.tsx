@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { presignPhotoUpload, processUploadedPhoto } from "./actions";
 import { parseExif } from "@/lib/gps/exif";
 import {
@@ -54,6 +54,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
   const [files, setFiles] = useState<{ file: File; status: FileStatus }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [rejectedCount, setRejectedCount] = useState(0);
+  const uploaded = useRef(new WeakMap<File, { storageKey: string; hikeId: string }>());
 
   function onFilesSelected(selected: FileList | null) {
     if (!selected) return;
@@ -71,18 +72,25 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
     const contentType = resolvePhotoType(file.name, file.type);
     if (!contentType) return { state: "error", message: PHOTO_LIMITS_HINT };
 
-    const { storageKey, uploadUrl } = await presignPhotoUpload({
-      filename: file.name,
-      contentType,
-    });
+    const previous = uploaded.current.get(file);
+    let storageKey = previous?.hikeId === hikeId ? previous.storageKey : undefined;
+    if (!storageKey) {
+      const signed = await presignPhotoUpload({
+        filename: file.name,
+        contentType,
+      });
 
-    const putResponse = await fetch(uploadUrl, {
-      method: "PUT",
-      body: file,
-      headers: { "content-type": contentType },
-    });
-    if (!putResponse.ok) {
-      return { state: "error", message: `업로드 실패 (${putResponse.status})` };
+      const putResponse = await fetch(signed.uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "content-type": contentType },
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!putResponse.ok) {
+        return { state: "error", message: `업로드 실패 (${putResponse.status})` };
+      }
+      storageKey = signed.storageKey;
+      uploaded.current.set(file, { storageKey, hikeId });
     }
 
     // The server no longer reads the file back to find this - see
@@ -108,6 +116,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
     setSubmitting(true);
 
     for (let i = 0; i < files.length; i++) {
+      if (files[i].status.state === "done") continue;
       setFiles((prev) =>
         prev.map((f, idx) => (idx === i ? { ...f, status: { state: "uploading" } } : f)),
       );
@@ -169,7 +178,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
 
       <button
         type="submit"
-        disabled={files.length === 0 || submitting || !hikeId || invalidRange}
+        disabled={files.length === 0 || files.every((file) => file.status.state === "done") || submitting || !hikeId || invalidRange}
         className="self-start rounded bg-[#5b1a23] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
         {submitting ? "업로드 중…" : `${files.length || ""} 장 업로드`}

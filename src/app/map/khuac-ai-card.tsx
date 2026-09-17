@@ -25,18 +25,18 @@ export function KhuacAiCard({
 }) {
   return (
     <div
-      // Margins match .recent-albums's own 24px/16px padding (globals.css) so
-      // this lines up with the album list below it. Capped and scrolled on its
-      // own because it sits above the tabs now: a long course answer would
-      // otherwise push 최근/장소별 앨범 off the bottom of the panel entirely.
-      className="mx-6 mt-[22px] max-h-[55vh] shrink-0 overflow-y-auto rounded-lg border border-neutral-300 bg-neutral-50 p-3 max-[767px]:mx-4 max-[767px]:mt-4"
+      // The map's dedicated AI pane owns its scroll area. A fixed vh cap
+      // left empty space below it and hid the example question on laptops.
+      className="club-ai-card"
     >
-      <div className="mb-2 flex items-center gap-1.5">
-        <span aria-hidden="true" className="text-base">
-          ⛰️
+      <div className="club-ai-heading">
+        <span aria-hidden="true" className="club-ai-symbol">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m16 8-2.5 5.5L8 16l2.5-5.5L16 8Z" />
+          </svg>
         </span>
-        <span className="text-sm font-semibold text-neutral-900">KHUAC AI</span>
-        <span className="text-xs text-neutral-500">날씨정보, 어프로치, 코스추천</span>
+        <div><strong>KHUAC AI</strong><p>날씨 · 어프로치 · 코스</p></div>
       </div>
       <AssistantPanel
         onPreviewRoute={onPreviewRoute}

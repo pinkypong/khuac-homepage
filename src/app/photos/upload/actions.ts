@@ -6,13 +6,14 @@ import { MAX_PHOTO_BYTES, PHOTO_LIMITS_HINT, isAllowedPhotoType } from "@/lib/ph
 import { isValidGps } from "@/lib/gps/validate";
 import { matchPhotoLocation, type LocationCandidate } from "@/lib/gps/match-photo-location";
 import type { PhotoLocationMatchStatus } from "@/types/database";
+import { uploadPhotoId } from "@/lib/photos/storage-key";
 
 export async function presignPhotoUpload(input: { filename: string; contentType: string }) {
-  await requireApprovedMember();
+  const { memberId } = await requireApprovedMember();
   if (!isAllowedPhotoType(input.contentType)) {
     throw new Error(PHOTO_LIMITS_HINT);
   }
-  const storageKey = buildStorageKey(input.filename);
+  const storageKey = buildStorageKey(input.filename, memberId);
   const uploadUrl = await presignPutUrl(storageKey);
   return { storageKey, uploadUrl, contentType: input.contentType };
 }
@@ -69,6 +70,22 @@ export async function processUploadedPhoto(input: {
   exif?: ClientExif;
 }): Promise<ProcessPhotoResult> {
   const { supabase, memberId } = await requireApprovedMember();
+  const photoId = uploadPhotoId(input.storageKey, memberId);
+  if (!photoId) throw new Error("업로드 정보가 올바르지 않습니다. 사진을 다시 선택해주세요.");
+
+  async function existingPhoto(): Promise<ProcessPhotoResult | null> {
+    const { data, error } = await supabase.from("photos")
+      .select("id, uploader_id, storage_key_original, hike_id, location_match_status")
+      .eq("id", photoId!).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    if (data.uploader_id !== memberId || data.storage_key_original !== input.storageKey || data.hike_id !== input.hikeId) {
+      throw new Error("이미 다른 앨범에 등록된 업로드입니다.");
+    }
+    return { photoId: data.id, status: data.location_match_status as PhotoLocationMatchStatus };
+  }
+  const existing = await existingPhoto();
+  if (existing) return existing;
 
   const object = await headObject(input.storageKey);
   if (!object) throw new Error("Uploaded object not found in R2");
@@ -77,7 +94,7 @@ export async function processUploadedPhoto(input: {
   // real check happens here - and anything rejected is removed rather than
   // left paying for storage. HEAD is enough: this checks what the object says
   // it is and how big it is, which is exactly what reading every byte told us.
-  if (!isAllowedPhotoType(object.contentType) || object.size > MAX_PHOTO_BYTES) {
+  if (!isAllowedPhotoType(object.contentType) || !Number.isFinite(object.size) || object.size <= 0 || object.size > MAX_PHOTO_BYTES) {
     await deleteObject(input.storageKey);
     throw new Error(PHOTO_LIMITS_HINT);
   }
@@ -127,6 +144,8 @@ export async function processUploadedPhoto(input: {
   const { data: photo, error } = await supabase
     .from("photos")
     .insert({
+      // The upload UUID is also the row ID: concurrent retries cannot insert twice.
+      id: photoId,
       hike_id: input.hikeId,
       uploader_id: memberId,
       storage_key_original: input.storageKey,
@@ -142,12 +161,10 @@ export async function processUploadedPhoto(input: {
     .single();
 
   if (error) {
-    // The bytes are already in R2 by the time we get here, so a failed insert
-    // would otherwise leave an object nothing references and nobody can find -
-    // still billed, and invisible to every screen in the app. The commonest
-    // cause is a foreign key violation: the activity was deleted while this
-    // upload was in flight.
-    await deleteObject(input.storageKey);
+    // A lost response or a concurrent retry may have committed the row already.
+    // Never delete its original merely because this request reported an error.
+    const committed = await existingPhoto();
+    if (committed) return committed;
     throw error;
   }
   return { photoId: (photo as { id: string }).id, status: match.status };

@@ -1,6 +1,7 @@
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeReturnPath } from "@/lib/auth/redirect";
 
 // Handles both shapes Supabase can send here:
 //
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") ?? "/";
+  const next = safeReturnPath(searchParams.get("next"));
 
   const supabase = await createClient();
   let failed: string | null = null;

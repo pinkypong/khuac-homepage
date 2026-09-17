@@ -22,7 +22,10 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = path;
     url.search = "";
-    return NextResponse.redirect(url);
+    const response = NextResponse.redirect(url);
+    // Refresh/clear cookies must survive redirects as well as page responses.
+    for (const cookie of getResponse().cookies.getAll()) response.cookies.set(cookie);
+    return response;
   };
 
   if (!user) {
@@ -41,6 +44,9 @@ export async function middleware(request: NextRequest) {
 
   const role = member?.role as MemberRole | undefined;
   const isApproved = role === "member" || role === "admin";
+
+  // Pending members still need to redeem login links and read the privacy policy.
+  if (pathname === "/auth/callback" || pathname === "/privacy") return getResponse();
 
   // A recovery link signs you in before you choose the new password, so this
   // runs with a live session. It has to stay reachable even while approval is
