@@ -348,6 +348,51 @@ function mountainFrom(parkName: string): string {
   return stripped || parkName;
 }
 
+/**
+ * 북한산국립공원 is three mountains, and the file does not say which.
+ *
+ * The park office covers 북한산, 도봉산 and 사패산 - the national park takes in
+ * all three - so naming a course after its park files 도봉서원, 마당바위,
+ * 다락능선 and 포대능선 under 북한산. 37 of that office's 96 courses, 39% of
+ * them, are not on 북한산 at all; a member asking about 도봉산 would find none
+ * of them and a member asking about 북한산 would be handed them anyway.
+ *
+ * The table was built from three kinds of evidence computed separately and
+ * checked against each other - place names, the centre of each course's
+ * surveyed points, and which mountain the courses sharing an endpoint sit on -
+ * and then verified against 160,438 individual survey vertices. Three courses
+ * are left null: 우이령길 runs along the saddle that divides two of the
+ * mountains, and a course on the dividing line filed under one of them is a
+ * course the other one can never find.
+ */
+/**
+ * Which park each office looks after, so the answer is asked for once.
+ *
+ * The office number is all the file carries; the park's name comes from asking
+ * Overpass which national park boundary the office's courses sit inside. That
+ * is twenty-two queries against a service other people are also using, with a
+ * second between each and a retry across mirrors when one answers 504, and it
+ * took over twenty minutes on a bad afternoon - every run, for an answer that
+ * has not changed since the parks were drawn.
+ *
+ * So it is written down. An office already in the table is not asked about
+ * again; one that is missing is looked up and added, which is what happens the
+ * first time the agency opens a new office. Delete the file to ask again.
+ */
+const PARK_CACHE = "scripts/knps-park-offices.json";
+
+const SPLIT_OFFICE = 1501;
+const SPLIT_TABLE = "scripts/bukhansan-park-split.json";
+
+function splitMountains(): Map<number, string | null> {
+  const raw = JSON.parse(readFileSync(SPLIT_TABLE, "utf8")) as {
+    courses: Record<string, { mountain: string | null }>;
+  };
+  return new Map(
+    Object.entries(raw.courses).map(([id, row]) => [Number(id), row.mountain]),
+  );
+}
+
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const limitIndex = args.indexOf("--limit");
@@ -496,6 +541,7 @@ async function gather(): Promise<Course[]> {
   return gathered;
 }
 
+const splitByCourse = splitMountains();
 const courses = await gather();
 console.log(`코스 ${courses.length}개 · 공원사무소 ${new Set(courses.map((c) => c.office)).size}곳`);
 
@@ -506,6 +552,10 @@ console.log(`코스 ${courses.length}개 · 공원사무소 ${new Set(courses.ma
  * into seven hundred for no extra fact.
  */
 const parkByOffice = new Map<number, string | null>();
+const knownParks: Record<string, string> = existsSync(PARK_CACHE)
+  ? (JSON.parse(readFileSync(PARK_CACHE, "utf8")) as Record<string, string>)
+  : {};
+let parksLearned = 0;
 const offices = [...new Set(courses.map((course) => course.office))].sort((a, b) => a - b);
 
 /**
@@ -528,6 +578,12 @@ async function parkNameOrNull(lat: number, lng: number): Promise<string | null> 
 
 for (const office of offices) {
   const mine = courses.filter((course) => course.office === office && course.points > 0);
+  const remembered = knownParks[String(office)];
+  if (remembered) {
+    parkByOffice.set(office, remembered);
+    console.log(`  사무소 ${office}: ${remembered} (코스 ${mine.length}개, 기억해둔 값)`);
+    continue;
+  }
   const lat = mine.reduce((sum, c) => sum + c.latSum, 0) / mine.reduce((sum, c) => sum + c.points, 0);
   const lng = mine.reduce((sum, c) => sum + c.lngSum, 0) / mine.reduce((sum, c) => sum + c.points, 0);
   let park = Number.isFinite(lat) && Number.isFinite(lng) ? await parkNameOrNull(lat, lng) : null;
@@ -543,7 +599,19 @@ for (const office of offices) {
   }
 
   parkByOffice.set(office, park);
+  // Only a real answer is kept. A lookup that failed because Overpass was busy
+  // must be asked again next run, not remembered as "this office has no park".
+  if (park) {
+    knownParks[String(office)] = park;
+    parksLearned++;
+  }
   console.log(`  사무소 ${office}: ${park ?? "국립공원 경계를 찾지 못함"} (코스 ${mine.length}개)`);
+}
+
+if (parksLearned > 0) {
+  writeFileSync(PARK_CACHE, `${JSON.stringify(knownParks, null, 2)}
+`);
+  console.log(`${PARK_CACHE} 에 ${parksLearned}곳 새로 적었습니다.`);
 }
 
 interface LibraryRow {
@@ -572,6 +640,7 @@ let skippedNoName = 0;
 let skippedUnmatched = 0;
 let skippedAsked = 0;
 let skippedDisagreed = 0;
+let skippedUnsplit = 0;
 let collisions = 0;
 /** Stated length against surveyed length, to print per park below. */
 const stated = new Map<string, number>();
@@ -583,7 +652,30 @@ for (const course of courses) {
     skippedNoPark++;
     continue;
   }
-  if (skipParks.includes(mountainFrom(park))) {
+  // Settled before --skip is read, so that --skip 북한산 means the 56 courses
+  // that are on 북한산 rather than the whole office: the club's own thirteen
+  // 북한산 courses stay untouched and 도봉산 and 사패산 still come in.
+  let mountain: string;
+  if (course.office === SPLIT_OFFICE) {
+    if (!splitByCourse.has(course.courseId)) {
+      // Silence here would file a course the agency added later under the park
+      // name, which is the mistake this table exists to prevent. The table is
+      // the only place that would notice, so it says so.
+      throw new Error(
+        `${SPLIT_TABLE} 에 코스 ${course.courseId} (${course.name}) 이 없습니다. ` +
+          `공단이 코스를 추가했으면 표를 다시 만들어야 합니다.`,
+      );
+    }
+    const split = splitByCourse.get(course.courseId) ?? null;
+    if (!split) {
+      skippedUnsplit++;
+      continue;
+    }
+    mountain = split;
+  } else {
+    mountain = mountainFrom(park);
+  }
+  if (skipParks.includes(mountain)) {
     skippedAsked++;
     continue;
   }
@@ -627,7 +719,6 @@ for (const course of courses) {
     ),
   ];
 
-  const mountain = mountainFrom(park);
   stated.set(mountain, (stated.get(mountain) ?? 0) + meters);
   surveyed.set(
     mountain,
@@ -689,6 +780,9 @@ if (skippedRetired) console.log(`사용여부 0으로 건너뜀: ${skippedRetire
 if (skippedNoName) console.log(`코스명이 없어 건너뜀: ${skippedNoName}개`);
 if (skippedUnmatched) console.log(`비매칭코스라 건너뜀: ${skippedUnmatched}개`);
 if (skippedAsked) console.log(`--skip ${skipParks.join(" ")} 이라 건너뜀: ${skippedAsked}개`);
+if (skippedUnsplit) {
+  console.log(`어느 산인지 가를 수 없어 건너뜀: ${skippedUnsplit}개 (우이령길 등 경계 위 코스)`);
+}
 if (skippedDisagreed) {
   console.log(`적힌 거리와 측량 길이가 어긋나 건너뜀: ${skippedDisagreed}개`);
 }
