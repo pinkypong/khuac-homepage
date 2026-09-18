@@ -464,9 +464,40 @@ async function closuresFor(supabase: Client, mountain: string | null): Promise<s
 /** Enough of a mountain held that asking the web again is not worth 27 seconds. */
 const LIBRARY_ENOUGH = 3;
 
+/**
+ * How far a course is to be trusted, by where it came from.
+ *
+ * A walked track beats a surveyed one, a surveyed one beats a member's memory,
+ * and all three beat a sentence off a web page - so a row is ranked by its
+ * origin and the better row wins when two describe the same course.
+ *
+ *   gpx     a track somebody actually walked, with the club's own GPS behind it
+ *   knps    국립공원공단's survey: stated distance checked against its own
+ *           measured line before it was filed
+ *   club    a member wrote it down
+ *   search  a grounded web search said so, and nothing has checked it
+ *
+ * search sits last and is still kept, because for 불암산 or 수락산 it is all
+ * there is: nothing holds those mountains, and an unchecked answer beats no
+ * answer. It is the row a better source is expected to replace later.
+ */
+const ORIGIN_RANK: Record<string, number> = { gpx: 5, knps: 4, club: 3, forest: 2, search: 1 };
+/**
+ * An origin nobody listed ranks with `search`, not below it.
+ *
+ * It used to fall to 0, which is lower than every real source - so a row filed
+ * under an origin added later would sort last and, worse, `rememberCourses`
+ * would let a web search overwrite it, because its guard asks whether the held
+ * row outranks `search`. That is exactly what happened to the 502 rows imported
+ * as `forest` before it was named here.
+ */
+const rankOf = (origin: string | null | undefined) => ORIGIN_RANK[origin ?? "search"] ?? ORIGIN_RANK.search;
+
 interface LibraryRow {
   mountain: string;
   name: string;
+  region: string | null;
+  origin: string | null;
   waypoints: string[];
   distance_text: string | null;
   duration_text: string | null;
@@ -475,6 +506,48 @@ interface LibraryRow {
   notes: string | null;
   sources: string[];
 }
+
+/**
+ * The long forms of a province, and what a member actually types instead.
+ *
+ * 산림청 writes 전남 on one row and 전라남도 on the next, for mountains twenty
+ * kilometres apart. Neither is what gets typed: somebody asking about the
+ * 계룡산 in 거제 types "거제", not "경상남도" and not "거제시".
+ */
+const PROVINCE_ALIAS: Record<string, string[]> = {
+  전라남도: ["전남"], 전라북도: ["전북"], 경상남도: ["경남"], 경상북도: ["경북"],
+  충청남도: ["충남"], 충청북도: ["충북"], 강원특별자치도: ["강원도", "강원"],
+  제주특별자치도: ["제주도", "제주"], 서울특별시: ["서울시", "서울"],
+  인천광역시: ["인천"], 대전광역시: ["대전"], 대구광역시: ["대구"],
+  부산광역시: ["부산"], 울산광역시: ["울산"], 광주광역시: ["광주"],
+  세종특별자치시: ["세종"], 경기도: ["경기"], 강원도: ["강원"],
+};
+
+/** Every way a member might name the place a region string describes. */
+function regionWords(region: string | null): string[] {
+  if (!region) return [];
+  const words = new Set<string>();
+  for (const part of region.split(/[\s,·ㆍ]+/)) {
+    const word = part.trim();
+    if (word.length < 2) continue;
+    words.add(word);
+    for (const alias of PROVINCE_ALIAS[word] ?? []) words.add(alias);
+    // 거제시 is 거제, 구이면 is 구이. The suffix is how an address is written,
+    // not how the place is spoken about.
+    const bare = word.replace(/(특별자치도|특별자치시|특별시|광역시|[시군구읍면동리])$/, "");
+    if (bare.length >= 2) words.add(bare);
+  }
+  return [...words];
+}
+
+/**
+ * What the library can answer with: one mountain's courses, or the fact that
+ * the name belongs to more than one mountain and nothing in the question says
+ * which.
+ */
+export type LibraryHit =
+  | { kind: "courses"; mountain: string; courses: LibraryCourse[] }
+  | { kind: "ambiguous"; mountain: string; regions: string[] };
 
 /**
  * The mountain a route question is about, when we hold courses for one.
@@ -490,7 +563,7 @@ async function libraryFor(
 ): Promise<{ mountain: string; courses: LibraryCourse[] } | null> {
   const { data } = await supabase
     .from("course_library")
-    .select("mountain, name, waypoints, distance_text, duration_text, difficulty, description, notes, sources");
+    .select("mountain, name, origin, waypoints, distance_text, duration_text, difficulty, description, notes, sources");
   const rows = (data ?? []) as unknown as LibraryRow[];
   if (rows.length === 0) return null;
 
@@ -507,7 +580,13 @@ async function libraryFor(
   const best = [...score].sort((a, b) => b[1] - a[1])[0];
   if (!best) return null;
 
-  const courses = rows.filter((row) => row.mountain === best[0]).map((row) => ({
+  // Best source first. The model is told to fold courses that are the same
+  // course under different names into one; which of them it keeps should not
+  // depend on the order PostgREST happened to return.
+  const courses = rows
+    .filter((row) => row.mountain === best[0])
+    .sort((a, b) => rankOf(b.origin) - rankOf(a.origin))
+    .map((row) => ({
     name: row.name,
     waypoints: row.waypoints ?? [],
     distanceText: row.distance_text,
@@ -527,7 +606,28 @@ async function rememberCourses(
   routes: RouteSuggestion[],
 ): Promise<void> {
   if (!mountain || routes.length === 0) return;
-  const rows = routes.map((route) => ({
+
+  // What a search found must not overwrite what a survey or a member filed.
+  // The upsert below keys on (mountain, name), so a search answer that lands on
+  // an existing name replaces it - and the row it replaced may be the one whose
+  // distance was checked against a measured line. Read the names first and drop
+  // the ones already held by a better source.
+  //
+  // Two searches racing here can still both pass this check and the later write
+  // wins; that costs one search row overwriting another, which is what would
+  // have happened anyway. It is the knps/club/gpx rows this is protecting.
+  const { data: existing } = await supabase
+    .from("course_library")
+    .select("name, origin")
+    .eq("mountain", mountain)
+    .in("name", routes.map((route) => route.name));
+  const heldBetter = new Set(
+    ((existing ?? []) as { name: string; origin: string | null }[])
+      .filter((row) => rankOf(row.origin) > rankOf("search"))
+      .map((row) => row.name),
+  );
+
+  const rows = routes.filter((route) => !heldBetter.has(route.name)).map((route) => ({
     mountain,
     name: route.name,
     waypoints: route.waypoints,
@@ -540,6 +640,7 @@ async function rememberCourses(
     origin: "search",
     updated_at: new Date().toISOString(),
   }));
+  if (rows.length === 0) return;
   const { error } = await supabase.from("course_library").upsert(rows, { onConflict: "mountain,name" });
   if (error) console.error("[assistant/library] store failed", error.message);
 }

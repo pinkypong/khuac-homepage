@@ -22,6 +22,19 @@ Next.js (App Router) · Cloudflare Workers(OpenNext) · Supabase(Auth/Postgres/p
 - 앨범/코스 화면에서 **"지도에서 보기"와 "앨범 추가" 버튼은 유지한다.**
 - 사진 GPS만으로 코스 라인을 자동 생성하지 않는다. 사진은 찍힌 위치에
   미리보기로 띄운다.
+- **코스는 출처 순으로 믿는다: `gpx` > `knps` > `club` > `forest` > `search`.**
+  실제로 걸은 트랙이 측량을 이기고, 측량이 부원의 기억을 이기고, 셋 다
+  웹 문장을 이긴다. `course_library.origin` 에 들어 있고
+  `ORIGIN_RANK`(`src/app/assistant/actions.ts`)가 판정한다.
+  - 검색 결과가 더 나은 출처의 행을 **덮어쓰지 않는다.** `rememberCourses`
+    가 upsert 전에 기존 `origin` 을 읽어 걸러낸다.
+  - 그래도 `search` 는 계속 저장한다. 불암산·수락산처럼 **아무것도 없는
+    산에서는 검증 안 된 답이라도 없는 것보다 낫다.** 나중에 더 나은 출처가
+    덮을 자리로 둔다.
+  - `forest`(산림청)는 측량이 아니라 **설명문에서 뽑은 것**이라 `knps` 아래다.
+  - **새 출처를 만들면 `ORIGIN_RANK` 에 반드시 넣는다.** 빠지면 최하위로 떨어져
+    검색 결과에 덮인다 — `forest` 502행이 실제로 그렇게 들어갔었다.
+  - 앞으로 GPX를 함께 받는다. 누적되면 그 트랙으로 갱신한다.
 
 ---
 
