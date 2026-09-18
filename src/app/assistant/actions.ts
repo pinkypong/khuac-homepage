@@ -321,6 +321,20 @@ async function produceAnswer(
     // honest, claiming nothing is closed would not be - and this keeps that
     // true for a rejection nobody is awaiting yet.
     const closures = closuresFor(supabase, mountain).catch(() => null);
+    // Two mountains share this name and the question did not say which. Asking
+    // costs a sentence; picking one and being wrong half the time costs the
+    // member a walk up the wrong mountain, and they would have no way to tell
+    // from the answer that a choice had been made at all.
+    if (held?.kind === "ambiguous") {
+      return store(supabase, key, trimmed, memberId, {
+        intent,
+        text: askWhichMountain(held.mountain, held.regions),
+        place: placeSummary,
+        routes: [],
+        closures: await closures,
+      });
+    }
+
     if (held) {
       const picked = await selectFromLibrary(
         held.mountain,
@@ -514,6 +528,78 @@ interface LibraryRow {
  * kilometres apart. Neither is what gets typed: somebody asking about the
  * 계룡산 in 거제 types "거제", not "경상남도" and not "거제시".
  */
+/**
+ * Every spelling of a province, and the one this code calls it.
+ *
+ * Sources disagree and the disagreement is not cosmetic. 국립공원공단's rows get
+ * their region from OSM, which already says 전북특별자치도 and 강원특별자치도;
+ * 산림청 still writes 전라북도 and 강원도, and shortens either to 전북 and 강원
+ * from one row to the next. 광주광역시 and 전라남도 were merged into
+ * 광주전남특별시 on 2026-07-01 - OSM answers with the merged name, 산림청 has
+ * not caught up - and that merged thing is a province containing 여수, 순천 and
+ * 담양, not another name for 광주 the city.
+ */
+const PROVINCES: [string, string[]][] = [
+  ["전남광주", ["광주전남특별시", "광주전남특별통합시", "전남광주통합특별시", "전라남도", "광주광역시", "전남"]],
+  ["전북", ["전북특별자치도", "전라북도", "전북"]],
+  ["강원", ["강원특별자치도", "강원도", "강원"]],
+  ["제주", ["제주특별자치도", "제주도", "제주"]],
+  ["경남", ["경상남도", "경남"]], ["경북", ["경상북도", "경북"]],
+  ["충남", ["충청남도", "충남"]], ["충북", ["충청북도", "충북"]],
+  ["경기", ["경기도", "경기"]], ["서울", ["서울특별시", "서울시", "서울"]],
+  ["부산", ["부산광역시"]], ["대구", ["대구광역시"]], ["인천", ["인천광역시"]],
+  ["대전", ["대전광역시"]], ["울산", ["울산광역시"]], ["세종", ["세종특별자치시"]],
+];
+
+/**
+ * The city whose 구 a bare 구 belongs to, inside each province.
+ *
+ * A mountain crosses borough lines - 무등산 stands in 광주's 동구 and 북구, and
+ * 산림청 names the first while the park's own centre falls in the second - so a
+ * borough is folded into its city or one mountain reads as two.
+ */
+const BOROUGH_CITY: Record<string, string> = {
+  전남광주: "광주", 서울: "서울", 부산: "부산", 대구: "대구",
+  인천: "인천", 대전: "대전", 울산: "울산",
+};
+
+/** 전남 and 경북 carry no suffix, so they are matched as whole words. */
+const PLACE_TOKEN =
+  /(?:전남|전북|경남|경북|충남|충북|강원|경기|제주|서울)(?![가-힣])|[가-힣]{1,7}(?:특별자치도|특별통합시|통합특별시|특별자치시|특별시|광역시|도|시|군|구)/g;
+
+/**
+ * Where a region string says the mountain is, as province-qualified places.
+ *
+ * Province-qualified because a district name alone is not a place: 경기도 광주시
+ * and the 광주 in 전남광주 are 107km apart, and a 태화산 stands near each.
+ *
+ * A district rather than a province because provinces are what the sources
+ * spell differently, and because a province is too coarse - 전남광주 holds
+ * several mountains of one name.
+ */
+function placesOf(region: string | null): string[] {
+  if (!region) return [];
+  const places = new Set<string>();
+  let province: string | null = null;
+  for (const token of region.match(PLACE_TOKEN) ?? []) {
+    const canonical = PROVINCES.find(([, spellings]) => spellings.includes(token))?.[0];
+    if (canonical) {
+      province = canonical;
+      // 광주광역시 names a province here and a city as well; both are meant.
+      if (token === "광주광역시") places.add("전남광주/광주");
+      continue;
+    }
+    if (token.length < 2) continue;
+    if (token.endsWith("구")) {
+      const city = province ? BOROUGH_CITY[province] : undefined;
+      if (city) places.add(`${province}/${city}`);
+      continue;
+    }
+    if (token.endsWith("시") || token.endsWith("군")) places.add(`${province}/${token}`);
+  }
+  return [...places];
+}
+
 const PROVINCE_ALIAS: Record<string, string[]> = {
   전라남도: ["전남"], 전라북도: ["전북"], 경상남도: ["경남"], 경상북도: ["경북"],
   충청남도: ["충남"], 충청북도: ["충북"], 강원특별자치도: ["강원도", "강원"],
@@ -521,6 +607,7 @@ const PROVINCE_ALIAS: Record<string, string[]> = {
   인천광역시: ["인천"], 대전광역시: ["대전"], 대구광역시: ["대구"],
   부산광역시: ["부산"], 울산광역시: ["울산"], 광주광역시: ["광주"],
   세종특별자치시: ["세종"], 경기도: ["경기"], 강원도: ["강원"],
+  광주전남특별시: ["광주전남", "전남광주", "전남"],
 };
 
 /** Every way a member might name the place a region string describes. */
@@ -560,43 +647,146 @@ async function libraryFor(
   supabase: Client,
   question: string,
   placeName: string | null,
-): Promise<{ mountain: string; courses: LibraryCourse[] } | null> {
+): Promise<LibraryHit | null> {
   const { data } = await supabase
     .from("course_library")
-    .select("mountain, name, origin, waypoints, distance_text, duration_text, difficulty, description, notes, sources");
+    .select(
+      "mountain, name, region, origin, waypoints, distance_text, duration_text, difficulty, description, notes, sources",
+    );
   const rows = (data ?? []) as unknown as LibraryRow[];
   if (rows.length === 0) return null;
 
-  const score = new Map<string, number>();
-  for (const row of rows) {
-    let hit = 0;
-    if (placeName && row.mountain === placeName) hit += 100;
-    if (question.includes(row.mountain)) hit += 50;
-    for (const waypoint of row.waypoints) {
-      if (waypoint.length >= 2 && question.includes(waypoint)) hit += 5;
+  // Scored per mountain, not per name. Seventeen names in the library belong to
+  // more than one mountain, and keying on the name alone added 계룡산 in 공주
+  // and 계룡산 in 거제 into one number and then handed back every row with that
+  // name - three mountains' courses offered as one mountain's list, which the
+  // model has no way to see and would answer from confidently.
+  // Rows of one name gathered into actual mountains, by whether they name any
+  // district in common.
+  //
+  // Comparing the region strings themselves does not work, because a mountain
+  // stands in several districts and each source writes down a different part of
+  // it. 지리산's park rows say 경상남도 함양군, from the single point at the
+  // centre of what the agency surveyed; 산림청 writes 전라북도 남원시,
+  // 전라남도 구례군, 경상남도 하동군ㆍ산청군ㆍ함양군 for the same mountain. They
+  // share 함양군, and that is what says they are the same.
+  //
+  // Checked over all 33 shared names in the library: 14 are one mountain
+  // written down differently, 19 are genuinely separate. Confirmed against
+  // coordinates - for every pair called separate, the two peaks of that name
+  // are at least 41km apart, and the closest pair called the same shares a
+  // district. The two methods disagreed nowhere.
+  const mountains: { mountain: string; places: Set<string>; rows: LibraryRow[] }[] = [];
+  // Rows that say where they are, first. A row without a region cannot be
+  // placed against them until they exist, and letting it go first would have it
+  // adopt whichever group happened to come back from PostgREST first - which is
+  // what put 가야산's seven park courses, which are in 합천, into the 서산 group.
+  const placed = rows.map((row) => ({ row, places: new Set(placesOf(row.region)) }));
+  for (const { row, places } of placed.filter((entry) => entry.places.size > 0)) {
+    const existing = mountains.find(
+      (candidate) =>
+        candidate.mountain === row.mountain &&
+        [...places].some((place) => candidate.places.has(place)),
+    );
+    if (existing) {
+      for (const place of places) existing.places.add(place);
+      existing.rows.push(row);
+    } else {
+      mountains.push({ mountain: row.mountain, places: new Set(places), rows: [row] });
     }
-    if (hit > 0) score.set(row.mountain, (score.get(row.mountain) ?? 0) + hit);
   }
-  const best = [...score].sort((a, b) => b[1] - a[1])[0];
+  const unplaced = new Map<string, typeof mountains[number]>();
+  for (const { row } of placed.filter((entry) => entry.places.size === 0)) {
+    const groups = mountains.filter((candidate) => candidate.mountain === row.mountain);
+    // Exactly one mountain carries this name, so there is nowhere else it could
+    // be. Where the name is shared it stays out: a course filed under the wrong
+    // one of two mountains is worse than one the member is asked about.
+    if (groups.length === 1) {
+      groups[0].rows.push(row);
+      continue;
+    }
+    // All of them together, not one group each. They are courses on the same
+    // mountain - we just cannot say which of the mountains with this name it is.
+    const waiting = unplaced.get(row.mountain);
+    if (waiting) waiting.rows.push(row);
+    else {
+      const group = { mountain: row.mountain, places: new Set<string>(), rows: [row] };
+      unplaced.set(row.mountain, group);
+      mountains.push(group);
+    }
+  }
+
+  const score = new Map<number, number>();
+  mountains.forEach((candidate, index) => {
+    let hit = 0;
+    if (placeName && candidate.mountain === placeName) hit += 100;
+    if (question.includes(candidate.mountain)) hit += 50;
+    // Enough to settle a name shared by two mountains, not enough to beat the
+    // mountain the question actually names: "거제" picks between two 계룡산, it
+    // does not turn a question about 계룡산 into one about somewhere else.
+    const words = candidate.rows.flatMap((row) => regionWords(row.region));
+    if (words.some((word) => question.includes(word))) hit += 30;
+    for (const row of candidate.rows) {
+      for (const waypoint of row.waypoints) {
+        if (waypoint.length >= 2 && question.includes(waypoint)) hit += 5;
+      }
+    }
+    if (hit > 0) score.set(index, hit);
+  });
+  const ranked = [...score].sort((a, b) => b[1] - a[1]);
+  const best = ranked[0];
   if (!best) return null;
+  const picked = mountains[best[0]];
+
+  // Two mountains of one name, and nothing in the question told them apart -
+  // no district named, no waypoint only one of them has. Answering from either
+  // is answering the wrong question half the time, and the member could not
+  // tell from the answer that a choice had been made, so ask which.
+  const tied = ranked.filter(
+    ([index, points]) => mountains[index].mountain === picked.mountain && points === best[1],
+  );
+  if (tied.length > 1) {
+    return {
+      kind: "ambiguous",
+      mountain: picked.mountain,
+      regions: tied
+        .map(([index]) => mountains[index].rows.find((row) => row.region)?.region ?? "")
+        .filter(Boolean),
+    };
+  }
 
   // Best source first. The model is told to fold courses that are the same
   // course under different names into one; which of them it keeps should not
   // depend on the order PostgREST happened to return.
-  const courses = rows
-    .filter((row) => row.mountain === best[0])
+  const courses = picked.rows
+    .slice()
     .sort((a, b) => rankOf(b.origin) - rankOf(a.origin))
     .map((row) => ({
-    name: row.name,
-    waypoints: row.waypoints ?? [],
-    distanceText: row.distance_text,
-    durationText: row.duration_text,
-    difficulty: row.difficulty,
-    description: row.description,
-    notes: row.notes,
-    sources: row.sources ?? [],
-  }));
-  return courses.length >= LIBRARY_ENOUGH ? { mountain: best[0], courses } : null;
+      name: row.name,
+      waypoints: row.waypoints ?? [],
+      distanceText: row.distance_text,
+      durationText: row.duration_text,
+      difficulty: row.difficulty,
+      description: row.description,
+      notes: row.notes,
+      sources: row.sources ?? [],
+    }));
+  return courses.length >= LIBRARY_ENOUGH ? { kind: "courses", mountain: picked.mountain, courses } : null;
+}
+
+/**
+ * What to say when a name belongs to more than one mountain.
+ *
+ * The regions as their agency wrote them are an address, not an answer: nobody
+ * picks between "대전광역시, 충청남도 공주시 계룡면ㆍ논산시 상월면" and
+ * "경상남도 거제시 신현읍, 거제면" comfortably. The first two words of each are
+ * what distinguishes them.
+ */
+function askWhichMountain(mountain: string, regions: string[]): string {
+  const shortened = regions.map((region) => region.split(/[,ㆍ·]/)[0].split(/\s+/).slice(0, 2).join(" "));
+  const lines = [`${mountain}이라는 이름의 산이 ${regions.length}곳입니다. 어디를 말씀하시나요?`];
+  for (const where of shortened) lines.push(`· ${where}`);
+  return lines.join("\n");
 }
 
 /** Files what a search found, so the next question about this mountain is fast. */
