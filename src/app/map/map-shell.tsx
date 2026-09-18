@@ -53,6 +53,9 @@ export interface MapHike {
   routeWaypoints: { name: string; lat: number; lng: number }[] | null;
   /** What the answer knew about the course, where it came from one. */
   courseInfo: CourseInfo | null;
+  /** The library course this album is a walk of, where it was made from one.
+      What lets a course being suggested now show who has already walked it. */
+  courseId: string | null;
   trackSource: "gpx" | null;
   photos: MapPhoto[];
 }
@@ -363,6 +366,29 @@ export function MapShell({
 
   const activeLocation = locations.find((l) => l.id === activeLocationId) ?? null;
   const allHikes = locations.flatMap((l) => l.hikes);
+
+  /**
+   * The albums already walked on each library course.
+   *
+   * Built from the albums this screen has anyway rather than asked for: every
+   * hike is already loaded to draw the map, so matching them to the courses
+   * being suggested costs nothing and stays right when an album is added,
+   * where a count baked into a cached answer would go stale.
+   *
+   * Oldest first - the point of showing these is that somebody went before,
+   * and the first time is the one worth seeing.
+   */
+  const albumsByCourse = useMemo(() => {
+    const byCourse = new Map<string, MapHike[]>();
+    for (const hike of allHikes) {
+      if (!hike.courseId) continue;
+      const held = byCourse.get(hike.courseId);
+      if (held) held.push(hike);
+      else byCourse.set(hike.courseId, [hike]);
+    }
+    for (const list of byCourse.values()) list.sort((a, b) => a.date.localeCompare(b.date));
+    return byCourse;
+  }, [allHikes]);
   const pinnedHike = allHikes.find((h) => h.id === pinnedHikeId) ?? null;
 
   function showMap() {
@@ -520,6 +546,7 @@ export function MapShell({
       const result = await createAlbumFromRoute({
         routeName: route.name,
         placeName: current.placeName,
+        courseId: route.courseId ?? null,
         waypoints,
         track: current.track ? flattenTrack(current.track) : null,
         distanceText: route.distanceText,
@@ -586,10 +613,50 @@ export function MapShell({
   const mapWidthStyle =
     mapWidth === null ? undefined : ({ "--map-width": mapWidth + "px" } as CSSProperties);
 
+  /**
+   * Back to the screen the map opens on.
+   *
+   * The title is a link to /map, and on every other page that link is the
+   * whole of what going home means. On /map itself the route does not change,
+   * so pressing it did nothing visible: the album someone had opened, the
+   * course they were previewing, the filter they had set and the panel they
+   * had pushed the map behind all stayed exactly as they were. Here the state
+   * is the screen, so going home has to clear it.
+   */
+  const goHome = useCallback(() => {
+    setActiveLocationId(null);
+    setActiveHikeId(null);
+    setPinnedHikeId(null);
+    setFocusedPhotoId(null);
+    setSuggestedRoute(null);
+    setCourseProfile(null);
+    setSearch("");
+    setActivity("all");
+    setFilterOpen(false);
+    setAccountOpen(false);
+    setMobileTab("map");
+    setMapOpen(true);
+    setMapExpanded(false);
+    // Half-finished map interactions. Leaving one armed means the next tap on
+    // what looks like a fresh home screen drops a point or picks a trail.
+    setPicking(false);
+    setPickedPoint(null);
+    setPoiPoint(null);
+    setNamingPoi(null);
+    setTrailPick(null);
+    setMissingNames([]);
+    setDerivedNames([]);
+  }, []);
+
   const shell = (
     <div className="club-app flex h-app w-full flex-col overflow-hidden">
       <header className="club-header">
-        <Link href="/map" className="club-brand" aria-label="Kyunghee University Alpine Club 지도">
+        <Link
+          href="/map"
+          className="club-brand"
+          aria-label="Kyunghee University Alpine Club — 처음 화면으로"
+          onClick={goHome}
+        >
           <ClubCrest />
           <span className="club-brand-copy"><strong className="club-brand-fullname"><span>Kyunghee University</span><span>Alpine Club</span></strong><small>경희대학교 산악부</small></span>
         </Link>
@@ -822,6 +889,7 @@ export function MapShell({
           onShowOnMap={showMap}
           onPreviewRoute={previewRoute}
           onCreateAlbum={createAlbum}
+          albumsByCourse={albumsByCourse}
           activeRouteName={suggestedRoute?.route.name ?? null}
           creatingAlbum={creatingAlbum}
           // Desktop keeps both in one column; a phone shows whichever tab is

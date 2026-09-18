@@ -14,6 +14,13 @@ export interface RouteSuggestion {
   description: string | null;
   notes: string | null;
   sourceUrls: GroundedSource[];
+  /** The course_library row this came from, once it is known.
+   *
+   *  Not filled in here. The model is handed courses and asked to pick and
+   *  merge them, and an id put in front of it is an id it can copy onto the
+   *  wrong course. It is matched back on by name afterwards, where a mismatch
+   *  is a null rather than a wrong answer. */
+  courseId?: string | null;
 }
 
 const ROUTE_SCHEMA = {
@@ -192,6 +199,8 @@ export async function extractRoutes(
 }
 
 export interface LibraryCourse {
+  /** Never listed for the model - see RouteSuggestion.courseId. */
+  id: string;
   name: string;
   waypoints: string[];
   distanceText: string | null;

@@ -25,6 +25,7 @@ interface LocationRow {
     track: TrackPoint[] | null;
     route_waypoints: { name: string; lat: number; lng: number }[] | null;
     course_info: unknown;
+    course_id: string | null;
     photos: {
       id: string;
       storage_key_original: string;
@@ -58,7 +59,7 @@ export default async function MapPage() {
       .from("locations")
       .select(
         "id, name, type, region, elevation, lat, lng, created_at, " +
-          "hikes(id, title, date, description, activity_type, lat, lng, track, route_waypoints, course_info, " +
+          "hikes(id, title, date, description, activity_type, lat, lng, track, route_waypoints, course_info, course_id, " +
           "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
       )
       .not("lat", "is", null)
@@ -124,6 +125,7 @@ export default async function MapPage() {
           track: hike.track,
           routeWaypoints: hike.route_waypoints,
           courseInfo: asCourseInfo(hike.course_info),
+          courseId: hike.course_id,
           trackSource: hike.track ? "gpx" : null,
           photos,
         };

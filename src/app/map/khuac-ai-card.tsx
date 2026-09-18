@@ -1,6 +1,7 @@
 import { AssistantPanel } from "@/app/assistant/assistant-panel";
 import { ClubCrest } from "@/components/club-crest";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
+import type { MapHike } from "./map-shell";
 
 /**
  * KHUAC AI embedded directly on the root screen, above the recent-albums
@@ -13,6 +14,8 @@ import type { RouteSuggestion } from "@/lib/assistant/routes";
 export function KhuacAiCard({
   onPreviewRoute,
   onCreateAlbum,
+  albumsByCourse,
+  onOpenAlbum,
   activeRouteName,
   creatingAlbum,
 }: {
@@ -21,6 +24,8 @@ export function KhuacAiCard({
     place: { name: string | null; center: { lat: number; lng: number } | null },
   ) => void;
   onCreateAlbum: (route: RouteSuggestion, asked: string) => void;
+  albumsByCourse: Map<string, MapHike[]>;
+  onOpenAlbum: (hike: MapHike) => void;
   activeRouteName: string | null;
   creatingAlbum: boolean;
 }) {
@@ -39,6 +44,8 @@ export function KhuacAiCard({
       <AssistantPanel
         onPreviewRoute={onPreviewRoute}
         onCreateAlbum={onCreateAlbum}
+        albumsByCourse={albumsByCourse}
+        onOpenAlbum={onOpenAlbum}
         activeRouteName={activeRouteName}
         creatingAlbum={creatingAlbum}
       />

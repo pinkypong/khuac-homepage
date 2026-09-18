@@ -153,6 +153,7 @@ export function SidePanel({
   onPickPoint,
   onPreviewRoute,
   onCreateAlbum,
+  albumsByCourse,
   activeRouteName,
   creatingAlbum,
   showAlbums,
@@ -182,6 +183,8 @@ export function SidePanel({
     place: { name: string | null; center: { lat: number; lng: number } | null },
   ) => void;
   onCreateAlbum: (route: RouteSuggestion, asked: string) => void;
+  /** Albums already walked on each library course, keyed by course id. */
+  albumsByCourse: Map<string, MapHike[]>;
   activeRouteName: string | null;
   creatingAlbum: boolean;
   /** False beside the map, where the 앨범 screen already carries these lists. */
@@ -443,7 +446,7 @@ export function SidePanel({
           browsing albums, and living under 최근 앨범 meant it vanished the
           moment someone switched to 장소별 앨범. */}
       {showAi && (
-      <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
+      <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} albumsByCourse={albumsByCourse} onOpenAlbum={onOpenHike} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
       )}
       {/* The album lists belong to the 앨범 screen. Beside the map they were a
           second copy of it, pushing the one thing this screen is for - asking

@@ -42,6 +42,11 @@ export async function createAlbumFromRoute(input: {
       and our lines repeat by construction, since two legs meeting at a junction
       share that junction's point object. See flattenTrack. */
   track: number[] | null;
+  /** The course_library row this album is a walk of, when the answer knew it.
+      Null is ordinary - a course the model renamed while merging two of ours
+      matches nothing, and an unlinked album is better than a wrongly linked
+      one. */
+  courseId?: string | null;
   distanceText: string | null;
   durationText?: string | null;
   difficulty?: string | null;
@@ -141,6 +146,10 @@ export async function createAlbumFromRoute(input: {
       date: new Date().toISOString().slice(0, 10),
       activity_type: activityType,
       course_info: courseInfo,
+      // Deliberately not validated against the library here. It is a foreign
+      // key: an id that names no course is refused by the database, which is
+      // the check, and paying a round trip to repeat it would slow every album.
+      course_id: input.courseId ?? null,
       lat: spot.lat,
       lng: spot.lng,
       track,

@@ -111,9 +111,23 @@ function RichText({ source }: { source: string }) {
 }
 
 
-export function AssistantPanel({
+/**
+ * An album, as much of one as this panel shows.
+ *
+ * Structural rather than MapHike so that /assistant, which has no map and no
+ * album list, does not have to know what a MapHike is to render without one.
+ */
+export interface AlbumRef {
+  id: string;
+  title: string;
+  date: string;
+}
+
+export function AssistantPanel<A extends AlbumRef = AlbumRef>({
   onPreviewRoute,
   onCreateAlbum,
+  albumsByCourse,
+  onOpenAlbum,
   activeRouteName,
   creatingAlbum,
 }: {
@@ -125,6 +139,10 @@ export function AssistantPanel({
     place: { name: string | null; center: { lat: number; lng: number } | null },
   ) => void;
   onCreateAlbum?: (route: RouteSuggestion, asked: string) => void;
+  /** Albums the club has already walked on each course, keyed by course id.
+      Absent on /assistant, which has no album list beside it. */
+  albumsByCourse?: Map<string, A[]>;
+  onOpenAlbum?: (album: A) => void;
   activeRouteName?: string | null;
   creatingAlbum?: boolean;
 } = {}) {
@@ -462,6 +480,41 @@ export function AssistantPanel({
                         ))}
                       </div>
                     )}
+
+                    {(() => {
+                      // Who has already been. A course the club has walked is
+                      // worth more than the same course described: the album
+                      // has the photographs, the real track and whatever the
+                      // party wrote down afterwards.
+                      //
+                      // Only shown where there is something to show. A course
+                      // nobody has walked says nothing rather than "0" - most
+                      // of them have not been walked, and a row of zeroes would
+                      // be noise on every card.
+                      const walked = route.courseId ? albumsByCourse?.get(route.courseId) : undefined;
+                      if (!walked || walked.length === 0) return null;
+                      return (
+                        <div className="border-t border-club-line px-2.5 py-2">
+                          <span className="text-xs font-medium text-club-muted">
+                            부원 기록 {walked.length}개
+                          </span>
+                          <ul className="mt-1 flex flex-col gap-0.5">
+                            {walked.map((album) => (
+                              <li key={album.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenAlbum?.(album)}
+                                  disabled={!onOpenAlbum}
+                                  className="text-left text-[12px] text-[#5b1a23] underline underline-offset-2 disabled:no-underline disabled:text-club-muted"
+                                >
+                                  {album.date} · {album.title}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
 
                     {active && onCreateAlbum && (
                       <div className="border-t border-[#e8d9dc] px-2.5 py-2">

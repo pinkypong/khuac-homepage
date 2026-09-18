@@ -350,7 +350,10 @@ async function produceAnswer(
           intent,
           text: "",
           place: placeSummary,
-          routes: picked.routes,
+          routes: withCourseIds(
+            picked.routes,
+            new Map(held.courses.map((course) => [courseKey(course.name), course.id])),
+          ),
           routePlaceName: place?.location.name ?? picked.placeName,
           summary: picked.summary,
           // Always current, never from the library: a course written last
@@ -423,10 +426,10 @@ export async function finishRouteAnswer(question: string): Promise<AssistantAnsw
   const result = await extractRoutes(stored.text, stored.sources ?? [], stored.routePlaceName ?? null);
   // Filed while we have it, so the next question about this mountain reads the
   // list instead of searching for it again.
-  await rememberCourses(supabase, stored.routePlaceName ?? result.placeName, result.routes);
+  const ids = await rememberCourses(supabase, stored.routePlaceName ?? result.placeName, result.routes);
   return store(supabase, key, trimmed, memberId, {
     ...stored,
-    routes: result.routes,
+    routes: withCourseIds(result.routes, ids),
     routePlaceName: stored.routePlaceName ?? result.placeName,
     // Replaces the prose answer when courses were extracted: the cards say the
     // same things in a form that can be tapped onto the map, and the two side
@@ -509,6 +512,7 @@ const ORIGIN_RANK: Record<string, number> = { gpx: 5, knps: 4, club: 3, forest: 
 const rankOf = (origin: string | null | undefined) => ORIGIN_RANK[origin ?? "search"] ?? ORIGIN_RANK.search;
 
 interface LibraryRow {
+  id: string;
   mountain: string;
   name: string;
   region: string | null;
@@ -553,7 +557,7 @@ async function libraryFor(
   const { data } = await supabase
     .from("course_library")
     .select(
-      "mountain, name, region, origin, waypoints, distance_text, duration_text, difficulty, description, notes, sources",
+      "id, mountain, name, region, origin, waypoints, distance_text, duration_text, difficulty, description, notes, sources",
     );
   const rows = (data ?? []) as unknown as LibraryRow[];
   if (rows.length === 0) return null;
@@ -626,6 +630,7 @@ async function libraryFor(
     .slice()
     .sort((a, b) => rankOf(b.origin) - rankOf(a.origin))
     .map((row) => ({
+      id: row.id,
       name: row.name,
       waypoints: row.waypoints ?? [],
       distanceText: row.distance_text,
@@ -653,13 +658,37 @@ function askWhichMountain(mountain: string, regions: string[]): string {
   return lines.join("\n");
 }
 
-/** Files what a search found, so the next question about this mountain is fast. */
+/**
+ * The library row each suggested course came from, matched back on by name.
+ *
+ * The model is handed courses and asked to pick between them and to fold two
+ * entries that are the same course into one. An id put in front of it is an id
+ * it can copy onto the wrong course, and a wrong link is worse than none: it
+ * would show a member someone else's album as a record of the walk they are
+ * about to do. So the ids are kept out of the prompt and identity is restored
+ * here, where the only two outcomes are the right row and no row.
+ *
+ * Keyed on the name alone because (mountain, name) is what the library makes
+ * unique and every course here belongs to the one mountain. A merged course
+ * keeps whichever name the model wrote for it; when that is not one of ours it
+ * links to nothing, which is the honest answer.
+ */
+const courseKey = (name: string) => name.trim().toLowerCase();
+
+function withCourseIds(routes: RouteSuggestion[], ids: Map<string, string>): RouteSuggestion[] {
+  return routes.map((route) => ({ ...route, courseId: ids.get(courseKey(route.name)) ?? null }));
+}
+
+/** Files what a search found, so the next question about this mountain is fast.
+    Hands back the id of every course it filed or found already held, so the
+    album a member makes from one can point at it. */
 async function rememberCourses(
   supabase: Client,
   mountain: string | null,
   routes: RouteSuggestion[],
-): Promise<void> {
-  if (!mountain || routes.length === 0) return;
+): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  if (!mountain || routes.length === 0) return ids;
 
   // What a search found must not overwrite what a survey or a member filed.
   // The upsert below keys on (mountain, name), so a search answer that lands on
@@ -672,14 +701,16 @@ async function rememberCourses(
   // have happened anyway. It is the knps/club/gpx rows this is protecting.
   const { data: existing } = await supabase
     .from("course_library")
-    .select("name, origin")
+    .select("id, name, origin")
     .eq("mountain", mountain)
     .in("name", routes.map((route) => route.name));
+  const held = (existing ?? []) as { id: string; name: string; origin: string | null }[];
   const heldBetter = new Set(
-    ((existing ?? []) as { name: string; origin: string | null }[])
-      .filter((row) => rankOf(row.origin) > rankOf("search"))
-      .map((row) => row.name),
+    held.filter((row) => rankOf(row.origin) > rankOf("search")).map((row) => row.name),
   );
+  // A course we refused to overwrite is still the course this answer is about,
+  // and its row is the one an album should point at.
+  for (const row of held) ids.set(courseKey(row.name), row.id);
 
   const rows = routes.filter((route) => !heldBetter.has(route.name)).map((route) => ({
     mountain,
@@ -694,9 +725,19 @@ async function rememberCourses(
     origin: "search",
     updated_at: new Date().toISOString(),
   }));
-  if (rows.length === 0) return;
-  const { error } = await supabase.from("course_library").upsert(rows, { onConflict: "mountain,name" });
-  if (error) console.error("[assistant/library] store failed", error.message);
+  if (rows.length === 0) return ids;
+  const { data: written, error } = await supabase
+    .from("course_library")
+    .upsert(rows, { onConflict: "mountain,name" })
+    .select("id, name");
+  if (error) {
+    console.error("[assistant/library] store failed", error.message);
+    return ids;
+  }
+  for (const row of (written ?? []) as { id: string; name: string }[]) {
+    ids.set(courseKey(row.name), row.id);
+  }
+  return ids;
 }
 
 /** Where the club's activity sits, used to settle same-named mountains. */
