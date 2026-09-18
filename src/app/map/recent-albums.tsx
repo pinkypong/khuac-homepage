@@ -5,10 +5,9 @@ import type { MapHike, MapLocation } from "./map-shell";
 import { getPreviewUrl, getThumbnailUrl } from "@/lib/images/url";
 import { ACTIVITY_LABEL } from "./activity";
 
-export function RecentAlbums({ locations, onOpenHike, onHoverHike }: {
+export function RecentAlbums({ locations, onOpenHike }: {
   locations: MapLocation[];
   onOpenHike: (hike: MapHike) => void;
-  onHoverHike: (id: string | null) => void;
 }) {
   const albums = locations.flatMap(location => location.hikes.map(hike => ({ location, hike })))
     .sort((a, b) => b.hike.date.localeCompare(a.hike.date) || a.hike.id.localeCompare(b.hike.id));
@@ -25,7 +24,7 @@ export function RecentAlbums({ locations, onOpenHike, onHoverHike }: {
         </button>
         <p className="recent-meta">{ACTIVITY_LABEL[hike.activityType]} · {hike.date.replaceAll("-", ".")} · 사진 {hike.photos.length}</p>
         {hike.photos[0] ? (
-          <button className="recent-cover" aria-label={`${hike.title} 앨범 열기`} onClick={() => onOpenHike(hike)} onMouseEnter={() => onHoverHike(hike.id)} onMouseLeave={() => onHoverHike(null)}>
+          <button className="recent-cover" aria-label={`${hike.title} 앨범 열기`} onClick={() => onOpenHike(hike)}>
             <Image unoptimized src={getPreviewUrl(hike.photos[0].storageKey)} alt={hike.title} width={1000} height={750} />
           </button>
         ) : (
@@ -47,7 +46,7 @@ export function RecentAlbums({ locations, onOpenHike, onHoverHike }: {
         <div className="recent-list-label">다른 기록 <span>{Math.max(0, albums.length - 1)}</span></div>
         {albums.length === 1 && <p className="py-6 text-sm text-club-muted">등록된 첫 번째 앨범입니다.</p>}
         {albums.slice(1).map(({ hike: item, location: place }) => (
-          <button key={item.id} className="recent-row" onClick={() => onOpenHike(item)} onMouseEnter={() => onHoverHike(item.id)} onMouseLeave={() => onHoverHike(null)}>
+          <button key={item.id} className="recent-row" onClick={() => onOpenHike(item)}>
             {item.photos[0] ? <Image unoptimized src={getThumbnailUrl(item.photos[0].storageKey)} width={96} height={72} alt="" /> : <span className="recent-row-placeholder">사진 없음</span>}
             <span className="recent-row-text"><strong>{item.title}</strong><small>{place.name} · {item.date.replaceAll("-", ".")} · 사진 {item.photos.length}</small></span>
             <span aria-hidden="true">↗</span>

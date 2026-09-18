@@ -144,7 +144,6 @@ export function SidePanel({
   trailBusy,
   focusedPhotoId,
   onFocusedPhotoConsumed,
-  onHoverHike,
   onBackToRoot,
   onShowOnMap,
   isAdmin,
@@ -169,7 +168,6 @@ export function SidePanel({
   trailBusy: boolean;
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
-  onHoverHike: (hikeId: string | null) => void;
   onBackToRoot: () => void;
   // Below md the map is a tab away rather than beside the panel, so every
   // screen that puts something on the map needs a way to go and look at it.
@@ -412,8 +410,6 @@ export function SidePanel({
                 <li key={hike.id}>
                   <button
                     onClick={() => onOpenHike(hike)}
-                    onMouseEnter={() => onHoverHike(hike.id)}
-                    onMouseLeave={() => onHoverHike(null)}
                     className={
                       "flex w-full items-center gap-3 rounded-lg border p-2 text-left transition-colors " +
                       (pinnedHikeId === hike.id
@@ -455,7 +451,7 @@ export function SidePanel({
       {showAlbums && (
       <div className="recent-tabs"><button aria-pressed={rootView === "recent"} onClick={()=>setRootView("recent")}>최근 앨범</button><button aria-pressed={rootView === "places"} onClick={()=>setRootView("places")}>장소별 앨범</button></div>
       )}
-      {showAlbums && (rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><RecentAlbums locations={locations} onOpenHike={onOpenHike} onHoverHike={onHoverHike}/></div> : <>
+      {showAlbums && (rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto"><RecentAlbums locations={locations} onOpenHike={onOpenHike}/></div> : <>
       <div className="border-b border-club-line px-4 py-3">
         {picking && (
           <div className="mb-2 rounded bg-red-50 px-2 py-1.5 text-xs text-red-700">

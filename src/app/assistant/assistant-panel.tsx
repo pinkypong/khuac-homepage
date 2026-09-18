@@ -239,9 +239,16 @@ export function AssistantPanel({
         <button
           type="submit"
           disabled={pending || !question.trim()}
+          aria-label={pending ? (searching ? "웹에서 찾는 중" : "저장된 코스를 확인하는 중") : "물어보기"}
           className="rounded-lg bg-club-ink py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          {!pending ? "물어보기" : searching ? "저장된 코스에 없어 웹에서 찾는 중…" : "저장된 코스를 확인하는 중…"}
+          {!pending ? (
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h13M13 6l6 6-6 6" />
+            </svg>
+          ) : (
+            <span aria-hidden="true">···</span>
+          )}
         </button>
       </form>
 

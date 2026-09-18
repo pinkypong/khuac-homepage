@@ -1,4 +1,5 @@
 import { AssistantPanel } from "@/app/assistant/assistant-panel";
+import { ClubCrest } from "@/components/club-crest";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 /**
@@ -31,12 +32,9 @@ export function KhuacAiCard({
     >
       <div className="club-ai-heading">
         <span aria-hidden="true" className="club-ai-symbol">
-          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4">
-            <circle cx="12" cy="12" r="9" />
-            <path d="m16 8-2.5 5.5L8 16l2.5-5.5L16 8Z" />
-          </svg>
+          <ClubCrest />
         </span>
-        <div><strong>KHUAC AI</strong><p>날씨 · 어프로치 · 코스</p></div>
+        <div><strong>KHUAC AI</strong><p>날씨 · 루트 · 장비 · 코스</p></div>
       </div>
       <AssistantPanel
         onPreviewRoute={onPreviewRoute}

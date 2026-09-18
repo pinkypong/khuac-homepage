@@ -16,6 +16,8 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { ViewerName } from "@/app/account/name-form";
 import { PendingBadge } from "@/components/pending-badge";
 import { SidePanel } from "./side-panel";
+import { RecentActivityStrip } from "./recent-activity-strip";
+import { ClubCrest } from "@/components/club-crest";
 import { loadTrails, saveTrailRoute } from "./route-actions";
 import { stitchSegments, type TrailSegment } from "@/lib/routes/trails";
 import { formatDistance, trackDistanceMeters } from "@/lib/gps/track";
@@ -83,7 +85,7 @@ const MapView = dynamic(() => import("./map-view").then((m) => m.MapView), {
 
 const MIN_MAP_WIDTH = 320;
 const MIN_PANEL_WIDTH = 340;
-const DEFAULT_MAP_WIDTH = 0.58;
+const DEFAULT_MAP_WIDTH = 0.64;
 
 /**
  * Which half of the app a phone is looking at.
@@ -114,6 +116,21 @@ export interface PickedPoint {
 function NavIcon({kind}: {kind: "map" | "ai" | "album" | "upload" | "profile"}) {
  const paths = {map: "M12 21s7-7 7-12a7 7 0 1 0-14 0c0 5 7 12 7 12Z M12 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6", ai:"M4 19l5-13 5 13 M6 15h6 M17 6v13", album:"M4 3h16v18H4Z M7 7h10 M7 11h4 M7 17l4-4 3 3 3-2", upload:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 7v10 M7 12h10", profile:"M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M4 21v-3a8 6 0 0 1 16 0v3Z"};
  return <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={paths[kind]}/></svg>;
+}
+
+function ActivityFilterIcon({ type }: { type: ActivityType | "all" }) {
+  const paths: Record<ActivityType | "all", string> = {
+    all: "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z",
+    hiking: "m3 19 6.5-12 4 7 2.5-4 5 9H3Z M7.4 10.9l2.1 1.6 2-1.6",
+    indoor_climbing: "M5 20V5h14v15 M8 9l1-.5 M14 8l1 1 M10 14l1.5-.5 M15 17l1-.5",
+    outdoor_wall: "M4 20h16 M7 20V6l5-2 5 3v13 M10 9l1 1 M14 12l-1 1 M10 16l1-.5",
+    climbing: "M9 7.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5 M8 10l4 1 3-4 M9 10l-2 5 4 1-1 5 M7 15l-3 5 M18 3l-1 5 2 5-2 8",
+  };
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+      <path d={paths[type]} />
+    </svg>
+  );
 }
 
 /**
@@ -197,6 +214,7 @@ export function MapShell({
   const containerRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [activity, setActivity] = useState<ActivityType | "all">("all");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [mapFailed, setMapFailed] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   // Narrowed by activity first, so a place keeps only that activity's outings
@@ -207,6 +225,22 @@ export function MapShell({
       !term || [location.name, location.region, ...location.hikes.map((hike) => hike.title)]
         .join(" ").toLowerCase().includes(term));
   }, [locations, search, activity]);
+  const activityCounts = useMemo<Record<ActivityType | "all", number>>(() => {
+    const counts: Record<ActivityType | "all", number> = {
+      all: 0,
+      hiking: 0,
+      indoor_climbing: 0,
+      outdoor_wall: 0,
+      climbing: 0,
+    };
+    for (const location of locations) {
+      for (const hike of location.hikes) {
+        counts.all += 1;
+        counts[hike.activityType] += 1;
+      }
+    }
+    return counts;
+  }, [locations]);
   /**
    * What the typed text matches, as rows to jump to rather than only as a
    * filter on the list.
@@ -237,14 +271,13 @@ export function MapShell({
 
   const [mapWidth, setMapWidth] = useState<number | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
+  const [mapExpanded, setMapExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("map");
-  const panelTab: MobileTab = mapOpen ? mobileTab : "album";
 
   const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
   const [activeHikeId, setActiveHikeId] = useState<string | null>(null);
   const [pinnedHikeId, setPinnedHikeId] = useState<string | null>(null);
-  const [hoveredHikeId, setHoveredHikeId] = useState<string | null>(null);
   // Set when a photo pin on the map is tapped, so the detail panel can open its
   // lightbox on that photo. Cleared once consumed, otherwise closing the
   // lightbox would immediately reopen it.
@@ -331,7 +364,6 @@ export function MapShell({
   const activeLocation = locations.find((l) => l.id === activeLocationId) ?? null;
   const allHikes = locations.flatMap((l) => l.hikes);
   const pinnedHike = allHikes.find((h) => h.id === pinnedHikeId) ?? null;
-  const hoveredHike = allHikes.find((h) => h.id === hoveredHikeId) ?? null;
 
   function showMap() {
     setMobileTab("map");
@@ -341,24 +373,27 @@ export function MapShell({
   }
 
   function openLocation(locationId: string) {
+    setMapExpanded(false);
     setActiveLocationId(locationId);
     setActiveHikeId(null);
+    // A mountain marker opens its album list only. Route geometry belongs to
+    // the specific outing the member chooses from that list.
+    setPinnedHikeId(null);
     // Only one half is on screen on a phone, so a marker tap that left the map
     // up would look like nothing had happened: hand over to the list it opened.
     setMobileTab("map");
   }
 
   function openHike(hike: MapHike) {
+    setMapExpanded(false);
     setActiveLocationId(hike.locationId);
     setActiveHikeId(hike.id);
     // The map comes back with it. An album's route is the thing worth seeing,
     // and it was reachable only by finding 지도 펼치기 afterwards - because
     // opening the album list had closed the map on the way in.
     setMapOpen(true);
-    // Clicking a hike pins its route: it stays on the map while other rows
-    // are hovered, unlike the transient hover preview.
+    // Clicking a hike pins its route on the map.
     setPinnedHikeId(hike.id);
-    setHoveredHikeId(null);
     setMobileTab("album");
   }
 
@@ -433,10 +468,11 @@ export function MapShell({
   }
 
   function goToRoot() {
+    setMapExpanded(false);
     setActiveLocationId(null);
     setActiveHikeId(null);
     setPinnedHikeId(null);
-    setHoveredHikeId(null);
+    setMobileTab("map");
   }
 
   function previewRoute(
@@ -553,31 +589,68 @@ export function MapShell({
   const shell = (
     <div className="club-app flex h-app w-full flex-col overflow-hidden">
       <header className="club-header">
-        <Link href="/map" className="club-brand" aria-label="KHUAC 지도"><Image src="/khuac-logo-original.png" alt="경희대학교 산악부 원본 마크" width={282} height={262} priority /><span><strong>KHUAC</strong><small>경희대학교 산악부</small></span></Link>
-        <nav className="club-desktop-nav" aria-label="주 메뉴">
-          <button aria-pressed={mapOpen} onClick={showMap}>지도</button>
-          <button aria-pressed={!mapOpen} onClick={() => {setMapOpen(false);setMobileTab("album");}}>앨범</button>
-          <Link href="/members">부원</Link>
-        </nav>
-        <div className="club-header-actions"><Link className="club-upload" href="/photos/upload">사진 업로드 <span>＋</span></Link><button className="club-profile" aria-label="내 정보" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}><NavIcon kind="profile"/></button></div>
+        <Link href="/map" className="club-brand" aria-label="Kyunghee University Alpine Club 지도">
+          <ClubCrest />
+          <span className="club-brand-copy"><strong className="club-brand-fullname"><span>Kyunghee University</span><span>Alpine Club</span></strong><small>경희대학교 산악부</small></span>
+        </Link>
+        <div className={"club-header-tools " + (mobileTab === "ai" || accountOpen ? "club-header-tools-mobile-hidden" : "")}>
+          <div className="club-filter-menu">
+            <button
+              type="button"
+              className="club-filter-trigger"
+              aria-expanded={filterOpen}
+              aria-controls="activity-filter-menu"
+              onClick={() => setFilterOpen((open) => !open)}
+            >
+              <ActivityFilterIcon type={activity} />
+              <span>{activity === "all" ? "활동 전체" : ACTIVITY_LABEL[activity]}</span>
+              <svg className="club-filter-chevron" aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg>
+            </button>
+            {filterOpen && (
+              <div id="activity-filter-menu" className="club-filter-popover" role="menu" aria-label="활동 종류">
+                {(["all", ...ACTIVITY_TYPES] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={activity === type}
+                    onClick={() => {
+                      setActivity(type);
+                      setFilterOpen(false);
+                      goToRoot();
+                      setMapOpen(true);
+                      setMobileTab("album");
+                    }}
+                  >
+                    <ActivityFilterIcon type={type} />
+                    <span><strong>{type === "all" ? "전체 활동" : ACTIVITY_LABEL[type]}</strong><small>{activityCounts[type]}개 앨범</small></span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <label className="club-search">
+            <span className="club-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg></span>
+            <input aria-label="장소·활동 검색" placeholder="장소, 산, 암장, 활동 검색" value={search} onFocus={() => setFilterOpen(false)} onChange={e=>{setSearch(e.target.value);goToRoot();}} />
+            {searchMatches.length > 0 && (
+              <ul className="club-search-results" role="listbox" aria-label="검색 결과">
+                {searchMatches.map(({ hike, location }) => (
+                  <li key={hike.id}>
+                    <button type="button" onClick={() => { setSearch(""); openHike(hike); setMapOpen(true); }}>
+                      <strong>{hike.title}</strong>
+                      <span>{location.name}{hike.date ? ` · ${hike.date}` : ""}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </label>
+        </div>
+        <div className="club-header-actions"><button className="club-profile" aria-label="내 정보" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}><NavIcon kind="profile"/></button></div>
       </header>
-      {accountOpen && <section className="club-account" aria-label="내 정보">{viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}<Link href="/members">부원</Link>{isAdmin && <Link href="/admin/members">관리자 <PendingBadge count={pendingCount}/></Link>}<SignOutButton/><button onClick={() => setAccountOpen(false)}>닫기</button></section>}
-      <div className="club-toolbar"><label className="club-search"><span aria-hidden="true">⌕</span><input aria-label="장소·활동 검색" placeholder="장소·활동 검색" value={search} onChange={e=>{setSearch(e.target.value);goToRoot();}} />
-        {searchMatches.length > 0 && (
-          <ul className="club-search-results" role="listbox" aria-label="검색 결과">
-            {searchMatches.map(({ hike, location }) => (
-              <li key={hike.id}>
-                <button type="button" onClick={() => { setSearch(""); openHike(hike); setMapOpen(true); }}>
-                  <strong>{hike.title}</strong>
-                  <span>{location.name}{hike.date ? ` · ${hike.date}` : ""}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </label><div className="club-filters" aria-label="활동 종류">{(["all", ...ACTIVITY_TYPES] as const).map(type=><button key={type} aria-pressed={activity===type} onClick={()=>{setActivity(type);goToRoot();}}>{type==="all"?"전체":ACTIVITY_LABEL[type]}</button>)}</div></div>
+      {accountOpen && <section className="club-account" aria-label="내 정보">{viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}<Link href="/photos/upload">사진 업로드</Link><Link href="/members">부원</Link>{isAdmin && <Link href="/admin/members">관리자 <PendingBadge count={pendingCount}/></Link>}<SignOutButton/><button onClick={() => setAccountOpen(false)}>닫기</button></section>}
 
-    <div ref={containerRef} className="relative flex min-h-0 w-full flex-1 overflow-hidden">
+    <div ref={containerRef} className="club-workspace relative flex min-h-0 w-full flex-1 overflow-hidden">
       {mapOpen && (
         <>
           {/* Below md the two panes sit on top of each other and the tab bar
@@ -587,7 +660,8 @@ export function MapShell({
           <div
             style={mapWidthStyle}
             className={
-              "absolute inset-0 flex w-full flex-col md:relative md:inset-auto md:w-[var(--map-width)] md:shrink-0 " +
+              "absolute inset-0 flex w-full flex-col md:relative md:inset-auto md:shrink-0 " +
+              (mobileTab === "album" ? "md:w-[44%] " : "md:w-[var(--map-width)] ") +
               (mobileTab === "map" ? "" : "invisible md:visible")
             }
           >
@@ -595,18 +669,18 @@ export function MapShell({
                 a sibling rather than another overlay: it is read, not pointed
                 at, and a chart lying across the ground it describes helps
                 nobody. */}
-            <div className="relative min-h-0 flex-1">
+            <div className="club-map-frame relative min-h-0 flex-1">
             {mapFailed ? <MapUnavailable onShowAlbum={() => {setMapOpen(false); setMobileTab("album");}} /> : apiKey ? (
               <MapErrorBoundary onShowAlbum={() => {setMapOpen(false); setMobileTab("album");}}><MapView
                 mapId={mapId}
                 locations={visibleLocations}
                 activeLocationId={activeLocationId}
                 selectedHike={pinnedHike}
-                hoveredHike={hoveredHike}
                 onSelectLocation={(id) => {openLocation(id);setMobileTab("map");}}
-                onSelectHike={openHike}
                 onSelectPhoto={selectPhoto}
-                onCollapseMap={() => setMapOpen(false)}
+                mapExpanded={mapExpanded}
+                showSizeToggle={!activeLocationId && !activeHikeId && mobileTab === "map"}
+                onToggleMapSize={() => setMapExpanded((expanded) => !expanded)}
                 picking={picking}
                 pickedPoint={pickedPoint}
                 onPickPoint={pickPoint}
@@ -704,7 +778,7 @@ export function MapShell({
 
           <div
             onPointerDown={() => setDragging(true)}
-            className={`hidden w-1.5 shrink-0 cursor-col-resize bg-club-line transition-colors hover:bg-club-faint md:block ${
+            className={`club-divider hidden w-1.5 shrink-0 cursor-col-resize bg-club-line transition-colors hover:bg-club-faint md:block ${
               dragging ? "bg-club-faint" : ""
             }`}
             tabIndex={0}
@@ -718,20 +792,19 @@ export function MapShell({
 
       <div
         className={
-          "club-album absolute inset-0 flex min-w-0 flex-col bg-white md:relative md:inset-auto md:flex-1 " +
+          "club-album club-side-panel absolute inset-0 flex min-w-0 flex-col bg-white md:relative md:inset-auto md:flex-1 " +
           // A collapsed map leaves the 지도 tab with nothing in it, so on a
           // phone the panel stays up until 지도 is tapped and re-opens it.
           (mobileTab === "album" || mobileTab === "ai" || !mapOpen ? "" : "invisible md:visible")
         }
       >
-        {!mapOpen && (
-          <button
-            type="button"
-            onClick={() => setMapOpen(true)}
-            className="hidden border-b border-club-line px-4 py-2 text-left text-xs text-club-muted hover:bg-club-paper md:block"
-          >
-            지도 펼치기
-          </button>
+        {mobileTab === "album" && !activeLocationId && !activeHikeId && (
+          <div className="club-album-mode-heading">
+            <div><small>ACTIVITY ARCHIVE</small><strong>{activity === "all" ? "전체 활동 앨범" : `${ACTIVITY_LABEL[activity]} 앨범`}</strong></div>
+            <button type="button" onClick={() => { setActivity("all"); setMobileTab("map"); }}>
+              <NavIcon kind="map"/>지도 · KHUAC AI
+            </button>
+          </div>
         )}
         <SidePanel
           locations={visibleLocations}
@@ -745,7 +818,6 @@ export function MapShell({
           trailBusy={trailBusy}
           focusedPhotoId={focusedPhotoId}
           onFocusedPhotoConsumed={() => setFocusedPhotoId(null)}
-          onHoverHike={setHoveredHikeId}
           onBackToRoot={goToRoot}
           onShowOnMap={showMap}
           onPreviewRoute={previewRoute}
@@ -755,8 +827,8 @@ export function MapShell({
           // Desktop keeps both in one column; a phone shows whichever tab is
           // open, which is what stops the answer and the album list from
           // fighting over the fold.
-          showAlbums={!mapOpen || panelTab === "album"}
-          showAi={!mapOpen ? false : panelTab !== "album"}
+          showAlbums={mobileTab === "album"}
+          showAi={mobileTab !== "album"}
           picking={picking}
           pickedPoint={pickedPoint}
           onPickPoint={pickPoint}
@@ -769,6 +841,14 @@ export function MapShell({
       </div>
       {mobileTab === "map" && mapOpen && activeLocation && <button className="club-map-sheet" onClick={()=>setMobileTab("album")}><span className="club-grabber"/>{activeLocation.hikes[0]?.photos[0] && <Image unoptimized src={getThumbnailUrl(activeLocation.hikes[0].photos[0].storageKey)} width={88} height={68} alt=""/>}<span><strong>{activeLocation.name}</strong><small>활동 {activeLocation.hikes.length} · 사진 {activeLocation.photoCount}</small></span><span aria-hidden="true">→</span></button>}
       </div>
+
+      {mapOpen && !mapExpanded && !activeLocationId && !activeHikeId && mobileTab === "map" && (
+        <RecentActivityStrip
+          locations={locations}
+          onOpenHike={openHike}
+          onViewAll={() => { setActivity("all"); setMobileTab("album"); }}
+        />
+      )}
 
       {/* Bottom rather than top: this is the control a member reaches for most
           often on a phone, and the bottom edge is where the thumb already is.
@@ -783,6 +863,7 @@ export function MapShell({
             type="button"
             aria-pressed={mobileTab === id}
             onClick={() => {
+              setAccountOpen(false);
               if (id === "map") showMap();
               else {
                 setMapOpen(true);

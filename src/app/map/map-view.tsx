@@ -48,7 +48,6 @@ const LABEL_MAX_ZOOM = 12;
 // Red says "this is the one you picked" and nothing else, which is why no
 // activity colour is red.
 const SELECTED_COLOR = "#D23B2E";
-const PREVIEW_COLOR = "#4A6B52";
 // Trail picking uses its own two colours: blue-grey reads as "offered" rather
 // than as any of the activity colours, and amber as "you picked this" without
 // borrowing the red that means a saved route.
@@ -289,11 +288,9 @@ const OVERLAY_BASE: MapTypeChoice = "roadmap";
 function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | null) => void }) {
   const map = useMap();
   const layers = useMemo(() => availableTileLayers(), []);
-  // The trail layer is what this club opens the map for, so it is both the
-  // first button and the one already selected. Google's own roadmap stands in
-  // only when no trail layer is configured.
-  const defaultLayer = layers[0] ?? null;
-  const [mapType, setMapType] = useState<MapTypeChoice>(defaultLayer?.id ?? "roadmap");
+  // The home view opens on aerial imagery so the terrain itself leads the
+  // composition. Dedicated trail layers stay one tap away for route work.
+  const [mapType, setMapType] = useState<MapTypeChoice>("hybrid");
   const active = layers.find((layer) => layer.id === mapType) ?? null;
 
   // Applied whenever the mode changes rather than only on the click that
@@ -394,11 +391,11 @@ export function MapView({
   locations,
   activeLocationId,
   selectedHike,
-  hoveredHike,
   onSelectLocation,
-  onSelectHike,
   onSelectPhoto,
-  onCollapseMap,
+  mapExpanded,
+  showSizeToggle,
+  onToggleMapSize,
   picking,
   pickedPoint,
   onPickPoint,
@@ -416,11 +413,11 @@ export function MapView({
   locations: MapLocation[];
   activeLocationId: string | null;
   selectedHike: MapHike | null;
-  hoveredHike: MapHike | null;
   onSelectLocation: (locationId: string) => void;
-  onSelectHike: (hike: MapHike) => void;
   onSelectPhoto: (photoId: string) => void;
-  onCollapseMap: () => void;
+  mapExpanded: boolean;
+  showSizeToggle: boolean;
+  onToggleMapSize: () => void;
   picking: boolean;
   pickedPoint: PickedPoint | null;
   onPickPoint: (point: PickedPoint) => void;
@@ -449,24 +446,6 @@ export function MapView({
   const [openPhotoGroup, setOpenPhotoGroup] = useState<{hikeId:string;key:string}|null>(null);
   // Null while a Google base map is showing; those carry their own attribution.
   const [tileLayer, setTileLayer] = useState<TileLayer | null>(null);
-
-  // Only preview a hover when it isn't already the pinned route, so the two
-  // styles never stack on the same line.
-  const previewTrack =
-    hoveredHike && hoveredHike.id !== selectedHike?.id && hoveredHike.track?.length
-      ? hoveredHike.track
-      : null;
-
-  const activeLocation = locations.find((l) => l.id === activeLocationId) ?? null;
-  // Individual peaks/routes stay hidden until their mountain is opened -
-  // otherwise every outing piles onto the same spot at country zoom. Gym and
-  // artificial-wall sessions never get one: their point is the venue, so the
-  // marker would land on top of the folder's.
-  const spotHikes = activeLocation
-    ? activeLocation.hikes.filter(
-        (h) => ACTIVITY_HAS_OWN_SPOT[h.activityType] && h.lat != null && h.lng != null,
-      )
-    : [];
 
   // Where the red pin goes, if anywhere.
   const selectedSpot =
@@ -516,15 +495,15 @@ export function MapView({
     >
       {/* A real map control, so Google spaces it within its own stack rather
           than letting it land on top of another control. */}
-      <MapControl position={ControlPosition.LEFT_BOTTOM}>
+      {showSizeToggle && <MapControl position={ControlPosition.LEFT_BOTTOM}>
         <button
           type="button"
-          onClick={onCollapseMap}
+          onClick={onToggleMapSize}
           className="m-2 hidden rounded border border-neutral-300 bg-white px-2.5 py-1 text-xs text-neutral-700 shadow-sm hover:bg-neutral-50 md:block"
         >
-          지도 접기
+          {mapExpanded ? "기본 화면으로" : "지도 크게 보기"}
         </button>
-      </MapControl>
+      </MapControl>}
 
       {/* Top-left is where the stock switcher sat, and it stays clear of the
           fullscreen (top-right) and 지도 접기 (left-bottom) controls. */}
@@ -567,15 +546,6 @@ export function MapView({
           onTrack={onRouteTrack}
           pins={!selectedHike}
           onTrailsUnavailable={onTrailsUnavailable}
-        />
-      )}
-
-      {previewTrack && (
-        <Polyline
-          path={toPath(previewTrack)}
-          strokeColor={PREVIEW_COLOR}
-          strokeOpacity={0.85}
-          strokeWeight={3}
         />
       )}
 
@@ -670,24 +640,6 @@ export function MapView({
           />
         </AdvancedMarker>
       ))}
-
-      {spotHikes
-        .filter((hike) => hike.id !== selectedHike?.id)
-        .map((hike) => (
-          <AdvancedMarker
-            key={hike.id}
-            position={{ lat: hike.lat as number, lng: hike.lng as number }}
-            title={hike.title}
-            onClick={() => onSelectHike(hike)}
-          >
-            <Dot
-              color={ACTIVITY_COLOR[hike.activityType]}
-              label={hike.title}
-              showLabel
-              emphasised={false}
-            />
-          </AdvancedMarker>
-        ))}
 
       {selectedSpot && selectedHike && (
         <AdvancedMarker position={selectedSpot} title={selectedHike.title}>
