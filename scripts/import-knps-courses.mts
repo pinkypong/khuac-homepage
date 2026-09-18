@@ -2,6 +2,7 @@
  * Files the courses 국립공원공단 publishes into course_library.
  *
  *   node scripts/import-knps-courses.mts [--dry-run] [--limit N] [--cache <file>]
+ *                                         [--skip <산>]...
  *
  * Every route question the club types pays for a grounded web search - 26.7
  * seconds and sixteen sources for one answer - and pays again for the next
@@ -353,6 +354,35 @@ const limitIndex = args.indexOf("--limit");
 const maxPages = limitIndex >= 0 ? Number(args[limitIndex + 1]) : Infinity;
 const cacheIndex = args.indexOf("--cache");
 const cachePath = cacheIndex >= 0 ? args[cacheIndex + 1] : null;
+/**
+ * Parks to leave alone, by the name this file files them under - so
+ * `--skip 북한산` skips the 북한산 park office.
+ *
+ * A park we already hold hand-written courses for is a park where this import
+ * does not help and can hurt. 북한산 is the case it was written for: the club
+ * has thirteen courses there with descriptions a member can read, and the
+ * agency's ninety-odd are named in an entirely different style - 백운대매표소
+ * ~ 하루재 ~ 위문 ~ 백운대 against 백운탐방지원센터-백운대 코스. Nothing
+ * collides, so nothing is overwritten; the two just sit side by side, and the
+ * assistant is handed a hundred and eight courses to choose thirteen from.
+ *
+ * That park office also covers 도봉산 and 사패산 - the national park includes
+ * them - so a third of its courses would be filed under 북한산 and found by
+ * nobody asking about 도봉산. Splitting those three is its own job.
+ */
+const skipParks = args.reduce<string[]>((found, arg, i) => (
+  arg === "--skip" && args[i + 1] ? [...found, args[i + 1]] : found
+), []);
+/**
+ * How far the agency's stated length may sit from the length of the line the
+ * agency surveyed. They agree to three decimals where the file is well formed,
+ * so a course where they do not is a course whose distance we cannot print
+ * with a straight face - 소공원~희운각대피소 states 4.7km for a surveyed 1.1km.
+ * Dropped rather than guessed at: a member reading 4.7km and walking 1.1km is
+ * worse served than one who never saw the row.
+ */
+const AGREE_LOW = 0.9;
+const AGREE_HIGH = 1.1;
 
 /**
  * Reading the whole file takes a quarter of an hour of somebody else's
@@ -540,6 +570,8 @@ let skippedNoPark = 0;
 let skippedRetired = 0;
 let skippedNoName = 0;
 let skippedUnmatched = 0;
+let skippedAsked = 0;
+let skippedDisagreed = 0;
 let collisions = 0;
 /** Stated length against surveyed length, to print per park below. */
 const stated = new Map<string, number>();
@@ -549,6 +581,10 @@ for (const course of courses) {
   const park = parkByOffice.get(course.office);
   if (!park) {
     skippedNoPark++;
+    continue;
+  }
+  if (skipParks.includes(mountainFrom(park))) {
+    skippedAsked++;
     continue;
   }
   const name = course.name;
@@ -573,6 +609,14 @@ for (const course of courses) {
 
   const live = segments.filter((segment) => segment.inUse);
   const meters = live.reduce((sum, segment) => sum + segment.meters, 0);
+  const walked = live.reduce((sum, segment) => sum + segment.surveyed, 0);
+  // Stated against surveyed, per course rather than per park: a park's totals
+  // can agree while one course inside it is wrong, and dropping the park for
+  // that would throw away every good course beside it.
+  if (walked > 0 && (meters / walked <= AGREE_LOW || meters / walked >= AGREE_HIGH)) {
+    skippedDisagreed++;
+    continue;
+  }
   const goMinutes = live.reduce((sum, segment) => sum + segment.goMinutes, 0);
   const backMinutes = live.reduce((sum, segment) => sum + segment.backMinutes, 0);
   const closures = [
@@ -587,7 +631,7 @@ for (const course of courses) {
   stated.set(mountain, (stated.get(mountain) ?? 0) + meters);
   surveyed.set(
     mountain,
-    (surveyed.get(mountain) ?? 0) + live.reduce((sum, segment) => sum + segment.surveyed, 0),
+    (surveyed.get(mountain) ?? 0) + walked,
   );
   const row: LibraryRow = {
     mountain,
@@ -644,6 +688,10 @@ if (skippedNoPark) console.log(`국립공원 경계를 찾지 못해 건너뜀: 
 if (skippedRetired) console.log(`사용여부 0으로 건너뜀: ${skippedRetired}개`);
 if (skippedNoName) console.log(`코스명이 없어 건너뜀: ${skippedNoName}개`);
 if (skippedUnmatched) console.log(`비매칭코스라 건너뜀: ${skippedUnmatched}개`);
+if (skippedAsked) console.log(`--skip ${skipParks.join(" ")} 이라 건너뜀: ${skippedAsked}개`);
+if (skippedDisagreed) {
+  console.log(`적힌 거리와 측량 길이가 어긋나 건너뜀: ${skippedDisagreed}개`);
+}
 if (collisions) console.log(`이름이 같아 하나로 합침: ${collisions}개`);
 
 /**
