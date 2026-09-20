@@ -32,6 +32,15 @@ export interface DraftWaypoint {
 
 export interface CourseDraft {
   hikeId: string;
+  /**
+   * The album's updated_at when this edit began.
+   *
+   * Sent back on the save so the write can refuse a row that has moved since.
+   * Five members share these albums now; without it, two people editing the
+   * same course at once means whoever saves second silently erases the other's
+   * work - and neither of them ever finds out.
+   */
+  baseUpdatedAt: string;
   /** The member's own memo. */
   description: string;
   /** In order. Every one carries its position; a new one gets it from the map. */
@@ -45,6 +54,7 @@ export interface CourseDraft {
 /** Only what a draft is built from, so this module does not depend on map-shell. */
 export interface DraftSource {
   id: string;
+  updatedAt: string;
   description: string | null;
   routeWaypoints: { name: string; lat: number; lng: number }[] | null;
   courseInfo: {
@@ -58,6 +68,7 @@ export interface DraftSource {
 export function draftFromHike(hike: DraftSource): CourseDraft {
   return {
     hikeId: hike.id,
+    baseUpdatedAt: hike.updatedAt,
     description: hike.description ?? "",
     waypoints: (hike.routeWaypoints ?? []).map((point) => ({
       name: point.name ?? "", lat: point.lat, lng: point.lng,

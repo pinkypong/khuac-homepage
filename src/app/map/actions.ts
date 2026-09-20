@@ -149,6 +149,9 @@ export async function updateActivity(input: {
   activityType?: ActivityType;
   /** The course notes. Empty clears them; undefined leaves them alone. */
   description?: string;
+  /** The album's updated_at when this form opened - same guard as the course
+      box, for the same reason: five members share these albums. */
+  baseUpdatedAt: string;
 }): Promise<ActionResult> {
   const { supabase } = await requireApprovedMember();
 
@@ -163,7 +166,7 @@ export async function updateActivity(input: {
     return refused(`코스 정보는 ${MAX_NOTES.toLocaleString()}자 이내로 적어주세요.`);
   }
 
-  const { error } = await supabase
+  const { error, count } = await supabase
     .from("hikes")
     .update({
       title,
@@ -172,9 +175,18 @@ export async function updateActivity(input: {
       // Cleared rather than blanked: an empty box means there is nothing to
       // say, and the column already has a word for that.
       ...(description !== undefined ? { description: description || null } : {}),
-    })
-    .eq("id", input.hikeId);
+    }, { count: "exact" })
+    .eq("id", input.hikeId)
+    .eq("updated_at", input.baseUpdatedAt);
   if (error) return refusedByDatabase("활동 수정", error);
+  if (count === 0) {
+    const { data: now } = await supabase
+      .from("hikes").select("updated_at").eq("id", input.hikeId).maybeSingle();
+    const stillOurs = (now as { updated_at: string } | null)?.updated_at === input.baseUpdatedAt;
+    return refused(stillOurs
+      ? "이 앨범을 수정할 권한이 없습니다. 만든 사람이나 관리자만 고칠 수 있습니다."
+      : "다른 부원이 방금 이 앨범을 수정했습니다. 새로고침 후 다시 저장해주세요.");
+  }
 
   revalidatePath("/map");
   return { ok: true };
@@ -216,7 +228,9 @@ export async function updateCourseDetails(input: {
   durationText: string;
   difficulty: string;
   notes: string;
-  /** Null when nothing needed redrawing or the redraw worked. */
+  /** The album's updated_at when the edit began. The write refuses a row that
+      has moved since, rather than overwriting whoever got there first. */
+  baseUpdatedAt: string;
 }): Promise<ActionResult<{ trackWarning: string | null }>> {
   const { supabase } = await requireApprovedMember();
 
@@ -251,14 +265,26 @@ export async function updateCourseDetails(input: {
   }
 
   const { data, error: readError } = await supabase
-    .from("hikes").select("course_info, track, track_source, route_waypoints").eq("id", input.hikeId).maybeSingle();
+    .from("hikes").select("course_info, track, track_source, route_waypoints, updated_at").eq("id", input.hikeId).maybeSingle();
   if (readError) return refusedByDatabase("코스 정보 읽기", readError);
   const row = data as {
     course_info: unknown;
     track: unknown[] | null;
     track_source: string | null;
     route_waypoints: { name: string; lat: number; lng: number }[] | null;
+    updated_at: string;
   } | null;
+
+  // Checked before the write, so the member is told what happened rather than
+  // finding the save simply refused. The write itself repeats the condition -
+  // this read and that write are not one transaction, and the gap between them
+  // is exactly the race being guarded against.
+  if (row && row.updated_at !== input.baseUpdatedAt) {
+    return refused(
+      "다른 부원이 방금 이 앨범을 수정했습니다. 새로고침해서 바뀐 내용을 확인한 뒤 다시 저장해주세요."
+      + " (적으신 내용은 그대로 남아 있습니다)",
+    );
+  }
 
   // The source links an answer cited are not on this form, so they are carried
   // over rather than dropped - editing a distance should not throw away where
@@ -289,9 +315,20 @@ export async function updateCourseDetails(input: {
       // shows the "코스 정보 적기" prompt again rather than an empty box.
       course_info: empty ? null : courseInfo,
     }, { count: "exact" })
-    .eq("id", input.hikeId);
+    .eq("id", input.hikeId)
+    .eq("updated_at", input.baseUpdatedAt);
   if (error) return refusedByDatabase("코스 정보 수정", error);
-  if (count === 0) return refused("이 앨범을 수정할 권한이 없습니다. 만든 사람이나 관리자만 고칠 수 있습니다.");
+  if (count === 0) {
+    // Two reasons a row policy or a version check can match nothing, and they
+    // need different words. Re-read to find out which: still at the version we
+    // started from means RLS turned it down.
+    const { data: now } = await supabase
+      .from("hikes").select("updated_at").eq("id", input.hikeId).maybeSingle();
+    const stillOurs = (now as { updated_at: string } | null)?.updated_at === input.baseUpdatedAt;
+    return refused(stillOurs
+      ? "이 앨범을 수정할 권한이 없습니다. 만든 사람이나 관리자만 고칠 수 있습니다."
+      : "다른 부원이 방금 이 앨범을 수정했습니다. 새로고침 후 다시 저장해주세요. (적으신 내용은 그대로 남아 있습니다)");
+  }
 
   // The drawn line lives in its own column, so adding or removing a point used
   // to leave it exactly as it was - 인수암 deleted, the line still running

@@ -68,6 +68,7 @@ export function HikeDetail({
   // Keyed by hike id so moving to another activity can't carry a stale draft.
   const [renaming, setRenaming] = useState<{
     hikeId: string; title: string; date: string; activityType: ActivityType;
+    baseUpdatedAt: string;
   } | null>(null);
   const [savingName, setSavingName] = useState(false);
   // The course box edits itself, in place. It used to share the header's form,
@@ -130,6 +131,7 @@ export function HikeDetail({
       title: hike.title,
       date: hike.date,
       activityType: hike.activityType,
+      baseUpdatedAt: hike.updatedAt,
     });
   }
 
@@ -179,6 +181,7 @@ export function HikeDetail({
     try {
       const result = await updateCourseDetails({
         hikeId: hike.id,
+        baseUpdatedAt: editingCourse.baseUpdatedAt,
         description: editingCourse.description,
         waypoints: editingCourse.waypoints
           .filter((point) => !point.removed)
@@ -214,6 +217,7 @@ export function HikeDetail({
         title: renaming.title,
         date: renaming.date,
         activityType: renaming.activityType,
+        baseUpdatedAt: renaming.baseUpdatedAt,
         // Left out on purpose: the memo is the course box's field now, and
         // passing it here would let this form overwrite an edit made there.
       });

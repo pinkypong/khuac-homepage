@@ -58,6 +58,8 @@ export interface MapHike {
       What lets a course being suggested now show who has already walked it. */
   courseId: string | null;
   trackSource: "gpx" | null;
+  /** The row's last write. An edit carries the value it started from. */
+  updatedAt: string;
   photos: MapPhoto[];
 }
 
