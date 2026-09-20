@@ -23,6 +23,7 @@ import { HikePhotoUpload } from "./hike-photo-upload";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
 import { originLabel } from "./course-origin";
 import { draftFromHike, type CourseDraft } from "./course-draft";
+import { staleDeploymentMessage } from "@/app/stale-deployment";
 
 export function HikeDetail({
   location,
@@ -117,7 +118,7 @@ export function HikeDetail({
       await saveHikeTrack(hike.id, points);
       router.refresh();
     } catch (err) {
-      setGpxError(err instanceof Error ? err.message : "GPX 업로드에 실패했습니다.");
+      setGpxError(staleDeploymentMessage(err) ?? (err instanceof Error ? err.message : "GPX 업로드에 실패했습니다."));
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -161,7 +162,7 @@ export function HikeDetail({
       }
       router.refresh();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "경로를 다시 그리지 못했습니다.");
+      window.alert(staleDeploymentMessage(err) ?? (err instanceof Error ? err.message : "경로를 다시 그리지 못했습니다."));
     } finally {
       setRedrawing(false);
     }
@@ -202,7 +203,7 @@ export function HikeDetail({
       setEditingCourse(null);
       router.refresh();
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "코스 정보 수정에 실패했습니다.");
+      window.alert(staleDeploymentMessage(err) ?? (err instanceof Error ? err.message : "코스 정보 수정에 실패했습니다."));
     } finally {
       setSavingCourse(false);
     }
@@ -229,7 +230,7 @@ export function HikeDetail({
       router.refresh();
     } catch (err) {
       // The input stays open with what was typed so it can be retried.
-      window.alert(err instanceof Error ? err.message : "활동 정보 수정에 실패했습니다.");
+      window.alert(staleDeploymentMessage(err) ?? (err instanceof Error ? err.message : "활동 정보 수정에 실패했습니다."));
     } finally {
       setSavingName(false);
     }
@@ -583,14 +584,18 @@ export function HikeDetail({
             aria-label="코스 정보"
             className="mb-4 rounded-sm border border-club-line bg-club-paper px-3 py-2.5"
           >
+            {/* The heading and the button both name the memo. "코스" over a
+                plain 수정 read as "edit the course", so the memo underneath
+                looked like something only the album's author could have put
+                there - and nobody pressed the button to write one. */}
             <div className="mb-1.5 flex items-center justify-between gap-2">
-              <h2 className="text-xs font-semibold tracking-wide text-club-muted">코스</h2>
+              <h2 className="text-xs font-semibold tracking-wide text-club-muted">코스 · 메모</h2>
               <button
                 type="button"
                 onClick={openCourseEditor}
-                className="shrink-0 rounded border border-club-line bg-white px-1.5 py-0.5 text-xs text-club-muted hover:bg-club-paper"
+                className="shrink-0 rounded border border-club-muted bg-white px-2 py-1 text-xs font-medium text-club-ink hover:bg-club-paper"
               >
-                수정
+                ✎ 코스 · 메모 수정
               </button>
             </div>
 
@@ -635,33 +640,52 @@ export function HikeDetail({
               </dl>
             )}
 
-            {/* The caveats. Set apart because 비법정탐방로 or 예약 필요 is the
-                one line that changes whether somebody can go at all. */}
+            {/* The caveats, given a box of their own. 비법정탐방로 or 예약 필요
+                is the one line that changes whether somebody can go at all, and
+                it was set in the smallest type on the card behind a hairline -
+                quieter than the distance, which nobody is stopped by. */}
             {hike.courseInfo?.notes && (
-              <p className="mt-2 whitespace-pre-line border-l-2 border-amber-300 pl-2 text-xs leading-relaxed text-club-ink-soft">
-                {hike.courseInfo.notes}
-              </p>
+              <div className="mt-2.5 rounded-sm border border-amber-300 bg-amber-50 px-2.5 py-2">
+                <h3 className="mb-0.5 flex items-center gap-1 text-xs font-semibold tracking-wide text-amber-800">
+                  <span aria-hidden="true">⚠</span> 주의할 점
+                </h3>
+                <p className="whitespace-pre-line text-sm leading-relaxed text-amber-950">
+                  {hike.courseInfo.notes}
+                </p>
+              </div>
             )}
 
             {/* What a member wrote, last, under their own heading - so an
                 answer's words and a member's are never mistaken for each other. */}
             {hike.description && (
-              <div className="mt-2 border-t border-club-line pt-2">
-                <h3 className="mb-0.5 text-xs font-semibold tracking-wide text-club-faint">메모</h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-club-ink-soft">
+              <div className="mt-2.5 rounded-sm border border-club-line bg-white px-2.5 py-2">
+                <h3 className="mb-0.5 flex items-center gap-1 text-xs font-semibold tracking-wide text-club-muted">
+                  <span aria-hidden="true">✎</span> 메모
+                </h3>
+                <p className="whitespace-pre-line text-sm leading-relaxed text-club-ink">
                   {hike.description}
                 </p>
               </div>
             )}
 
+            {/* Shown where the memo would be, rather than as a link below the
+                card. An empty space says nothing; this says what the space is
+                for and that the button above fills it. */}
             {!hike.description && (
-              <button
-                type="button"
-                onClick={openCourseEditor}
-                className="mt-2 text-xs text-club-muted underline-offset-2 hover:text-club-ink hover:underline"
-              >
-                + 메모 적기
-              </button>
+              <div className="mt-2.5">
+                <h3 className="mb-0.5 flex items-center gap-1 text-xs font-semibold tracking-wide text-club-muted">
+                  <span aria-hidden="true">✎</span> 메모
+                </h3>
+                <button
+                  type="button"
+                  onClick={openCourseEditor}
+                  className="w-full rounded-sm border border-dashed border-club-line bg-white px-2.5 py-2 text-left text-sm leading-relaxed text-club-faint hover:border-club-muted hover:text-club-muted"
+                >
+                  위 <span className="font-medium">✎ 코스 · 메모 수정</span> 을 눌러 메모를 남겨주세요.
+                  <br />
+                  <span className="text-xs">물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것</span>
+                </button>
+              </div>
             )}
           </section>
         ) : (
