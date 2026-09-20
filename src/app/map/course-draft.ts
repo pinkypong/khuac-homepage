@@ -15,12 +15,27 @@
  * where the tap is handled, instead of being handed down and applied by an
  * effect that could only work while the editor happened to be mounted.
  */
+export interface DraftWaypoint {
+  name: string;
+  lat: number;
+  lng: number;
+  /**
+   * Marked for removal, and still here so it can be seen going.
+   *
+   * Pressing × used to drop the point from the list outright, which on the map
+   * read as nothing at all: the marker was simply not there any more, the same
+   * as if the press had missed. Kept until the save, it can be drawn struck
+   * through where it stands and the press can be taken back.
+   */
+  removed?: boolean;
+}
+
 export interface CourseDraft {
   hikeId: string;
   /** The member's own memo. */
   description: string;
   /** In order. Every one carries its position; a new one gets it from the map. */
-  waypoints: { name: string; lat: number; lng: number }[];
+  waypoints: DraftWaypoint[];
   distanceText: string;
   durationText: string;
   difficulty: string;

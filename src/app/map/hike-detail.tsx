@@ -170,7 +170,7 @@ export function HikeDetail({
     // Refused rather than quietly dropped. A nameless point is almost always
     // one just tapped onto the map and not yet labelled, and deleting it on
     // save would throw away the tap that placed it.
-    const blank = editingCourse.waypoints.findIndex((point) => !point.name.trim());
+    const blank = editingCourse.waypoints.findIndex((point) => !point.removed && !point.name.trim());
     if (blank >= 0) {
       window.alert(`${blank + 1}번 경유지의 이름을 적어주세요. 지우려면 × 를 누르세요.`);
       return;
@@ -180,7 +180,9 @@ export function HikeDetail({
       const result = await updateCourseDetails({
         hikeId: hike.id,
         description: editingCourse.description,
-        waypoints: editingCourse.waypoints,
+        waypoints: editingCourse.waypoints
+          .filter((point) => !point.removed)
+          .map(({ name, lat, lng }) => ({ name, lat, lng })),
         distanceText: editingCourse.distanceText,
         durationText: editingCourse.durationText,
         difficulty: editingCourse.difficulty,
@@ -189,6 +191,10 @@ export function HikeDetail({
       if (!result.ok) {
         window.alert(result.reason);
         return;
+      }
+      // Saved either way; this only says the line could not follow the points.
+      if (result.value.trackWarning) {
+        window.alert(`저장했습니다.\n\n지도의 선은 다시 그리지 못했습니다: ${result.value.trackWarning}`);
       }
       setEditingCourse(null);
       router.refresh();
@@ -438,11 +444,14 @@ export function HikeDetail({
                           setEditingCourse({ ...editingCourse, waypoints: next });
                         }}
                         placeholder={point.name ? "" : "이 지점의 이름"}
-                        autoFocus={!point.name && i === editingCourse.waypoints.length - 1}
+                        autoFocus={!point.name && !point.removed && i === editingCourse.waypoints.length - 1}
+                        disabled={point.removed}
                         aria-label={`경유지 ${i + 1}`}
                         className={
-                          "min-w-0 flex-1 rounded border bg-white px-2 py-1 text-sm md:text-xs "
-                          + (point.name.trim() ? "border-club-line" : "border-amber-400")
+                          "min-w-0 flex-1 rounded border px-2 py-1 text-sm md:text-xs "
+                          + (point.removed
+                            ? "border-club-line bg-club-sunken text-club-faint line-through"
+                            : point.name.trim() ? "border-club-line bg-white" : "border-amber-400 bg-white")
                         }
                       />
                       <span
@@ -460,12 +469,19 @@ export function HikeDetail({
                         type="button"
                         onClick={() => setEditingCourse({
                           ...editingCourse,
-                          waypoints: editingCourse.waypoints.filter((_, at) => at !== i),
+                          waypoints: editingCourse.waypoints.map((p, at) =>
+                            at === i ? { ...p, removed: !p.removed } : p),
                         })}
-                        aria-label={`경유지 ${i + 1} 삭제`}
-                        className="shrink-0 rounded border border-club-line px-1.5 py-0.5 text-xs leading-none text-club-faint hover:border-red-300 hover:text-red-600"
+                        aria-label={point.removed ? `경유지 ${i + 1} 삭제 취소` : `경유지 ${i + 1} 삭제`}
+                        title={point.removed ? "삭제 취소" : "저장할 때 지웁니다"}
+                        className={
+                          "shrink-0 rounded border px-1.5 py-0.5 text-xs leading-none "
+                          + (point.removed
+                            ? "border-club-faint text-club-ink hover:bg-white"
+                            : "border-club-line text-club-faint hover:border-red-300 hover:text-red-600")
+                        }
                       >
-                        ×
+                        {point.removed ? "되돌리기" : "×"}
                       </button>
                     </li>
                   ))}
@@ -486,7 +502,7 @@ export function HikeDetail({
                   numbers; the line on the map is its own column, and redrawing
                   it can replace a GPX somebody recorded - so it is asked for
                   rather than assumed. */}
-              {editingCourse.waypoints.length >= 2 && (
+              {editingCourse.waypoints.filter((p) => !p.removed).length >= 2 && (
                 <button
                   type="button"
                   onClick={redrawTrack}

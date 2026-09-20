@@ -415,6 +415,7 @@ export function MapView({
   onRouteDerived,
   onRouteTrack,
   onTrailsUnavailable,
+  draftWaypoints,
 }: {
   mapId: string;
   locations: MapLocation[];
@@ -443,6 +444,8 @@ export function MapView({
   onRouteDerived: (names: string[]) => void;
   onRouteTrack: (track: TrackPoint[] | null) => void;
   onTrailsUnavailable: (unavailable: boolean) => void;
+  /** The course being edited right now, drawn as it stands. Null when none is. */
+  draftWaypoints: { name: string; lat: number; lng: number; removed?: boolean }[] | null;
 }) {
   // The boolean rather than the zoom level itself: zoom fires continuously
   // while pinching, and storing the raw number re-rendered every marker on
@@ -666,6 +669,50 @@ export function MapView({
           );
         });
       })()}
+
+      {/* The course as it is being edited, before it is saved.
+          Tapping the map to add a waypoint used to put nothing on the map at
+          all - the pins above are drawn from what the server holds, and the
+          new point is not there yet - so there was no way to tell a tap that
+          landed from one that missed. These are numbered to match the rows in
+          the editor, amber rather than the saved colour, and never hidden by
+          collision: an unsaved point that a neighbour suppressed would read
+          exactly like a tap that did not register. */}
+      {draftWaypoints?.map((point, i) => (
+        <AdvancedMarker
+          key={`draft-${i}-${point.lat}-${point.lng}`}
+          position={{ lat: point.lat, lng: point.lng }}
+          title={point.removed
+            ? `${point.name || `경유지 ${i + 1}`} — 저장하면 지워집니다`
+            : point.name || `경유지 ${i + 1} (이름 없음)`}
+          zIndex={20}
+          collisionBehavior={CollisionBehavior.REQUIRED}
+        >
+          {/* A point on its way out stays on the map, struck through, until the
+              save. Dropping it from the list the moment × was pressed left the
+              map looking exactly as it does when a press misses. */}
+          <span className={"flex items-center gap-1 " + (point.removed ? "opacity-70" : "")}>
+            <span
+              className={
+                "flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-white text-[10px] font-bold leading-none text-white shadow "
+                + (point.removed ? "bg-neutral-400" : "bg-amber-500")
+              }
+            >
+              {point.removed ? "×" : i + 1}
+            </span>
+            <span
+              className={
+                "whitespace-nowrap rounded px-1 py-px text-[10px] font-medium shadow-sm "
+                + (point.removed
+                  ? "bg-neutral-100/95 text-neutral-500 line-through"
+                  : "bg-amber-50/95 text-amber-900")
+              }
+            >
+              {point.name || "이름 없음"}
+            </span>
+          </span>
+        </AdvancedMarker>
+      ))}
 
       {pickedPoint && (
         <AdvancedMarker position={pickedPoint} title="새 장소 위치">

@@ -850,6 +850,8 @@ export function MapShell({
                 picking={picking}
                 pickedPoint={pickedPoint}
                 onPickPoint={pickPoint}
+                draftWaypoints={courseDraft && courseDraft.hikeId === pinnedHike?.id
+                  ? courseDraft.waypoints : null}
                 trailSegments={trailPick?.segments ?? null}
                 chosenTrailIds={trailPick?.chosen ?? []}
                 onToggleTrail={toggleTrail}
