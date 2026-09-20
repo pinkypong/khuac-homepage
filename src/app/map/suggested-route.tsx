@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AdvancedMarker, CollisionBehavior, Polyline, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
+import { groupRoutePins } from "@/lib/gps/route-pins";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import type { RouteWaypoint } from "./route-album-actions";
 import { loadClubPois, snapSuggestedRoute, type SentWaypoint } from "./route-actions";
@@ -407,11 +408,17 @@ export function SuggestedRoute({
           describing - and the line is the thing worth seeing. Where it starts
           and where it comes out are what a reader needs; the rest is on the
           card beside the map. */}
-      {pins && (resolved.length === 1 ? [resolved[0]] : [resolved[0], resolved[resolved.length - 1]]).map((point, i) => (
+      {/* Folded through groupRoutePins because a round trip back to its own
+          trailhead - 덕산온천 to 덕산온천 - names the same coordinate as both
+          ends, and two identical pills stacked on one point used to look like
+          a rendering fault rather than the loop it is. */}
+      {pins && groupRoutePins(
+        resolved.length === 1 ? [resolved[0]] : [resolved[0], resolved[resolved.length - 1]],
+      ).map((pin, i) => (
         <AdvancedMarker
-          key={`${point.name}-${i}`}
-          position={point}
-          title={point.name}
+          key={`${pin.points[0].name}-${i}`}
+          position={pin}
+          title={pin.points.map((point) => point.name).join(" · ")}
           zIndex={20}
           collisionBehavior={CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL}
         >
@@ -419,7 +426,7 @@ export function SuggestedRoute({
             className="rounded-full border border-white/90 px-1.5 py-px text-[9px] font-semibold leading-tight text-white shadow"
             style={{ backgroundColor: SUGGESTION_COLOR }}
           >
-            {point.name}
+            {pin.points.map((point) => point.name).join(" · ")}
           </span>
         </AdvancedMarker>
       ))}

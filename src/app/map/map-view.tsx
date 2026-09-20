@@ -13,6 +13,7 @@ import {
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
 import { groupPhotosByPosition } from "@/lib/gps/photo-groups";
+import { groupRoutePins } from "@/lib/gps/route-pins";
 import type { TrackPoint } from "@/lib/gps/track";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
@@ -586,34 +587,55 @@ export function MapView({
           where any of them is. A small mark on the line at each, and the two
           ends named, because those are what a reader looks for first and the
           middle ones would otherwise pile their labels on top of each other.
-          The names alone: which end is which is what the line is for. */}
-      {selectedHike?.track && selectedHike.routeWaypoints?.map((point, i, all) => {
-        const end = i === 0 || i === all.length - 1;
-        return (
-          <AdvancedMarker
-            key={`${point.name}-${i}`}
-            position={point}
-            title={point.name}
-            zIndex={13}
-            collisionBehavior={
-              end ? CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL
-                : CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
-            }
-          >
-            <span className="flex items-center gap-1">
-              <span
-                className="block rounded-full border-2 border-white shadow"
-                style={{ backgroundColor: SELECTED_COLOR, width: end ? 11 : 8, height: end ? 11 : 8 }}
-              />
-              {end && (
-                <span className="whitespace-nowrap rounded bg-white/90 px-1 py-px text-[10px] font-medium text-neutral-900 shadow-sm">
-                  {point.name}
-                </span>
-              )}
-            </span>
-          </AdvancedMarker>
-        );
-      })}
+          The names alone: which end is which is what the line is for.
+
+          Grouped through groupRoutePins first. A course that comes back on
+          itself names some ground twice - the same gate before and after the
+          summit, sometimes under the name it carried before its 2015 rename -
+          and one marker per waypoint drew two dots stacked on the one
+          coordinate the gate actually has. Folded to one dot per place, hollow
+          rather than filled for a spot only reached coming back, so a reader
+          can tell the two halves of an out-and-back apart without a second
+          colour to learn. */}
+      {selectedHike?.track && selectedHike.routeWaypoints && (() => {
+        const pins = groupRoutePins(selectedHike.routeWaypoints);
+        return pins.map((pin, i) => {
+          const end = i === 0 || i === pins.length - 1;
+          const label = pin.points.map((point) => point.name).join(" · ");
+          return (
+            <AdvancedMarker
+              key={`${label}-${i}`}
+              position={pin}
+              title={label}
+              zIndex={13}
+              collisionBehavior={
+                end ? CollisionBehavior.REQUIRED_AND_HIDES_OPTIONAL
+                  : CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
+              }
+            >
+              <span className="flex items-center gap-1">
+                <span
+                  className="block rounded-full border-2 shadow"
+                  style={
+                    pin.leg === "return"
+                      // Hollow for a spot only reached coming back: same
+                      // colour, worn as a ring instead of a fill, so the two
+                      // halves of an out-and-back read apart at a glance with
+                      // no second colour to learn.
+                      ? { borderColor: SELECTED_COLOR, backgroundColor: "#fff", width: end ? 11 : 8, height: end ? 11 : 8 }
+                      : { borderColor: "#fff", backgroundColor: SELECTED_COLOR, width: end ? 11 : 8, height: end ? 11 : 8 }
+                  }
+                />
+                {end && (
+                  <span className="whitespace-nowrap rounded bg-white/90 px-1 py-px text-[10px] font-medium text-neutral-900 shadow-sm">
+                    {label}
+                  </span>
+                )}
+              </span>
+            </AdvancedMarker>
+          );
+        });
+      })()}
 
       {pickedPoint && (
         <AdvancedMarker position={pickedPoint} title="새 장소 위치">
