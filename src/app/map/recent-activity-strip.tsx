@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { getThumbnailUrl } from "@/lib/images/url";
-import { albumCover, byLastActivity } from "./album-cover";
+import { albumCover, newPhotoCount } from "./album-cover";
 import { ACTIVITY_LABEL } from "./activity";
 import type { MapHike, MapLocation } from "./map-shell";
 
@@ -17,7 +17,7 @@ export function RecentActivityStrip({
 }) {
   const activities = locations
     .flatMap((location) => location.hikes.map((hike) => ({ location, hike })))
-    .sort(byLastActivity)
+    .sort((a, b) => b.hike.date.localeCompare(a.hike.date) || a.hike.id.localeCompare(b.hike.id))
     .slice(0, 3);
 
   if (activities.length === 0) return null;
@@ -33,12 +33,24 @@ export function RecentActivityStrip({
         <button type="button" onClick={onViewAll}>전체보기 <span aria-hidden="true">→</span></button>
       </div>
       <ul className="map-recent-grid">
-        {activities.map(({ location, hike }) => (
+        {activities.map(({ location, hike }) => {
+          const fresh = newPhotoCount(hike.photos);
+          return (
           <li key={hike.id}>
             <button
               type="button"
               onClick={() => onOpenHike(hike)}
             >
+              {/* The order stays by outing date, so an upload onto an older
+                  album moves nothing. This is what says it happened.
+                  suppressHydrationWarning: the count is measured against the
+                  clock, and the server's and the browser's can land either
+                  side of the three-day edge. */}
+              {fresh > 0 && (
+                <span className="map-recent-new" suppressHydrationWarning>
+                  새 사진 {fresh}
+                </span>
+              )}
               {albumCover(hike.photos) ? (
                 <Image
                   unoptimized
@@ -63,7 +75,8 @@ export function RecentActivityStrip({
               </span>
             </button>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </section>
   );

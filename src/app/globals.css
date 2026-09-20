@@ -143,6 +143,11 @@ body {
 .recent-kicker span { margin-left:7px; }
 .recent-title { display:flex; width:100%; min-height:44px; align-items:center; justify-content:space-between; gap:16px; text-align:left; font-size:28px; line-height:1.35; letter-spacing:-.045em; font-weight:600; word-break:keep-all; overflow-wrap:anywhere; }
 .recent-title > span { font-size:16px; font-weight:400; }
+/* "새 사진 12" — the home lists order by the outing's date, so an upload onto
+   an older album moves nothing; this is what says it arrived. Burgundy because
+   it is the club's own mark for "look here", not a warning. */
+.recent-new { display:inline-block; margin-left:7px; padding:1px 7px; border-radius:999px; background:var(--club-burgundy); color:#fff; font-size:11px; font-weight:600; letter-spacing:-.01em; vertical-align:middle; }
+.recent-row-text .recent-new { font-size:10px; padding:1px 6px; }
 .recent-meta { font-size:12px; color:var(--color-club-muted); margin:8px 0 18px; font-variant-numeric:tabular-nums; }
 .recent-cover { display:block; width:100%; overflow:hidden; }
 .recent-cover img { width:100%; aspect-ratio:16/10; object-fit:cover; transition:transform .25s; }
@@ -737,6 +742,10 @@ body {
  .map-recent-heading > p span { margin-right:5px; color:var(--club-burgundy); font-family:Georgia,"Times New Roman",serif; font-size:16px; }
  .map-recent-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
  .map-recent-grid li { min-width:0; }
+ /* Over the picture rather than beside the title: the strip's titles are one
+    clipped line already and a badge there would eat the album's name. */
+ .map-recent-grid button { position:relative; }
+ .map-recent-new { position:absolute; z-index:1; top:5px; left:5px; padding:1px 6px; border-radius:999px; background:var(--club-burgundy); color:#fff; font-size:9px; font-weight:650; letter-spacing:-.01em; box-shadow:0 1px 4px #0004; }
  .map-recent-grid button { display:grid; width:100%; min-width:0; grid-template-columns:minmax(112px,42%) minmax(0,1fr); overflow:hidden; border:1px solid #dad6ce; background:#fff; text-align:left; box-shadow:0 5px 16px rgba(35,31,26,.055); }
  .map-recent-grid img,.map-recent-placeholder { display:block; width:100%; height:clamp(86px,10vh,104px); object-fit:cover; background:var(--color-club-sunken); }
  .map-recent-copy { display:flex; min-width:0; flex-direction:column; justify-content:center; padding:9px 11px; line-height:1.25; }

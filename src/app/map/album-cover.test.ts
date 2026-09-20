@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { albumCover, byLastActivity, lastActivityAt, newestFirst } from "./album-cover";
+import { albumCover, NEW_PHOTO_WINDOW_MS, newPhotoCount, newestFirst } from "./album-cover";
 import type { MapPhoto } from "./map-shell";
 
 const photo = (id: string, takenAt: string | null, uploadedAt: string): MapPhoto => ({
@@ -42,25 +42,36 @@ describe("album cover", () => {
   });
 });
 
-describe("album ordering", () => {
-  const withPhotos = { id: "h1", date: "2026-09-19", photos: [dawn, noon] };
-  const laterOuting = { id: "h2", date: "2026-09-20", photos: [] as MapPhoto[] };
+describe("new photo badge", () => {
+  // The lists order by the outing's date, so an upload onto an older album
+  // moves nothing on screen. The badge is what says it happened - without it,
+  // a hundred photos could land and no screen would change at all.
+  const now = Date.parse("2026-09-25T12:00:00Z");
 
-  it("counts an upload as activity, not just the outing's date", () => {
-    expect(lastActivityAt(withPhotos)).toBe("2026-09-20T11:03:00Z");
-    expect(lastActivityAt(laterOuting)).toBe("2026-09-20");
+  it("counts only what arrived inside the window", () => {
+    const photos = [
+      photo("new", null, "2026-09-25T09:00:00Z"),
+      photo("yesterday", null, "2026-09-24T09:00:00Z"),
+      photo("old", null, "2026-09-01T09:00:00Z"),
+    ];
+    expect(newPhotoCount(photos, now)).toBe(2);
   });
 
-  it("puts a freshly filled older album above an emptier newer one", () => {
-    // What the home screen got wrong: someone added photos to the 19th's album
-    // and it stayed below the 20th's empty one, so the upload showed nowhere.
-    const sorted = [{ hike: laterOuting }, { hike: withPhotos }].sort(byLastActivity);
-    expect(sorted.map((a) => a.hike.id)).toEqual(["h1", "h2"]);
+  it("does not care when the photo was taken", () => {
+    // A climb from years ago, uploaded this morning, is new here.
+    expect(newPhotoCount([photo("z", "2019-05-01T00:00:00Z", "2026-09-25T09:00:00Z")], now)).toBe(1);
   });
 
-  it("still orders by date when nothing has been uploaded", () => {
-    const older = { hike: { id: "old", date: "2026-09-01", photos: [] as MapPhoto[] } };
-    const newer = { hike: { id: "new", date: "2026-09-15", photos: [] as MapPhoto[] } };
-    expect([older, newer].sort(byLastActivity).map((a) => a.hike.id)).toEqual(["new", "old"]);
+  it("is nothing for an album nobody has touched", () => {
+    expect(newPhotoCount([dawn, noon], now)).toBe(0);
+    expect(newPhotoCount([], now)).toBe(0);
+  });
+
+  it("survives a timestamp it cannot read", () => {
+    expect(newPhotoCount([photo("bad", null, "not a date")], now)).toBe(0);
+  });
+
+  it("spans a weekend, so photos posted over the following days still show", () => {
+    expect(NEW_PHOTO_WINDOW_MS).toBeGreaterThanOrEqual(3 * 24 * 60 * 60 * 1000);
   });
 });

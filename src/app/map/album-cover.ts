@@ -36,34 +36,27 @@ export function newestFirst(photos: MapPhoto[]): MapPhoto[] {
 }
 
 /**
- * When an album last had anything happen to it.
+ * How long an upload stays worth pointing at.
  *
- * The lists ordered by `hike.date` - the day of the outing - which answers
- * "what did we do most recently" and not "what is new here". An album from an
- * earlier outing that somebody has just filled with a hundred photos stayed
- * exactly where it was, below an emptier album from a later date, and the
- * upload left no trace on the home screen at all.
- *
- * So the key is the later of the outing's date and its newest upload. Both are
- * ISO and compare as strings: a bare "2026-09-19" sorts before any timestamp on
- * the 19th, which puts an album nobody has added to just under one somebody
- * has. The date carries no time zone and the timestamps are UTC, so the two can
- * disagree by hours at a boundary - which changes the order of two albums from
- * the same day and nothing more.
+ * Three days rather than one: the club hikes at the weekend and the photos
+ * come in over the days after, so a badge that expires overnight would be gone
+ * before most members next opened the site.
  */
-export function lastActivityAt(hike: { date: string; photos: MapPhoto[] }): string {
-  let latest = hike.date;
-  for (const photo of hike.photos) {
-    if (photo.uploadedAt > latest) latest = photo.uploadedAt;
-  }
-  return latest;
-}
+export const NEW_PHOTO_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
-/** Newest first by that key, ties broken on id so the order cannot flicker. */
-export function byLastActivity<T extends { hike: { id: string; date: string; photos: MapPhoto[] } }>(
-  a: T,
-  b: T,
-): number {
-  return lastActivityAt(b.hike).localeCompare(lastActivityAt(a.hike))
-    || a.hike.id.localeCompare(b.hike.id);
+/**
+ * How many of an album's photos arrived recently.
+ *
+ * The lists order by the outing's date, which is what "최근 활동" says and what
+ * a reader expects - a walk from the 15th does not become the most recent
+ * thing the club did because somebody uploaded it late. But ordering alone left
+ * an upload invisible: a hundred photos could land on an older album and no
+ * screen would move. This is the other half - the order stays honest about
+ * when the outing was, and the badge says where the new pictures are.
+ */
+export function newPhotoCount(photos: MapPhoto[], now = Date.now()): number {
+  return photos.filter((photo) => {
+    const at = Date.parse(photo.uploadedAt);
+    return Number.isFinite(at) && now - at < NEW_PHOTO_WINDOW_MS;
+  }).length;
 }
