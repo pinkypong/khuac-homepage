@@ -95,12 +95,45 @@ function editDistance(a: string, b: string): number {
   return previous[b.length];
 }
 
-/** True when two strings share a run of at least two characters. */
-function sharesRun(a: string, b: string): boolean {
-  for (let i = 0; i + 2 <= a.length; i++) {
-    if (b.includes(a.slice(i, i + 2))) return true;
+const HANGUL_BASE = 0xac00;
+const HANGUL_LAST = 0xd7a3;
+const INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const MEDIALS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+const FINALS = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ";
+
+/**
+ * A Hangul name broken into its actual letters rather than its syllable
+ * blocks.
+ *
+ * A Korean syllable is one visual block for a sound made of two or three
+ * letters, and comparing whole blocks makes every one-block difference look
+ * the same size - 영취사 spelled 영추사 (one vowel swapped) counts the same as
+ * 인수암 read as 인수봉 (every letter in the block replaced), when the first
+ * is a slip of the pen and the second is not the same word. Decomposing to
+ * onset, vowel and coda before measuring the distance is what tells those
+ * apart on the letters actually in each name, rather than on how many blocks
+ * happen to differ.
+ */
+function toJamo(name: string): string {
+  let out = "";
+  for (const char of name) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < HANGUL_BASE || code > HANGUL_LAST) {
+      out += char;
+      continue;
+    }
+    const offset = code - HANGUL_BASE;
+    const initial = Math.floor(offset / (21 * 28));
+    const medial = Math.floor((offset % (21 * 28)) / 28);
+    const final = offset % 28;
+    out += INITIALS[initial] + MEDIALS[medial] + (final === 0 ? "" : FINALS[final]);
   }
-  return false;
+  return out;
+}
+
+/** Letters that have to change to turn one Hangul name into the other. */
+function jamoEditDistance(a: string, b: string): number {
+  return editDistance(toJamo(a), toJamo(b));
 }
 
 /**
@@ -113,11 +146,14 @@ function sharesRun(a: string, b: string): boolean {
  * valley and every leg after it was drawn faithfully from there, which is worse
  * than a course that says it could not find its start.
  *
- * Tolerant on purpose. 영추사 and 영취사 are the same temple spelled two ways,
- * and one character apart is the kind of difference a name picks up in the
- * telling; 밤골 and 북한산성 are four apart and share no run of two characters.
- * Anything without a distinctive part left - a bare 북한산 - is accepted, since
- * there is nothing to disagree with.
+ * Tolerant on purpose, but only by a single character. 영추사 and 영취사 are
+ * the same temple spelled two ways, and one character apart is the kind of
+ * difference a name picks up in the telling; 밤골 and 북한산성 are four apart
+ * and nothing here confuses them. Nor does 인수암 and 인수봉 - a hermitage and
+ * a rock peak 375m apart that share only their first two characters - which a
+ * looser rule used to accept on that shared prefix alone. Anything without a
+ * distinctive part left - a bare 북한산 - is accepted, since there is nothing
+ * to disagree with.
  */
 export function isPlausibleMatch(asked: string, found: string, place: string): boolean {
   const wanted = distinctivePart(asked, place);
@@ -148,11 +184,27 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
   // where the junction is put on the line where the line passes the temple.
   if (wanted.endsWith(got) && wanted !== got) return false;
   if (got.includes(wanted) || wanted.includes(got)) return true;
-  if (sharesRun(wanted, got)) return true;
-  // One character apart is a spelling, but only where there is enough name for
-  // one character to be a spelling. 위문 and 관문 are also one apart, and they
-  // are twenty kilometres apart on the ground.
-  return wanted.length >= 3 && got.length >= 3 && editDistance(wanted, got) <= 1;
+  // Sharing a couple of characters used to be enough on its own - any run of
+  // two - which is how 인수암 (a hermitage) and 인수봉 (the rock peak 375m
+  // away) came out "plausible": both start 인수, and a run of two characters
+  // is all the old rule asked for. That is a prefix match wearing a different
+  // name, the exact shape CLAUDE.md already warns about, and it would have
+  // taken any two names sharing a first syllable as the same place. Character
+  // overlap without position or length review is gone.
+  //
+  // What is left is "one character apart", and that rule has the same problem
+  // one level down: 인수암 and 인수봉 are also one whole character apart - 암
+  // against 봉 - and counting syllable blocks says that is as close as 영추사
+  // is to 영취사. It is not. 추/취 differ in one letter, a vowel a typing slip
+  // or a transliteration reaches for; 암 and 봉 share none of onset, vowel or
+  // final. Measured in the letters a Korean syllable is actually built from
+  // rather than in whole blocks, 영추사/영취사 is one letter apart and
+  // 인수암/인수봉 is three - which is the number that says one is a spelling
+  // and the other a different word. 위문 and 관문, one block apart and twenty
+  // kilometres apart on the ground, come out three letters apart the same way:
+  // the two names share their second syllable whole and disagree on every
+  // letter of the first.
+  return wanted.length >= 3 && got.length >= 3 && jamoEditDistance(wanted, got) <= 1;
 }
 
 /**

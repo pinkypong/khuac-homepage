@@ -82,6 +82,26 @@ describe("isPlausibleMatch", () => {
   });
 });
 
+describe("isPlausibleMatch, names that only share a leading run", () => {
+  // A hermitage and a rock peak 375m apart, both on 북한산. They share their
+  // first two characters and differ only in the third - 암 against 봉 - which
+  // is exactly the shape a run-of-two-characters rule would wave through, and
+  // did: Places was asked for 인수암 and this let it accept 인수봉 instead,
+  // which is how the club's own map came to mean the peak whenever a member
+  // typed the temple.
+  it("rejects 인수암 and 인수봉, which share only a two-character prefix", () => {
+    expect(isPlausibleMatch("인수암", "인수봉", "북한산")).toBe(false);
+    expect(isPlausibleMatch("인수봉", "인수암", "북한산")).toBe(false);
+  });
+
+  // The general shape, not just this one pair: two three-character names, a
+  // shared opening, a different ending. None of these are the same place.
+  it("rejects other names that share a prefix and differ after it", () => {
+    expect(isPlausibleMatch("원효봉", "원효사", "북한산")).toBe(false);
+    expect(isPlausibleMatch("대남문", "대남산", "북한산")).toBe(false);
+  });
+});
+
 describe("isPlausibleMatch, names that differ at the front", () => {
   it("rejects a name that dropped its qualifier", () => {
     // Opposite sides of 도봉산.
