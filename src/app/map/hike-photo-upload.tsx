@@ -10,6 +10,7 @@ import {
 } from "@/lib/photos/limits";
 import { presignPhotoUpload, processUploadedPhoto } from "@/app/photos/upload/actions";
 import { parseExif } from "@/lib/gps/exif";
+import { staleDeploymentMessage } from "@/app/stale-deployment";
 
 // A dialog rather than its own page: the hike is already open, so there is
 // nothing to choose - asking again would mean searching a list that only grows.
@@ -99,7 +100,7 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
           done += 1;
           setProgress(`${done}/${queue.length} 업로드 중…`);
         } catch (err) {
-          failure = err instanceof Error ? err.message : "업로드에 실패했습니다.";
+          failure = staleDeploymentMessage(err) ?? (err instanceof Error ? err.message : "업로드에 실패했습니다.");
         }
       }
     }

@@ -56,3 +56,23 @@ export function recoverFromStaleDeployment(error: unknown): boolean {
   window.location.reload();
   return true;
 }
+
+/**
+ * What to say instead of reloading, when the member has something typed.
+ *
+ * Reloading is the right answer for a page that failed on its way in - nothing
+ * is lost and a reader cannot be expected to guess. It is the wrong answer the
+ * moment there is a half-written comment or a course being edited on screen:
+ * the reload takes the work with it, and a recovery that destroys what it was
+ * protecting is worse than the error.
+ *
+ * So call sites holding unsaved input use this and stay put; the rest call
+ * recoverFromStaleDeployment and let the page come back fresh.
+ */
+export const STALE_DEPLOYMENT_NOTICE =
+  "새 버전이 배포되었습니다. 새로고침한 뒤 다시 시도해주세요. 적으신 내용은 그대로 있습니다.";
+
+/** The notice when this error is the deploy mismatch, null when it is a real fault. */
+export function staleDeploymentMessage(error: unknown): string | null {
+  return isStaleDeployment(error) ? STALE_DEPLOYMENT_NOTICE : null;
+}

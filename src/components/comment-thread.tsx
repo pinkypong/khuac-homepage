@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { addComment, deleteComment, editComment, loadComments } from "@/app/map/comment-actions";
 import { COMMENT_MAX_LENGTH, type CommentSubject, type CommentView } from "@/app/map/comments";
 import { AdminCrown } from "@/components/admin-crown";
+import { recoverFromStaleDeployment, staleDeploymentMessage } from "@/app/stale-deployment";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -24,8 +25,17 @@ function formatWhen(iso: string) {
   });
 }
 
+/**
+ * The sentence to show for a failed action.
+ *
+ * A page left open across a deploy asks for an action id that no longer
+ * exists, and Next's own words for that - Server Action "40f…" was not found
+ * on the server - were landing on members above the comment box. The global
+ * watcher in the layout cannot help here: it listens for unhandled rejections,
+ * and every call below catches its own.
+ */
 function message(err: unknown, fallback: string) {
-  return err instanceof Error ? err.message : fallback;
+  return staleDeploymentMessage(err) ?? (err instanceof Error ? err.message : fallback);
 }
 
 /**
@@ -78,7 +88,11 @@ export function CommentThread({
         setViewer({ id: data.viewerId, isAdmin: data.viewerIsAdmin });
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(message(err, "댓글을 불러오지 못했습니다."));
+        if (cancelled) return;
+        // Nothing is typed yet on the way in, so the page can simply come back
+        // fresh rather than asking the reader to work out what to do.
+        if (recoverFromStaleDeployment(err)) return;
+        setLoadError(message(err, "댓글을 불러오지 못했습니다."));
       });
     return () => {
       cancelled = true;
