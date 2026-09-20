@@ -48,6 +48,15 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
       return ok;
     });
 
+    // Counted as they go and reported at the end, deliberately not asked about.
+    // A photo with no position still belongs in the album - it is a picture of
+    // the day either way - so nothing here stops it. It is worth saying though,
+    // because it is the one property a member cannot see and cannot repair
+    // afterwards: 네이버 밴드 strips GPS on the way through, measured on four
+    // photos that arrived with all 46 of their other EXIF tags intact, while
+    // the same phone uploading straight here keeps them.
+    let withoutGps = 0;
+
     setProgress(`0/${queue.length} 업로드 중…`);
 
     let next = 0;
@@ -61,7 +70,8 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
         try {
           // Read here rather than on the server: exifr range-reads the header
           // straight from the File, so the bytes never make a second trip.
-          const exif = await parseExif(file);
+          const exif = await parseExif(file).catch(() => null);
+          if (exif?.lat == null || exif?.lng == null) withoutGps += 1;
           const { storageKey, uploadUrl } = await presignPhotoUpload({
             filename: file.name,
             contentType,
@@ -76,12 +86,14 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
           await processUploadedPhoto({
             storageKey,
             hikeId,
+            // Null throughout when the header could not be read at all, which
+            // the server treats the same as a photo that carried nothing.
             exif: {
-              lat: exif.lat,
-              lng: exif.lng,
-              takenAt: exif.takenAt ? exif.takenAt.toISOString() : null,
-              width: exif.width,
-              height: exif.height,
+              lat: exif?.lat ?? null,
+              lng: exif?.lng ?? null,
+              takenAt: exif?.takenAt ? exif.takenAt.toISOString() : null,
+              width: exif?.width ?? null,
+              height: exif?.height ?? null,
             },
           });
           done += 1;
@@ -96,9 +108,11 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
     if (failure) setError(failure);
 
     setBusy(false);
-    setProgress(
-      skipped > 0 ? `${done}장 업로드 완료 · ${skipped}장 제외됨` : `${done}장 업로드 완료`,
-    );
+    setProgress([
+      `${done}장 업로드 완료`,
+      skipped > 0 ? `${skipped}장 제외됨` : null,
+      withoutGps > 0 ? `${withoutGps}장은 위치정보가 없어 지도에 표시되지 않습니다` : null,
+    ].filter(Boolean).join(" · "));
     router.refresh();
   }
 
@@ -117,6 +131,13 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
           <div>
             <h2 className="text-sm font-semibold">사진 올리기</h2>
             <p className="mt-0.5 text-xs text-club-muted">{PHOTO_LIMITS_HINT}</p>
+            {/* Said before the files are chosen, not only after. Measured: a
+                photo saved out of 네이버 밴드 arrives with every EXIF tag it
+                started with except the GPS ones. */}
+            <p className="mt-1 text-xs text-amber-700">
+              밴드·카카오톡에서 받은 사진은 위치정보가 지워져 지도에 뜨지 않습니다.
+              찍은 폰에서 바로 올려주세요.
+            </p>
           </div>
           <button
             type="button"

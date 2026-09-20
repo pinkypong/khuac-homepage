@@ -54,9 +54,11 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
   const [files, setFiles] = useState<{ file: File; status: FileStatus }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [rejectedCount, setRejectedCount] = useState(0);
+  /** How many of the chosen files carry no position. Null until counted. */
+  const [noGpsCount, setNoGpsCount] = useState<number | null>(null);
   const uploaded = useRef(new WeakMap<File, { storageKey: string; hikeId: string }>());
 
-  function onFilesSelected(selected: FileList | null) {
+  async function onFilesSelected(selected: FileList | null) {
     if (!selected) return;
     const picked = Array.from(selected);
     const usable = picked.filter(
@@ -64,6 +66,18 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
     );
     setRejectedCount(picked.length - usable.length);
     setFiles(usable.map((file) => ({ file, status: { state: "pending" } })));
+
+    // Counted here rather than reported after the upload: whether a photo still
+    // carries where it was taken is the one thing that cannot be fixed later,
+    // and 네이버 밴드 strips it on the way through. This screen keeps its files
+    // in a list, so the count sits above the button instead of interrupting.
+    setNoGpsCount(null);
+    let missing = 0;
+    for (let i = 0; i < usable.length; i += 8) {
+      const batch = await Promise.all(usable.slice(i, i + 8).map((file) => parseExif(file).catch(() => null)));
+      missing += batch.filter((exif) => exif?.lat == null || exif?.lng == null).length;
+    }
+    setNoGpsCount(missing);
   }
 
   async function uploadOne(file: File): Promise<FileStatus> {
@@ -169,9 +183,20 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
           className="rounded border border-neutral-300 px-3 py-2"
         />
         <span className="text-xs text-neutral-500">{PHOTO_LIMITS_HINT}</span>
+        <span className="text-xs text-amber-700">
+          밴드·카카오톡에서 받은 사진은 위치정보가 지워져 지도에 뜨지 않습니다. 찍은 폰에서 바로 올려주세요.
+        </span>
         {rejectedCount > 0 && (
           <span className="text-xs text-red-600">
             {rejectedCount}개 파일은 지원하지 않는 형식이거나 용량이 커서 제외했습니다.
+          </span>
+        )}
+        {noGpsCount !== null && noGpsCount > 0 && (
+          <span className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+            {noGpsCount === files.length
+              ? `고르신 ${noGpsCount}장 모두 위치정보가 없습니다.`
+              : `${files.length}장 중 ${noGpsCount}장에 위치정보가 없습니다.`}
+            {" "}올라가긴 하지만 지도에는 표시되지 않습니다.
           </span>
         )}
       </label>
