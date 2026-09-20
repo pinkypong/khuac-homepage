@@ -82,7 +82,8 @@ export async function saveTrailRoute(
   const track = sanitizeTrack(stitchSegments(chosen));
   if (!track) return refused("이어지는 경로를 만들지 못했습니다.");
 
-  const { error } = await supabase.from("hikes").update({ track }).eq("id", hikeId);
+  const { error } = await supabase
+    .from("hikes").update({ track, track_source: "trail_pick" }).eq("id", hikeId);
   if (error) return refusedByDatabase("경로 저장", error);
 
   revalidatePath("/map");
@@ -482,7 +483,7 @@ export async function rebuildCourseTrack(
   }
 
   const { error: saveError, count } = await supabase
-    .from("hikes").update({ track }, { count: "exact" }).eq("id", hikeId);
+    .from("hikes").update({ track, track_source: "course" }, { count: "exact" }).eq("id", hikeId);
   if (saveError) return refusedByDatabase("경로 저장", saveError);
   if (count === 0) return refused("이 앨범을 수정할 권한이 없습니다.");
 

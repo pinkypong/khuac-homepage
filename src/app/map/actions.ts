@@ -8,6 +8,7 @@ import { isValidGps } from "@/lib/gps/validate";
 import type { ActivityType, LocationType } from "@/types/database";
 import { ACTIVITY_HAS_OWN_SPOT, ACTIVITY_TYPES } from "@/app/map/activity";
 import { asCourseInfo } from "@/app/map/course-info";
+import { rebuildCourseTrack } from "@/app/map/route-actions";
 
 // The GPX file itself is parsed in the browser (Workers have no XML parser),
 // so what arrives here is already just coordinates - validate them anyway.
@@ -18,7 +19,8 @@ export async function saveHikeTrack(hikeId: string, points: unknown) {
   if (!track) throw new Error("유효한 좌표가 없는 GPX 파일입니다.");
 
   // hikes_update RLS still applies: only the hike's creator or an admin.
-  const { error } = await supabase.from("hikes").update({ track }).eq("id", hikeId);
+  // Stamped so a later edit knows this is a recording and never redraws over it.
+  const { error } = await supabase.from("hikes").update({ track, track_source: "gpx" }).eq("id", hikeId);
   if (error) throw error;
 
   revalidatePath("/map");
@@ -27,7 +29,7 @@ export async function saveHikeTrack(hikeId: string, points: unknown) {
 
 export async function clearHikeTrack(hikeId: string) {
   const { supabase } = await requireApprovedMember();
-  const { error } = await supabase.from("hikes").update({ track: null }).eq("id", hikeId);
+  const { error } = await supabase.from("hikes").update({ track: null, track_source: null }).eq("id", hikeId);
   if (error) throw error;
   revalidatePath("/map");
 }
@@ -214,7 +216,8 @@ export async function updateCourseDetails(input: {
   durationText: string;
   difficulty: string;
   notes: string;
-}): Promise<ActionResult> {
+  /** Null when nothing needed redrawing or the redraw worked. */
+}): Promise<ActionResult<{ trackWarning: string | null }>> {
   const { supabase } = await requireApprovedMember();
 
   const description = input.description.trim();
@@ -248,9 +251,14 @@ export async function updateCourseDetails(input: {
   }
 
   const { data, error: readError } = await supabase
-    .from("hikes").select("course_info").eq("id", input.hikeId).maybeSingle();
+    .from("hikes").select("course_info, track, track_source, route_waypoints").eq("id", input.hikeId).maybeSingle();
   if (readError) return refusedByDatabase("코스 정보 읽기", readError);
-  const row = data as { course_info: unknown } | null;
+  const row = data as {
+    course_info: unknown;
+    track: unknown[] | null;
+    track_source: string | null;
+    route_waypoints: { name: string; lat: number; lng: number }[] | null;
+  } | null;
 
   // The source links an answer cited are not on this form, so they are carried
   // over rather than dropped - editing a distance should not throw away where
@@ -285,6 +293,37 @@ export async function updateCourseDetails(input: {
   if (error) return refusedByDatabase("코스 정보 수정", error);
   if (count === 0) return refused("이 앨범을 수정할 권한이 없습니다. 만든 사람이나 관리자만 고칠 수 있습니다.");
 
+  // The drawn line lives in its own column, so adding or removing a point used
+  // to leave it exactly as it was - 인수암 deleted, the line still running
+  // through where 인수암 had been. It is redrawn here when the line is one this
+  // app drew from these same points, and left alone when it is a member's own
+  // recording or predates track_source and so cannot be told apart from one.
+  const movedPoints = JSON.stringify((row?.route_waypoints ?? []).map((p) => [p.name, p.lat, p.lng]))
+    !== JSON.stringify(waypoints.map((p) => [p.name, p.lat, p.lng]));
+  const ourLine = row?.track_source === "course" || row?.track_source === "trail_pick";
+  const hasLine = (row?.track?.length ?? 0) >= 2;
+
+  // A line we must not touch, over points that have moved. Saying nothing here
+  // was the whole complaint: 인수암 was deleted and the line kept running
+  // through where it had been, with no hint that the two no longer agreed.
+  if (movedPoints && hasLine && !ourLine) {
+    revalidatePath("/map");
+    return { ok: true, value: {
+      trackWarning: row?.track_source === "gpx"
+        ? "지도의 선은 부원이 올린 GPX라 그대로 두었습니다."
+        : "지도의 선이 경유지와 다를 수 있습니다. '경유지를 따라 지도에 경로 그리기'를 눌러주세요.",
+    } };
+  }
+
+  if (movedPoints && ourLine && hasLine) {
+    // Its own failure is not this one's: the names and numbers are already
+    // saved, and a line that could not be redrawn is better reported as a stale
+    // line than as a failed save.
+    const redrawn = await rebuildCourseTrack(input.hikeId);
+    revalidatePath("/map");
+    return { ok: true, value: { trackWarning: redrawn.ok ? null : redrawn.reason } };
+  }
+
   revalidatePath("/map");
-  return { ok: true };
+  return { ok: true, value: { trackWarning: null } };
 }

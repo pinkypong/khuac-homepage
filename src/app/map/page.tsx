@@ -26,6 +26,7 @@ interface LocationRow {
     route_waypoints: { name: string; lat: number; lng: number }[] | null;
     course_info: unknown;
     course_id: string | null;
+    track_source: string | null;
     photos: {
       id: string;
       storage_key_original: string;
@@ -59,7 +60,7 @@ export default async function MapPage() {
       .from("locations")
       .select(
         "id, name, type, region, elevation, lat, lng, created_at, " +
-          "hikes(id, title, date, description, activity_type, lat, lng, track, route_waypoints, course_info, course_id, " +
+          "hikes(id, title, date, description, activity_type, lat, lng, track, track_source, route_waypoints, course_info, course_id, " +
           "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
       )
       .not("lat", "is", null)
@@ -126,7 +127,11 @@ export default async function MapPage() {
           routeWaypoints: hike.route_waypoints,
           courseInfo: asCourseInfo(hike.course_info),
           courseId: hike.course_id,
-          trackSource: hike.track ? "gpx" : null,
+          // Read from the column now. This used to say "gpx" for any track at
+          // all, which made a line this app drew indistinguishable from a walk
+          // somebody recorded - so editing a course could not redraw the line
+          // without risking the only copy of a member's GPX.
+          trackSource: hike.track_source === "gpx" ? "gpx" : null,
           photos,
         };
       });

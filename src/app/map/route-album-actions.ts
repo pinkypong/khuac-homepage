@@ -303,6 +303,9 @@ export async function attachCourseToHike(input: {
     .from("hikes")
     .update({
       track,
+      // Snapped from the course's waypoints, so editing them may redraw it -
+      // unlike a member's own GPX, which is the only copy of what they walked.
+      track_source: "course",
       route_waypoints: points.map((point) => ({ name: point.name, lat: point.lat, lng: point.lng })),
       course_id: input.courseId,
     })
