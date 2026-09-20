@@ -82,6 +82,10 @@ export function HikeDetail({
   const setEditingCourse = onCourseDraftChange;
   const [savingCourse, setSavingCourse] = useState(false);
   const [redrawing, setRedrawing] = useState(false);
+  // A memo may run to 4,000 characters. Left whole it pushes the photos - the
+  // thing the album is for - off the screen, and scrolling past it every visit
+  // is a tax on everyone who is not reading it today.
+  const [memoOpen, setMemoOpen] = useState(false);
   // The courses already on file for this place. Read once the route section is
   // opened rather than on every album view: most visits never open it, and a
   // list nobody asked for is a query nobody needed.
@@ -381,7 +385,17 @@ export function HikeDetail({
               title was left with whatever pixels they did not want - about
               fifty of them beside 수정 and 활동 삭제. The floor below pushes
               them onto their own line instead when the panel is narrow. */}
-          <h1 className="min-w-[10rem] flex-1 truncate text-lg font-semibold">{hike.title}</h1>
+          {/* Two lines rather than one clipped one. 북한산 인수봉 고독길-인수c
+              멀티등반 is the album's whole identity and 고독길 was falling off
+              the end of it; a title is worth the second line. Clamped at two so
+              a very long one still cannot push the photos down the screen, and
+              the full text stays in the tooltip. */}
+          <h1
+            title={hike.title}
+            className="line-clamp-2 min-w-[10rem] flex-1 text-lg font-semibold leading-snug [overflow-wrap:anywhere]"
+          >
+            {hike.title}
+          </h1>
           <span
             className="shrink-0 rounded px-1.5 py-px text-xs font-medium text-white"
             style={{ backgroundColor: ACTIVITY_COLOR[hike.activityType] }}
@@ -556,7 +570,7 @@ export function HikeDetail({
                 value={editingCourse.description}
                 onChange={(e) => setEditingCourse({ ...editingCourse, description: e.target.value })}
                 rows={4}
-                placeholder={"물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것"}
+                placeholder={"물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것\n버스·주차, 화장실, 통제 구간, 같이 간 사람"}
                 className="w-full resize-y rounded border border-club-line bg-white px-2 py-1 text-sm leading-relaxed md:text-xs"
               />
             </label>
@@ -662,9 +676,25 @@ export function HikeDetail({
                 <h3 className="mb-0.5 flex items-center gap-1 text-xs font-semibold tracking-wide text-club-muted">
                   <span aria-hidden="true">✎</span> 메모
                 </h3>
-                <p className="whitespace-pre-line text-sm leading-relaxed text-club-ink">
+                <p
+                  className={
+                    "whitespace-pre-line text-sm leading-relaxed text-club-ink "
+                    + (memoOpen ? "" : "line-clamp-4")
+                  }
+                >
                   {hike.description}
                 </p>
+                {/* Only when there is something folded away. A 더보기 under a
+                    two-line memo is a button that does nothing. */}
+                {(hike.description.length > 140 || hike.description.split("\n").length > 4) && (
+                  <button
+                    type="button"
+                    onClick={() => setMemoOpen((open) => !open)}
+                    className="mt-1 text-xs font-medium text-club-muted underline-offset-2 hover:text-club-ink hover:underline"
+                  >
+                    {memoOpen ? "접기" : "더보기"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -676,14 +706,16 @@ export function HikeDetail({
                 <h3 className="mb-0.5 flex items-center gap-1 text-xs font-semibold tracking-wide text-club-muted">
                   <span aria-hidden="true">✎</span> 메모
                 </h3>
+                {/* One line. The examples of what to write used to sit here
+                    too, which made the emptiest part of the card the busiest -
+                    they belong in the box where somebody is actually typing,
+                    and that is where they are now. */}
                 <button
                   type="button"
                   onClick={openCourseEditor}
-                  className="w-full rounded-sm border border-dashed border-club-line bg-white px-2.5 py-2 text-left text-sm leading-relaxed text-club-faint hover:border-club-muted hover:text-club-muted"
+                  className="w-full rounded-sm border border-dashed border-club-line bg-white px-2.5 py-2 text-left text-sm text-club-faint hover:border-club-muted hover:text-club-muted"
                 >
-                  위 <span className="font-medium">✎ 코스 · 메모 수정</span> 을 눌러 메모를 남겨주세요.
-                  <br />
-                  <span className="text-xs">물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것</span>
+                  <span className="font-medium">✎ 코스 · 메모 수정</span> 을 눌러 메모를 남겨주세요.
                 </button>
               </div>
             )}
