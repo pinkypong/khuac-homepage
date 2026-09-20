@@ -6,6 +6,11 @@ import { isValidGps } from "@/lib/gps/validate";
 import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
 import { activityForCourse } from "./activity";
 import { sanitizeTrack, unflattenTrack } from "@/lib/gps/track";
+import { groupByMountain, placesOf } from "@/lib/assistant/region";
+import { rankOf } from "@/lib/assistant/origin";
+import { rememberCourses } from "@/lib/assistant/library";
+import { extractRoutes, searchRoutes } from "@/lib/assistant/routes";
+import type { LocationType } from "@/types/database";
 
 export interface RouteWaypoint {
   name: string;
@@ -164,4 +169,191 @@ export async function createAlbumFromRoute(input: {
 
   revalidatePath("/map");
   return { ok: true, value: { locationId, hikeId: (hike as { id: string }).id } };
+}
+
+/** A course we already hold for a place, offered so a member picks instead of
+    tracing. */
+export interface KnownCourse {
+  id: string;
+  name: string;
+  waypoints: string[];
+  distanceText: string | null;
+  durationText: string | null;
+  difficulty: string | null;
+  origin: string | null;
+}
+
+interface LibraryRow {
+  id: string;
+  mountain: string;
+  name: string;
+  region: string | null;
+  origin: string | null;
+  waypoints: string[] | null;
+  distance_text: string | null;
+  duration_text: string | null;
+  difficulty: string | null;
+}
+
+/**
+ * The courses already on file for a place.
+ *
+ * Drawing a route by tapping trail segments asks a member to trace ground the
+ * library often already describes: 북한산 holds thirteen courses, four of them
+ * approaches ending at 인수봉 고독길 들머리, and three of those share the same
+ * spine - 하루재, 인수암, the 들머리 - differing only in where they set off
+ * from. Picking one from a list of four is a truer fit for that than drawing
+ * it again by hand.
+ *
+ * Costs nothing but this read. Resolving the names to points and pulling them
+ * onto real trails is the browser's existing course preview, which is the same
+ * work it already does for an answer's courses - and no model is asked
+ * anything, so this is cheaper than the route that produced these rows.
+ */
+export async function coursesForLocation(
+  mountain: string,
+  region: string | null,
+): Promise<KnownCourse[]> {
+  const { supabase } = await requireApprovedMember();
+  const name = mountain.trim();
+  if (name.length < 2) return [];
+
+  const { data } = await supabase
+    .from("course_library")
+    .select("id, mountain, name, region, origin, waypoints, distance_text, duration_text, difficulty");
+  const all = (data ?? []) as unknown as LibraryRow[];
+  if (all.length === 0) return [];
+
+  // Courses filed under this very mountain.
+  //
+  // Thirty-three names in the library belong to more than one mountain, so
+  // these are gathered into actual mountains first and the folder's own region
+  // picks between them. Nothing at all beats offering 계룡산 in 거제 to
+  // somebody filing a walk up the one near 공주.
+  const sameName = all.filter((row) => row.mountain === name);
+  let direct: LibraryRow[] = [];
+  if (sameName.length > 0) {
+    const groups = groupByMountain(sameName);
+    const here = new Set(placesOf(region));
+    const picked =
+      groups.length === 1
+        ? groups[0]
+        : (groups.find((group) => [...group.places].some((place) => here.has(place))) ?? null);
+    direct = picked ? picked.rows : [];
+  }
+
+  // Courses that lead here without being filed here.
+  //
+  // 인수봉 is a face on 북한산, so a folder for it holds climbs while every way
+  // in is filed under the mountain - four of them, each ending at 인수봉 고독길
+  // 들머리. Matching only on the folder's own name found none of them, which is
+  // the whole approach a climbing album actually wants drawn.
+  //
+  // Only for a place the library does not itself keep as a mountain. 지리산 is
+  // a mountain here and also a waypoint on a course over on 사량도, 200km away:
+  // reading the mention as "this course leads to your 지리산" offered that one
+  // when the region - "경남/전남", provinces with no 시·군 in them - was too
+  // coarse to tell the two apart. Where the name is a mountain of its own, the
+  // grouping above is the only honest answer, empty included.
+  const isKnownMountain = all.some((row) => row.mountain === name);
+  const mentions = (row: LibraryRow) =>
+    row.name.includes(name) || (row.waypoints ?? []).some((point) => point.includes(name));
+  const seen = new Set(direct.map((row) => row.id));
+  const leadingHere = isKnownMountain ? [] : all.filter((row) => !seen.has(row.id) && mentions(row));
+
+  return [...direct, ...leadingHere]
+    .sort((a, b) => rankOf(b.origin) - rankOf(a.origin) || a.name.localeCompare(b.name))
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      waypoints: row.waypoints ?? [],
+      distanceText: row.distance_text,
+      durationText: row.duration_text,
+      difficulty: row.difficulty,
+      origin: row.origin,
+    }));
+}
+
+/**
+ * Puts a course's drawn line onto an album that already exists.
+ *
+ * createAlbumFromRoute makes a new album out of a course; this is the same
+ * ending for an album a member made themselves - the climbing day filed by
+ * hand that still wants its approach drawn. The line, the named points and
+ * which course it came from are written together, because an album showing a
+ * route with no record of which course it is cannot be found again from that
+ * course's side.
+ */
+export async function attachCourseToHike(input: {
+  hikeId: string;
+  courseId: string | null;
+  waypoints: RouteWaypoint[];
+  /** Flattened [lat, lng, lat, lng, ...] - see flattenTrack for why. */
+  track: number[] | null;
+}): Promise<ActionResult<{ pointCount: number }>> {
+  const { supabase } = await requireApprovedMember();
+
+  const track = sanitizeTrack(unflattenTrack(input.track));
+  if (!track) {
+    return refused("지도에 그릴 경로를 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
+  }
+  const points = input.waypoints.filter((point) => isValidGps(point.lat, point.lng));
+
+  const { error } = await supabase
+    .from("hikes")
+    .update({
+      track,
+      route_waypoints: points.map((point) => ({ name: point.name, lat: point.lat, lng: point.lng })),
+      course_id: input.courseId,
+    })
+    .eq("id", input.hikeId);
+  if (error) return refusedByDatabase("경로 저장", error);
+
+  revalidatePath("/map");
+  return { ok: true, value: { pointCount: track.length } };
+}
+
+/** Places whose courses are climbs, so the search asks about rock rather than
+    trails. 외벽 is an artificial wall and 실내클라이밍짐 is indoors - neither
+    has an approach worth searching for - so only real rock is listed. */
+const CLIMBS: LocationType[] = ["multi_pitch", "hard_free"];
+
+/**
+ * Asks KHUAC AI for this place's courses, files them, and hands back the list.
+ *
+ * Only when a member presses for it. A grounded search takes about 27 seconds
+ * and is billed per call, so running one every time somebody opens an album's
+ * route section - most of which never need a line drawn - would spend both on
+ * nothing. Pressed once, though, the answer is filed in course_library under
+ * origin "search" and every album at this place can pick from it afterwards
+ * without searching again.
+ *
+ * rememberCourses is the assistant's own filing function rather than a second
+ * copy: it is what refuses to let a web answer overwrite a surveyed or walked
+ * row, and that guard existing twice is how it would eventually stop matching.
+ */
+export async function searchCoursesForLocation(
+  mountain: string,
+  region: string | null,
+  locationType: LocationType,
+): Promise<ActionResult<KnownCourse[]>> {
+  const { supabase } = await requireApprovedMember();
+  const name = mountain.trim();
+  if (name.length < 2) return refused("장소 이름이 없습니다.");
+
+  const climbing = CLIMBS.includes(locationType);
+  const question = climbing
+    ? `${name} 암벽등반 어프로치와 등반 루트`
+    : `${name} 등산 코스`;
+  try {
+    const found = await searchRoutes(name, question, null, climbing);
+    const result = await extractRoutes(found.text, found.sources, name);
+    if (result.routes.length === 0) {
+      return refused("이 장소의 코스를 찾지 못했습니다. KHUAC AI에 직접 물어봐주세요.");
+    }
+    await rememberCourses(supabase, name, result.routes);
+  } catch {
+    return refused("코스를 찾는 데 실패했습니다. 잠시 후 다시 시도해주세요.");
+  }
+  return { ok: true, value: await coursesForLocation(name, region) };
 }

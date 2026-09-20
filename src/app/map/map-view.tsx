@@ -289,9 +289,15 @@ const OVERLAY_BASE: MapTypeChoice = "roadmap";
 function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | null) => void }) {
   const map = useMap();
   const layers = useMemo(() => availableTileLayers(), []);
-  // The home view opens on aerial imagery so the terrain itself leads the
-  // composition. Dedicated trail layers stay one tap away for route work.
-  const [mapType, setMapType] = useState<MapTypeChoice>("hybrid");
+  // Opens on the trail layer: this is a climbing club's map and the paths are
+  // what it is read for. Google's aerial imagery led before, which shows the
+  // terrain but draws none of the trails over it - the one thing the member
+  // came to see. Falls back to aerial when no trail layer is configured, so a
+  // deployment without the tile key still opens on something rather than on a
+  // mode that is not in the switcher.
+  const [mapType, setMapType] = useState<MapTypeChoice>(
+    () => availableTileLayers()[0]?.id ?? "hybrid",
+  );
   const active = layers.find((layer) => layer.id === mapType) ?? null;
 
   // Applied whenever the mode changes rather than only on the click that

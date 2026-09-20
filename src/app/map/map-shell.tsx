@@ -25,7 +25,7 @@ import { MapErrorBoundary, MapUnavailable } from "./map-error-boundary";
 import { PoiForm } from "./poi-form";
 import { loadCourseElevation, type CourseElevation } from "./elevation-actions";
 import { ElevationProfile } from "./elevation-profile";
-import { createAlbumFromRoute, type RouteWaypoint } from "./route-album-actions";
+import { attachCourseToHike, createAlbumFromRoute, type KnownCourse, type RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 export interface MapPhoto {
@@ -305,6 +305,12 @@ export function MapShell({
     track: TrackPoint[] | null;
   } | null>(null);
   const [creatingAlbum, setCreatingAlbum] = useState(false);
+  // An album waiting for a course's line to be confirmed onto it. The preview
+  // machinery below is the same one an answer's courses use; this only
+  // remembers which album the result is meant for, and nothing is written
+  // until the member says so.
+  const [attachTo, setAttachTo] = useState<{ hikeId: string; title: string; courseId: string } | null>(null);
+  const [attaching, setAttaching] = useState(false);
   // A course waypoint nothing could place, and the point a member is putting
   // on the map for it. Null unless they asked to record one, so the map stays
   // clear the rest of the time.
@@ -454,6 +460,8 @@ export function MapShell({
         window.alert("이 주변에 등록된 등산로가 없습니다. GPX 파일을 올려주세요.");
         return;
       }
+      setAttachTo(null);
+      setSuggestedRoute(null);
       setTrailPick({ hikeId: hike.id, lat, lng, segments, chosen: [] });
       // The paths are on the map, which on a phone is the other tab.
       setMobileTab("map");
@@ -462,6 +470,66 @@ export function MapShell({
       window.alert("등산로를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setTrailBusy(false);
+    }
+  }
+
+  /**
+   * Draws a course we already hold, for the member to confirm onto their album.
+   *
+   * Nothing new is needed to draw it: a library course has the same shape as
+   * one an answer suggested - a name and places in walking order - so it goes
+   * through the preview already on screen, which resolves the names and pulls
+   * the line onto real trails. No model is asked anything.
+   */
+  function useCourseForHike(hike: MapHike, course: KnownCourse) {
+    const place = locations.find((location) => location.id === hike.locationId) ?? null;
+    // Picking segments by hand and accepting a held course are two answers to
+    // the one question - what line does this album have - so starting either
+    // ends the other. Both bars were on screen at once, asking it twice.
+    setTrailPick(null);
+    setAttachTo({ hikeId: hike.id, title: hike.title, courseId: course.id });
+    setSuggestedRoute({
+      route: {
+        name: course.name,
+        waypoints: course.waypoints,
+        distanceText: course.distanceText,
+        durationText: course.durationText,
+        difficulty: course.difficulty,
+        description: null,
+        notes: null,
+        sourceUrls: [],
+        courseId: course.id,
+      },
+      center: place ? { lat: place.lat, lng: place.lng } : null,
+      placeName: place?.name ?? hike.title,
+      resolved: null,
+      track: null,
+    });
+    setMapOpen(true);
+    setMobileTab("map");
+  }
+
+  async function saveAttachedCourse() {
+    if (!attachTo || !suggestedRoute?.track) return;
+    setAttaching(true);
+    try {
+      const result = await attachCourseToHike({
+        hikeId: attachTo.hikeId,
+        courseId: attachTo.courseId,
+        waypoints: suggestedRoute.resolved ?? [],
+        track: flattenTrack(suggestedRoute.track),
+      });
+      if (!result.ok) {
+        window.alert(result.reason);
+        return;
+      }
+      setAttachTo(null);
+      setSuggestedRoute(null);
+      router.refresh();
+    } catch {
+      window.alert("경로를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setAttaching(false);
     }
   }
 
@@ -629,6 +697,7 @@ export function MapShell({
     setPinnedHikeId(null);
     setFocusedPhotoId(null);
     setSuggestedRoute(null);
+    setAttachTo(null);
     setCourseProfile(null);
     setSearch("");
     setActivity("all");
@@ -795,6 +864,48 @@ export function MapShell({
                 </span>
               </div>
             )}
+            {/* A held course drawn over an album that has no line yet, waiting
+                to be kept or dropped. Deliberately not saved on the tap that
+                drew it: the whole point of offering the library instead of a
+                blank map is that the member gets to see what they are about to
+                accept. */}
+            {attachTo && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
+                <span className="pointer-events-auto flex flex-wrap items-center justify-center gap-2 rounded-2xl border border-club-line bg-white/95 px-3 py-2 text-[11px] text-club-ink-soft shadow-lg backdrop-blur">
+                  {/* Says what is missing before it is kept, not after. The
+                      approach to 인수봉 names five places and two of them -
+                      비둘기샘, 인수봉 고독길 들머리 - are on no gazetteer, so the
+                      line stopped at 인수암 and its end label read 인수암. Saved
+                      silently that looks like the course ends there. */}
+                  {suggestedRoute?.track ? (
+                    <>
+                      &lsquo;{attachTo.title}&rsquo; 앨범에 이 경로를 저장할까요?
+                      {missingNames.length > 0 && (
+                        <span className="block w-full text-amber-700">
+                          {missingNames.join(", ")} 은(는) 지도에서 찾지 못해 선이 그 앞에서 끝납니다.
+                          저장 후 아래 &lsquo;위치 지정&rsquo;으로 한 번 찍어두면 다음부터 이어집니다.
+                        </span>
+                      )}
+                    </>
+                  ) : "경로를 그리는 중…"}
+                  <button
+                    type="button"
+                    onClick={saveAttachedCourse}
+                    disabled={!suggestedRoute?.track || attaching}
+                    className="rounded-full bg-[#5b1a23] px-2.5 py-1 font-medium text-white disabled:opacity-40"
+                  >
+                    {attaching ? "저장 중…" : "저장"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAttachTo(null); setSuggestedRoute(null); }}
+                    className="rounded-full border border-club-line px-2.5 py-1 font-medium text-club-ink"
+                  >
+                    취소
+                  </button>
+                </span>
+              </div>
+            )}
             {/* Only while a course has a name nothing could place. The club's
                 own point for it is the fix, and this is the moment the member
                 both knows the answer and has a reason to give it. */}
@@ -867,8 +978,8 @@ export function MapShell({
 
           <div
             onPointerDown={() => setDragging(true)}
-            className={`club-divider hidden w-1.5 shrink-0 cursor-col-resize bg-club-line transition-colors hover:bg-club-faint md:block ${
-              dragging ? "bg-club-faint" : ""
+            className={`club-divider hidden shrink-0 cursor-col-resize md:flex ${
+              dragging ? "is-dragging" : ""
             }`}
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); const width = containerRef.current?.clientWidth ?? 1200; setMapWidth(Math.max(MIN_MAP_WIDTH, Math.min(width - MIN_PANEL_WIDTH, (mapWidth ?? width * DEFAULT_MAP_WIDTH) + (e.key === "ArrowRight" ? 24 : -24)))); } }}
@@ -889,7 +1000,7 @@ export function MapShell({
       >
         {mobileTab === "album" && !activeLocationId && !activeHikeId && (
           <div className="club-album-mode-heading">
-            <div><small>ACTIVITY ARCHIVE</small><strong>{activity === "all" ? "전체 활동 앨범" : `${ACTIVITY_LABEL[activity]} 앨범`}</strong></div>
+            <div><small>ACTIVITY ARCHIVE</small><strong>{activity === "all" ? "전체 앨범" : `${ACTIVITY_LABEL[activity]} 앨범`}</strong></div>
             <button type="button" onClick={() => { setActivity("all"); setMobileTab("map"); }}>
               <NavIcon kind="map"/>지도 · KHUAC AI
             </button>
@@ -904,6 +1015,7 @@ export function MapShell({
           onOpenLocation={openLocation}
           onOpenHike={openHike}
           onStartTrailPick={startTrailPick}
+          onUseCourse={useCourseForHike}
           trailBusy={trailBusy}
           focusedPhotoId={focusedPhotoId}
           onFocusedPhotoConsumed={() => setFocusedPhotoId(null)}

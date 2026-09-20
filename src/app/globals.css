@@ -92,6 +92,14 @@ body {
 .club-account a,.club-account button { min-height:44px; }
 .club-album { container:album-pane / inline-size; }
 .club-album h1 { font-size:clamp(26px,3vw,36px); font-weight:600; letter-spacing:-.045em; line-height:1.3; padding:8px 0; text-wrap:balance; word-break:keep-all; overflow-wrap:anywhere; }
+/* A title that asks to be truncated has to win against the rule above.
+   `text-wrap:balance` sets text-wrap-mode:wrap, which undoes the nowrap
+   Tailwind's `truncate` applies through white-space - and it undoes it at
+   higher specificity, so the class had no effect. Together with
+   overflow-wrap:anywhere that left a squeezed title breaking one Hangul
+   syllable per line, which is what the album header did beside its
+   buttons. */
+.club-album h1.truncate { text-wrap:nowrap; overflow-wrap:normal; }
 .club-album h2 { font-size:22px; font-weight:600; letter-spacing:-.035em; line-height:1.4; }
 .club-album > div > div.border-b { padding:20px 24px; }
 .club-album input { min-height:44px; }
@@ -353,7 +361,6 @@ body {
  .club-filters button { flex:1; min-width:72px; border-color:var(--color-club-line); padding:5px 9px; color:var(--color-club-ink-soft); }
  .club-filters button:hover { border-color:var(--color-club-faint); background:#fafaf7; }
  .club-workspace { gap:14px; padding:0 30px; background:#fff; }
- .club-divider { width:1px; background:var(--color-club-line); }
  .club-side-panel { border:1px solid var(--color-club-line); }
  .club-ai-card { padding:24px 22px; }
  .club-ai-heading { margin-bottom:20px; padding-bottom:16px; }
@@ -407,8 +414,6 @@ body {
 .club-crest { display:block; width:56px; height:56px; flex:none; }
 .club-ai-heading .club-ai-symbol { width:44px; height:44px; border:0; background:transparent; }
 .club-ai-symbol .club-crest { width:44px; height:44px; }
-@media(max-width:767px) { .club-brand > .club-crest { width:42px; height:42px; } }
-@media(min-width:768px) { .club-brand > .club-crest { width:64px; height:64px; } }
 .club-ai-form { position:relative; }
 .club-ai-form input { padding-right:64px; }
 .club-ai-form > button {
@@ -474,7 +479,29 @@ body {
  .club-filters button[aria-pressed=true] { box-shadow:0 5px 14px rgba(91,26,35,.12); }
  .club-workspace { gap:16px; padding:0 30px; background:#f3f1ed; }
  .club-map-frame { overflow:hidden; border:1px solid #d4d0c8; box-shadow:0 8px 25px rgba(35,31,26,.08); }
- .club-divider { display:none !important; }
+ /* The splitter. The markup has always carried one - pointer drag, arrow
+    keys, role="separator" - and this block hid it with display:none on exactly
+    the widths wide enough to split, so nothing on screen ever said the panes
+    could be resized. Drawn now as a grip sitting in the workspace's gap: a
+    quiet track that thickens and takes the club's burgundy while in use. */
+ .club-divider {
+  display:flex !important;
+  align-items:center;
+  justify-content:center;
+  width:14px;
+  background:transparent;
+ }
+ .club-divider::before {
+  content:"";
+  width:4px;
+  height:40px;
+  border-radius:999px;
+  background:#cfcac1;
+  transition:background .15s,height .15s,width .15s;
+ }
+ .club-divider:hover::before,
+ .club-divider:focus-visible::before,
+ .club-divider.is-dragging::before { width:5px; height:64px; background:var(--club-burgundy); }
  .club-side-panel {
   overflow:hidden;
   border-color:#d4d0c8;
@@ -635,7 +662,10 @@ body {
   padding:4px 30px;
  }
  .club-brand { gap:13px; }
- .club-brand > .club-crest { width:72px; height:72px; filter:drop-shadow(0 4px 9px rgba(66,19,27,.13)); }
+ /* The bar above is height:72px with 4px padding, so the crest has 64px to
+    sit in; 72px hung 4px past it top and bottom, over the bottom border.
+    60px leaves 2px either side, enough that the drop-shadow stays inside. */
+ .club-brand > .club-crest { width:60px; height:60px; filter:drop-shadow(0 4px 9px rgba(66,19,27,.13)); }
  .club-brand-copy strong,.club-brand .club-brand-fullname { font-size:21px; line-height:1.03; letter-spacing:-.035em; }
  .club-brand-copy small { margin-top:3px; font-size:10px; }
  .club-header-tools { width:100%; max-width:720px; justify-self:start; }

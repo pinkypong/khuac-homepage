@@ -99,14 +99,17 @@ export function NewLocationForm({
         onClick={() => toggle(true)}
         className="w-full rounded-lg border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
       >
-        + 새 장소 등록
+        + 새 장소 추가 (산·암장)
       </button>
     );
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-club-line p-3">
-      <p className="text-xs font-semibold">새 장소 등록</p>
+      <p className="text-xs font-semibold">새 장소 추가</p>
+      <p className="mt-0.5 text-xs text-club-muted">
+        앨범을 담을 곳입니다. 이미 있는 산이면 목록에서 그 산을 눌러 들어가세요.
+      </p>
       <div className="mt-2">
         <label className="mb-1 block text-xs text-club-muted">장소 검색</label>
         <PlaceSearch onSelect={handlePlace} />

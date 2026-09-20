@@ -10,6 +10,7 @@ import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import { HikeDetail } from "./hike-detail";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
+import type { KnownCourse } from "./route-album-actions";
 import { ACTIVITY_COLOR, ACTIVITY_LABEL, folderMarkerColor } from "./activity";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
@@ -148,6 +149,7 @@ export function SidePanel({
   onOpenLocation,
   onOpenHike,
   onStartTrailPick,
+  onUseCourse,
   trailBusy,
   focusedPhotoId,
   onFocusedPhotoConsumed,
@@ -173,6 +175,7 @@ export function SidePanel({
   onOpenLocation: (locationId: string) => void;
   onOpenHike: (hike: MapHike) => void;
   onStartTrailPick: (hike: MapHike, lat: number, lng: number) => void;
+  onUseCourse: (hike: MapHike, course: KnownCourse) => void;
   trailBusy: boolean;
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
@@ -302,6 +305,7 @@ export function SidePanel({
         isAdmin={isAdmin}
         focusedPhotoId={focusedPhotoId}
         onStartTrailPick={() => onStartTrailPick(activeHike, activeLocation.lat, activeLocation.lng)}
+        onUseCourse={(course) => onUseCourse(activeHike, course)}
         trailBusy={trailBusy}
         onFocusedPhotoConsumed={onFocusedPhotoConsumed}
       />

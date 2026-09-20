@@ -19,6 +19,7 @@ import { ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from ".
 import type { ActivityType } from "@/types/database";
 import { isValidGps } from "@/lib/gps/validate";
 import { HikePhotoUpload } from "./hike-photo-upload";
+import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
 
 export function HikeDetail({
   location,
@@ -30,6 +31,7 @@ export function HikeDetail({
   focusedPhotoId,
   onFocusedPhotoConsumed,
   onStartTrailPick,
+  onUseCourse,
   trailBusy,
 }: {
   location: MapLocation;
@@ -41,6 +43,8 @@ export function HikeDetail({
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
   onStartTrailPick: () => void;
+  /** Draw a course we already hold, for the member to confirm onto this album. */
+  onUseCourse: (course: KnownCourse) => void;
   trailBusy: boolean;
 }) {
   const router = useRouter();
@@ -55,6 +59,12 @@ export function HikeDetail({
     hikeId: string; title: string; date: string; activityType: ActivityType; description: string;
   } | null>(null);
   const [savingName, setSavingName] = useState(false);
+  // The courses already on file for this place. Read once the route section is
+  // opened rather than on every album view: most visits never open it, and a
+  // list nobody asked for is a query nobody needed.
+  const [known, setKnown] = useState<KnownCourse[] | null>(null);
+  const [knownFailed, setKnownFailed] = useState(false);
+  const [searching, setSearching] = useState(false);
 
   // Tapping a photo pin on the map asks for that picture, so open it here and
   // hand the request back - leaving it set would reopen the lightbox the moment
@@ -278,8 +288,12 @@ export function HikeDetail({
             </div>
           </div>
         ) : (
-        <div className="mt-2 flex items-center gap-2">
-          <h1 className="min-w-0 truncate text-lg font-semibold">{hike.title}</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* Wraps rather than squeezing: the buttons never shrink, so a long
+              title was left with whatever pixels they did not want - about
+              fifty of them beside 수정 and 활동 삭제. The floor below pushes
+              them onto their own line instead when the panel is narrow. */}
+          <h1 className="min-w-[10rem] flex-1 truncate text-lg font-semibold">{hike.title}</h1>
           <span
             className="shrink-0 rounded px-1.5 py-px text-xs font-medium text-white"
             style={{ backgroundColor: ACTIVITY_COLOR[hike.activityType] }}
@@ -474,7 +488,15 @@ export function HikeDetail({
             of the two states this activity is in, so folding it away costs no
             information. */}
         {location.type !== "climbing_gym" && (
-          <details className="mt-5 border-t border-club-line pt-4">
+          <details
+            className="mt-5 border-t border-club-line pt-4"
+            onToggle={(e) => {
+              if (!(e.currentTarget as HTMLDetailsElement).open || known !== null) return;
+              coursesForLocation(location.name, location.region)
+                .then(setKnown)
+                .catch(() => setKnownFailed(true));
+            }}
+          >
             <summary className="cursor-pointer list-none text-xs text-club-muted hover:text-club-ink">
               경로 직접 등록
               <span className="ml-1.5 text-xs text-club-faint">
@@ -500,6 +522,73 @@ export function HikeDetail({
             />
             {uploading && <p className="mt-1 text-xs text-club-muted">업로드 중…</p>}
             {gpxError && <p className="mt-1 text-xs text-red-600">{gpxError}</p>}
+
+            {/* Before asking anybody to trace anything: the courses we already
+                hold for this place. 북한산 has thirteen, four of them approaches
+                to 인수봉's routes that differ only in where they start, so the
+                usual answer to "draw the approach" is already sitting in a list
+                four long. Picking one draws it on the map to be confirmed; it
+                is not saved until the member says so. */}
+            {known !== null && known.length > 0 && (
+              <div className="mt-3 border-t border-club-line pt-3">
+                <p className="text-xs font-medium">이 장소의 알려진 코스 {known.length}개</p>
+                <p className="mt-0.5 text-xs text-club-muted">
+                  고르면 지도에 그려서 보여드립니다. 확인 후 저장합니다.
+                </p>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {known.map((course) => (
+                    <li key={course.id}>
+                      <button
+                        type="button"
+                        onClick={() => onUseCourse(course)}
+                        className="w-full rounded-sm border border-club-line px-2.5 py-2 text-left hover:border-club-muted"
+                      >
+                        <span className="block text-xs font-medium text-club-ink">{course.name}</span>
+                        {course.waypoints.length > 0 && (
+                          <span className="mt-0.5 block text-[11px] leading-relaxed text-club-ink-soft">
+                            {course.waypoints.join(" → ")}
+                          </span>
+                        )}
+                        {(course.distanceText || course.durationText) && (
+                          <span className="mt-0.5 block text-[11px] text-club-muted">
+                            {[course.distanceText, course.durationText].filter(Boolean).join(" · ")}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {known !== null && known.length === 0 && (
+              <div className="mt-3 border-t border-club-line pt-3">
+                <p className="text-xs text-club-muted">
+                  이 장소로 등록된 코스가 아직 없습니다. KHUAC AI에 물어보면 찾아서 저장해둡니다 —
+                  한 번만 물어보면 이후 이 장소의 모든 앨범에서 바로 고를 수 있습니다.
+                </p>
+                <button
+                  type="button"
+                  disabled={searching}
+                  onClick={async () => {
+                    setSearching(true);
+                    const result = await searchCoursesForLocation(
+                      location.name, location.region, location.type,
+                    );
+                    setSearching(false);
+                    if (!result.ok) { window.alert(result.reason); return; }
+                    setKnown(result.value);
+                  }}
+                  className="mt-2 w-full rounded-sm border border-club-faint py-2 text-xs font-medium text-club-ink hover:bg-club-paper disabled:opacity-50"
+                >
+                  {searching ? "찾는 중… (30초쯤 걸립니다)" : "KHUAC AI에게 이 장소 코스 물어보기"}
+                </button>
+              </div>
+            )}
+            {knownFailed && (
+              <p className="mt-3 border-t border-club-line pt-3 text-xs text-club-muted">
+                이 장소의 코스 목록을 불러오지 못했습니다.
+              </p>
+            )}
 
             {/* Hardly any outing has a GPX - nobody remembers to record one -
                 so the usual case needs a way to draw the route that is not a

@@ -53,7 +53,7 @@ export function NewHikeForm({ locationId, locationType }: { locationId: string; 
       setSpot(null);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "활동 등록에 실패했습니다.");
+      setError(err instanceof Error ? err.message : "앨범을 만들지 못했습니다.");
     } finally {
       setSaving(false);
     }
@@ -65,14 +65,14 @@ export function NewHikeForm({ locationId, locationType }: { locationId: string; 
         onClick={() => setOpen(true)}
         className="w-full rounded-lg border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
       >
-        + 새 활동 등록
+        + 새 앨범 만들기
       </button>
     );
   }
 
   return (
     <form onSubmit={submit} className="rounded-lg border border-club-line p-3">
-      <p className="text-xs font-semibold">새 활동 등록</p>
+      <p className="text-xs font-semibold">새 앨범 만들기</p>
 
       <div className="mt-2">
         <label className="mb-1 block text-xs text-club-muted">
