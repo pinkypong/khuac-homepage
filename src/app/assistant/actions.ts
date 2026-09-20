@@ -13,6 +13,8 @@ import {
 import { findMatchingPlace, type PlaceCandidateHike } from "@/lib/assistant/resolve";
 import { buildClubHistoryContext } from "@/lib/assistant/context";
 import { closureNotice, extractRoutes, searchRoutes, selectFromLibrary, type LibraryCourse, type RouteSuggestion } from "@/lib/assistant/routes";
+import { rankOf } from "@/lib/assistant/origin";
+import { courseKey, rememberCourses } from "@/lib/assistant/library";
 import {
   daysInRange,
   fetchForecast,
@@ -482,34 +484,11 @@ async function closuresFor(supabase: Client, mountain: string | null): Promise<s
 /** Enough of a mountain held that asking the web again is not worth 27 seconds. */
 const LIBRARY_ENOUGH = 3;
 
-/**
- * How far a course is to be trusted, by where it came from.
- *
- * A walked track beats a surveyed one, a surveyed one beats a member's memory,
- * and all three beat a sentence off a web page - so a row is ranked by its
- * origin and the better row wins when two describe the same course.
- *
- *   gpx     a track somebody actually walked, with the club's own GPS behind it
- *   knps    국립공원공단's survey: stated distance checked against its own
- *           measured line before it was filed
- *   club    a member wrote it down
- *   search  a grounded web search said so, and nothing has checked it
- *
- * search sits last and is still kept, because for 불암산 or 수락산 it is all
- * there is: nothing holds those mountains, and an unchecked answer beats no
- * answer. It is the row a better source is expected to replace later.
- */
-const ORIGIN_RANK: Record<string, number> = { gpx: 5, knps: 4, club: 3, forest: 2, search: 1 };
-/**
- * An origin nobody listed ranks with `search`, not below it.
- *
- * It used to fall to 0, which is lower than every real source - so a row filed
- * under an origin added later would sort last and, worse, `rememberCourses`
- * would let a web search overwrite it, because its guard asks whether the held
- * row outranks `search`. That is exactly what happened to the 502 rows imported
- * as `forest` before it was named here.
- */
-const rankOf = (origin: string | null | undefined) => ORIGIN_RANK[origin ?? "search"] ?? ORIGIN_RANK.search;
+// ORIGIN_RANK and rankOf moved to lib/assistant/origin.ts, keeping the
+// reasoning with them: a "use server" file cannot export a plain object,
+// and route-actions.ts needs the same table to sort a location's known
+// courses by how far each source is trusted. Two copies of that table is
+// how the 502 forest rows once ended up outranked by web searches.
 
 interface LibraryRow {
   id: string;
@@ -673,71 +652,9 @@ function askWhichMountain(mountain: string, regions: string[]): string {
  * keeps whichever name the model wrote for it; when that is not one of ours it
  * links to nothing, which is the honest answer.
  */
-const courseKey = (name: string) => name.trim().toLowerCase();
 
 function withCourseIds(routes: RouteSuggestion[], ids: Map<string, string>): RouteSuggestion[] {
   return routes.map((route) => ({ ...route, courseId: ids.get(courseKey(route.name)) ?? null }));
-}
-
-/** Files what a search found, so the next question about this mountain is fast.
-    Hands back the id of every course it filed or found already held, so the
-    album a member makes from one can point at it. */
-async function rememberCourses(
-  supabase: Client,
-  mountain: string | null,
-  routes: RouteSuggestion[],
-): Promise<Map<string, string>> {
-  const ids = new Map<string, string>();
-  if (!mountain || routes.length === 0) return ids;
-
-  // What a search found must not overwrite what a survey or a member filed.
-  // The upsert below keys on (mountain, name), so a search answer that lands on
-  // an existing name replaces it - and the row it replaced may be the one whose
-  // distance was checked against a measured line. Read the names first and drop
-  // the ones already held by a better source.
-  //
-  // Two searches racing here can still both pass this check and the later write
-  // wins; that costs one search row overwriting another, which is what would
-  // have happened anyway. It is the knps/club/gpx rows this is protecting.
-  const { data: existing } = await supabase
-    .from("course_library")
-    .select("id, name, origin")
-    .eq("mountain", mountain)
-    .in("name", routes.map((route) => route.name));
-  const held = (existing ?? []) as { id: string; name: string; origin: string | null }[];
-  const heldBetter = new Set(
-    held.filter((row) => rankOf(row.origin) > rankOf("search")).map((row) => row.name),
-  );
-  // A course we refused to overwrite is still the course this answer is about,
-  // and its row is the one an album should point at.
-  for (const row of held) ids.set(courseKey(row.name), row.id);
-
-  const rows = routes.filter((route) => !heldBetter.has(route.name)).map((route) => ({
-    mountain,
-    name: route.name,
-    waypoints: route.waypoints,
-    distance_text: route.distanceText,
-    duration_text: route.durationText,
-    difficulty: route.difficulty,
-    description: route.description,
-    notes: route.notes,
-    sources: route.sourceUrls ?? [],
-    origin: "search",
-    updated_at: new Date().toISOString(),
-  }));
-  if (rows.length === 0) return ids;
-  const { data: written, error } = await supabase
-    .from("course_library")
-    .upsert(rows, { onConflict: "mountain,name" })
-    .select("id, name");
-  if (error) {
-    console.error("[assistant/library] store failed", error.message);
-    return ids;
-  }
-  for (const row of (written ?? []) as { id: string; name: string }[]) {
-    ids.set(courseKey(row.name), row.id);
-  }
-  return ids;
 }
 
 /** Where the club's activity sits, used to settle same-named mountains. */
