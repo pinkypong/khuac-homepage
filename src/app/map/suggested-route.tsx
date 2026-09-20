@@ -390,6 +390,10 @@ export function SuggestedRoute({
             strokeOpacity={0.95}
             strokeWeight={8}
             zIndex={10}
+            // Neither of these answers a click, and a clickable line swallows
+            // the map click beneath it - which at 8px wide is a wide strip of
+            // map that cannot be tapped while a course is shown.
+            clickable={false}
           />,
           // Only connected mapped geometry is drawn.
           <Polyline
@@ -399,6 +403,7 @@ export function SuggestedRoute({
             strokeOpacity={1}
             strokeWeight={4}
             zIndex={11}
+            clickable={false}
           />,
         ];
       })}

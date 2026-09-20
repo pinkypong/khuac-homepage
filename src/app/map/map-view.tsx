@@ -12,7 +12,7 @@ import {
   useMap,
   useMapsLibrary,
 } from "@vis.gl/react-google-maps";
-import { groupPhotosByPosition } from "@/lib/gps/photo-groups";
+import { PHOTO_PIN_PIXELS, groupPhotosByPosition, metresPerPixel } from "@/lib/gps/photo-groups";
 import { groupRoutePins } from "@/lib/gps/route-pins";
 import type { TrackPoint } from "@/lib/gps/track";
 import { getThumbnailUrl } from "@/lib/images/url";
@@ -450,6 +450,12 @@ export function MapView({
   // to the same boolean lets React bail out, so almost all ticks now cost
   // nothing.
   const [showLabels, setShowLabels] = useState(DEFAULT_ZOOM <= LABEL_MAX_ZOOM);
+  // The zoom itself is needed for photo folding, unlike the boolean above - how
+  // much ground a pin covers is what decides whether two photos can be told
+  // apart. Rounded to a half step so a pinch regroups a handful of times
+  // instead of on every frame; half a zoom level is a 1.4x change in scale,
+  // finer than anyone notices a pin merging at.
+  const [zoomStep, setZoomStep] = useState(Math.round(DEFAULT_ZOOM * 2) / 2);
   const [openPhotoGroup, setOpenPhotoGroup] = useState<{hikeId:string;key:string}|null>(null);
   // Null while a Google base map is showing; those carry their own attribution.
   const [tileLayer, setTileLayer] = useState<TileLayer | null>(null);
@@ -465,11 +471,21 @@ export function MapView({
 
   // Only the open activity's photos, and only those the camera actually
   // geotagged - most phones do, a scanned or stripped file does not.
-  const photoPins = selectedHike
-    ? selectedHike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng))
-    : [];
+  const photoPins = useMemo(
+    () => (selectedHike ? selectedHike.photos.filter((p) => isValidGps(p.exifLat, p.exifLng)) : []),
+    [selectedHike],
+  );
 
-  const photoGroups = groupPhotosByPosition(photoPins);
+  // Photos closer together than one pin's width are drawn as one pin, because
+  // below that they are drawn on top of each other regardless. The threshold
+  // moves with the zoom: opening a 3.5km course on a phone folds at roughly
+  // 650m and shows a handful of stacks, and zooming in splits them apart again.
+  // A fixed distance cannot do this - see groupPhotosByPosition.
+  const photoGroups = useMemo(() => {
+    if (photoPins.length === 0) return [];
+    const latitude = photoPins[0].exifLat as number;
+    return groupPhotosByPosition(photoPins, PHOTO_PIN_PIXELS * metresPerPixel(latitude, zoomStep));
+  }, [photoPins, zoomStep]);
   const expandedGroup = openPhotoGroup?.hikeId === selectedHike?.id ? photoGroups.find(g=>g.key===openPhotoGroup?.key) : undefined;
 
   // A gym session, or an activity nobody has placed yet, has no point of its
@@ -493,7 +509,10 @@ export function MapView({
       // the map already does, while covering the part of the map it sits on.
       cameraControl={false}
       className="h-full w-full"
-      onZoomChanged={(event) => setShowLabels(event.detail.zoom <= LABEL_MAX_ZOOM)}
+      onZoomChanged={(event) => {
+        setShowLabels(event.detail.zoom <= LABEL_MAX_ZOOM);
+        setZoomStep(Math.round(event.detail.zoom * 2) / 2);
+      }}
       onClick={(event) => {
         if (!picking) return;
         const latLng = event.detail.latLng;
@@ -584,6 +603,11 @@ export function MapView({
           strokeOpacity={1}
           strokeWeight={5}
           zIndex={12}
+          // Google's default is clickable, and a clickable line swallows the
+          // map click underneath it. This one does nothing when clicked, so all
+          // it could do is eat a tap meant for the map - which is how a course
+          // already drawn on an album blocks placing a waypoint on top of it.
+          clickable={false}
         />
       )}
 
