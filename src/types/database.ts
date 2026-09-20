@@ -5,7 +5,7 @@
 
 export type MemberRole = "admin" | "member" | "pending";
 
-export type LocationType = "mountain" | "climbing_gym" | "crag";
+export type LocationType = "mountain" | "climbing_gym" | "crag" | "multi_pitch" | "hard_free";
 
 export type ActivityType = "hiking" | "indoor_climbing" | "outdoor_wall" | "climbing";
 

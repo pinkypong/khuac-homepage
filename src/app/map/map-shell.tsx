@@ -670,7 +670,7 @@ export function MapShell({
               onClick={() => setFilterOpen((open) => !open)}
             >
               <ActivityFilterIcon type={activity} />
-              <span>{activity === "all" ? "활동 전체" : ACTIVITY_LABEL[activity]}</span>
+              <span>{activity === "all" ? "전체 앨범" : ACTIVITY_LABEL[activity]}</span>
               <svg className="club-filter-chevron" aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg>
             </button>
             {filterOpen && (
@@ -690,7 +690,7 @@ export function MapShell({
                     }}
                   >
                     <ActivityFilterIcon type={type} />
-                    <span><strong>{type === "all" ? "전체 활동" : ACTIVITY_LABEL[type]}</strong><small>{activityCounts[type]}개 앨범</small></span>
+                    <span><strong>{type === "all" ? "전체 앨범" : ACTIVITY_LABEL[type]}</strong><small>{activityCounts[type]}개 앨범</small></span>
                   </button>
                 ))}
               </div>

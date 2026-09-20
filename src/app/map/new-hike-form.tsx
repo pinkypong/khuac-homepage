@@ -2,17 +2,22 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { ActivityType } from "@/types/database";
+import type { ActivityType, LocationType } from "@/types/database";
 import { createHike } from "./actions";
-import { ACTIVITY_HAS_OWN_SPOT, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
+import { ACTIVITY_HAS_OWN_SPOT, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, DEFAULT_ACTIVITY_FOR_LOCATION } from "./activity";
 import { PlaceSearch, type PlaceResult } from "./place-search";
 
-export function NewHikeForm({ locationId }: { locationId: string }) {
+export function NewHikeForm({ locationId, locationType }: { locationId: string; locationType: LocationType }) {
+  // What this folder mostly holds. 멀티피치/하드프리 have no reading but
+  // climbing, and the form used to always open on 워킹 - every climb had to
+  // be reselected by hand regardless of which kind of place it was filed
+  // under.
+  const defaultActivity = DEFAULT_ACTIVITY_FOR_LOCATION[locationType];
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
-  const [activityType, setActivityType] = useState<ActivityType>("hiking");
+  const [activityType, setActivityType] = useState<ActivityType>(defaultActivity);
   const [description, setDescription] = useState("");
   const [spot, setSpot] = useState<PlaceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +48,7 @@ export function NewHikeForm({ locationId }: { locationId: string }) {
       setOpen(false);
       setTitle("");
       setDate("");
-      setActivityType("hiking");
+      setActivityType(defaultActivity);
       setDescription("");
       setSpot(null);
       router.refresh();

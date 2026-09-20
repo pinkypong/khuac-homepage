@@ -18,9 +18,16 @@ import { renameLocation } from "./actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 export const TYPE_LABEL: Record<LocationType, string> = {
-  mountain: "산",
-  climbing_gym: "실내 클라이밍짐",
-  crag: "실외 암장",
+  // Renamed to match the activity vocabulary these places actually host
+  // (워킹/실내암장/외벽/암벽등반, see activity.ts) rather than the three names
+  // this had before, which said nothing about what tells them apart.
+  mountain: "워킹",
+  climbing_gym: "실내클라이밍짐",
+  // An artificial outdoor wall - 뚝섬 and the like - the same thing
+  // ActivityType.outdoor_wall means. Natural rock is multi_pitch/hard_free.
+  crag: "외벽",
+  multi_pitch: "멀티피치",
+  hard_free: "하드프리",
 };
 
 /** Same colour the marker uses, so a badge here reads as that dot out there. */
@@ -401,7 +408,7 @@ export function SidePanel({
             활동 기록 {activeLocation.hikes.length}건
           </p>
           <div className="mb-3">
-            <NewHikeForm locationId={activeLocation.id} />
+            <NewHikeForm locationId={activeLocation.id} locationType={activeLocation.type} />
           </div>
           {activeLocation.hikes.length === 0 ? (
             <p className="py-8 text-center text-sm text-club-muted">

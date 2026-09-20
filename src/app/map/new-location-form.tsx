@@ -8,7 +8,7 @@ import type { PickedPoint } from "./map-shell";
 import { TYPE_LABEL } from "./side-panel";
 import { PlaceSearch, type PlaceResult } from "./place-search";
 
-const TYPES: LocationType[] = ["mountain", "climbing_gym", "crag"];
+const TYPES: LocationType[] = ["mountain", "climbing_gym", "crag", "multi_pitch", "hard_free"];
 
 export function NewLocationForm({
   picking,

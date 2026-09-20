@@ -1,5 +1,5 @@
 import { isClimbingQuestion } from "@/lib/assistant/intent";
-import type { ActivityType } from "@/types/database";
+import type { ActivityType, LocationType } from "@/types/database";
 
 // Shared by the form, the panel rows and the detail header. Kept in its own
 // module so hike-detail.tsx can use it without importing side-panel.tsx,
@@ -71,6 +71,24 @@ export const ACTIVITY_HAS_OWN_SPOT: Record<ActivityType, boolean> = {
   climbing: true,
   indoor_climbing: false,
   outdoor_wall: false,
+};
+
+/**
+ * The activity a new hike under this location most likely is.
+ *
+ * A default, not a rule - a mountain can carry a climb (북한산 holds 인수봉)
+ * and the picker is never locked to it. But 멀티피치 and 하드프리 are crag
+ * subtypes with no reading other than climbing, and picking 워킹 first for a
+ * hike filed under one of those was the actual bug report: the form always
+ * opened on 워킹 regardless of where it was, so every climb had to be
+ * reselected by hand.
+ */
+export const DEFAULT_ACTIVITY_FOR_LOCATION: Record<LocationType, ActivityType> = {
+  mountain: "hiking",
+  climbing_gym: "indoor_climbing",
+  crag: "outdoor_wall",
+  multi_pitch: "climbing",
+  hard_free: "climbing",
 };
 
 /** A gym, however the sentence gets around to saying so. */
