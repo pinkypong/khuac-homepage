@@ -773,6 +773,28 @@ export function MapShell({
                 </p>
               </div>
             )}
+            {/* New-location picking, shown wherever the map actually is - which
+                on a phone is a different tab from the album panel's own
+                banner, and "지도 열기" used to hand someone off to a screen
+                with no way back except finding a small button they had
+                already left behind. This is that way back, always in view
+                while `picking` is on for this flow specifically - excluded
+                when `namingPoi` is set, because that is the missing-waypoint
+                flow reusing the same shared flag, with its own bar below. */}
+            {picking && !namingPoi && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
+                <span className="pointer-events-auto flex items-center gap-2 rounded-full border border-club-line bg-white/95 px-3 py-1.5 text-[11px] text-club-ink-soft shadow-lg backdrop-blur">
+                  지도를 클릭해 새 장소의 위치를 지정하세요
+                  <button
+                    type="button"
+                    onClick={() => { setPicking(false); setPickedPoint(null); }}
+                    className="rounded-full border border-club-line px-2 py-0.5 font-medium text-club-ink"
+                  >
+                    취소
+                  </button>
+                </span>
+              </div>
+            )}
             {/* Only while a course has a name nothing could place. The club's
                 own point for it is the fix, and this is the moment the member
                 both knows the answer and has a reason to give it. */}

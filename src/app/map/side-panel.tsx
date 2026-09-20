@@ -458,14 +458,23 @@ export function SidePanel({
       <div className="border-b border-club-line px-4 py-3">
         {picking && (
           <div className="mb-2 rounded bg-red-50 px-2 py-1.5 text-xs text-red-700">
-            <p>지도를 클릭해 새 장소의 위치를 지정하세요.</p>
-            <button
-              type="button"
-              onClick={onShowOnMap}
-              className="mt-1.5 rounded border border-red-300 px-2 py-1 text-xs font-medium md:hidden"
-            >
-              지도 열기
-            </button>
+            <p>지도를 클릭하거나, 아래 검색으로 새 장소의 위치를 지정하세요.</p>
+            <div className="mt-1.5 flex gap-1.5">
+              <button
+                type="button"
+                onClick={onShowOnMap}
+                className="rounded border border-red-300 px-2 py-1 text-xs font-medium md:hidden"
+              >
+                지도 열기
+              </button>
+              <button
+                type="button"
+                onClick={() => onPickingChange(false)}
+                className="rounded border border-red-300 px-2 py-1 text-xs font-medium"
+              >
+                취소
+              </button>
+            </div>
           </div>
         )}
         <input
@@ -480,6 +489,7 @@ export function SidePanel({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <div className="mb-3">
           <NewLocationForm
+            picking={picking}
             pickedPoint={pickedPoint}
             onPickingChange={onPickingChange}
             onPickPoint={onPickPoint}

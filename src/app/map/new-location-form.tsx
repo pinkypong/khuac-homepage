@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { LocationType } from "@/types/database";
 import { createLocation } from "./actions";
 import type { PickedPoint } from "./map-shell";
@@ -11,11 +11,17 @@ import { PlaceSearch, type PlaceResult } from "./place-search";
 const TYPES: LocationType[] = ["mountain", "climbing_gym", "crag"];
 
 export function NewLocationForm({
+  picking,
   pickedPoint,
   onPickingChange,
   onPickPoint,
   onCreated,
 }: {
+  /** The shared map-picking flag, also used by the missing-waypoint flow.
+      Watched rather than owned: cancelling from the floating map banner or
+      from this form's own button both have to close this form the same way,
+      and there is only one flag to cancel through. */
+  picking: boolean;
   pickedPoint: PickedPoint | null;
   onPickingChange: (picking: boolean) => void;
   onPickPoint: (point: PickedPoint) => void;
@@ -47,6 +53,18 @@ export function NewLocationForm({
       setError(null);
     }
   }
+
+  // Cancelling has two other doors besides this form's own button: the
+  // floating banner over the map, reachable while the map fills the screen
+  // on a phone, and the picking banner above the album list. Both cancel by
+  // turning `picking` off rather than calling back into this form, because
+  // neither knows this form is what is open - the flag is the one thing every
+  // picker, this one and the missing-waypoint one, agrees to watch. This form
+  // closing itself in response is what makes either door actually work.
+  useEffect(() => {
+    if (!picking && open) toggle(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picking]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
