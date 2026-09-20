@@ -27,6 +27,7 @@ import { loadCourseElevation, type CourseElevation } from "./elevation-actions";
 import { ElevationProfile } from "./elevation-profile";
 import { attachCourseToHike, createAlbumFromRoute, type KnownCourse, type RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
+import { withWaypoint, type CourseDraft } from "./course-draft";
 
 export interface MapPhoto {
   id: string;
@@ -344,6 +345,14 @@ export function MapShell({
   // picker - far easier than asking anyone to type lat/lng.
   const [picking, setPicking] = useState(false);
   const [pickedPoint, setPickedPoint] = useState<PickedPoint | null>(null);
+  // The course editor in the album panel asking for a point - the album's id
+  // while it is asking. A third reader of `picking`, alongside the new-location
+  // form and the missing-waypoint form; each claims the shared flag and says so
+  // with its own here, so the banner on the map can name what the tap is for.
+  const [pickingWaypoint, setPickingWaypoint] = useState<string | null>(null);
+  // The course being edited. Up here rather than in the panel because reaching
+  // the map can unmount the panel - see course-draft.ts.
+  const [courseDraft, setCourseDraft] = useState<CourseDraft | null>(null);
 
   useEffect(() => {
     if (mapWidth !== null) return;
@@ -438,10 +447,31 @@ export function MapShell({
       setPicking(false);
       return;
     }
+    // The course editor is in the album panel, which on a phone is the other
+    // tab - so go back to it, where the new row is waiting for its name. The
+    // point is added here rather than handed to the panel: the panel may not
+    // be mounted at this moment, and the draft it edits lives up here anyway.
+    if (pickingWaypoint) {
+      const hike = allHikes.find((h) => h.id === pickingWaypoint);
+      if (hike) setCourseDraft((draft) => withWaypoint(draft, hike, point));
+      setPickingWaypoint(null);
+      setPicking(false);
+      setMobileTab("album");
+      return;
+    }
     setPickedPoint(point);
     // The form waiting on this point is in the other tab, so a phone goes back
     // to it rather than leaving the member on a map that looks unchanged.
     setMobileTab("album");
+  }
+
+  function pickWaypoint(hikeId: string) {
+    setPickingWaypoint(hikeId);
+    setPicking(true);
+    // On a phone the map is the other tab, and a picker nobody can see is a
+    // button that does nothing.
+    setMapOpen(true);
+    setMobileTab("map");
   }
 
   function selectPhoto(photoId: string) {
@@ -850,7 +880,21 @@ export function MapShell({
                 while `picking` is on for this flow specifically - excluded
                 when `namingPoi` is set, because that is the missing-waypoint
                 flow reusing the same shared flag, with its own bar below. */}
-            {picking && !namingPoi && (
+            {pickingWaypoint && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
+                <span className="pointer-events-auto flex items-center gap-2 rounded-full border border-club-line bg-white/95 px-3 py-1.5 text-[11px] text-club-ink-soft shadow-lg backdrop-blur">
+                  지도를 클릭해 경유지를 추가하세요
+                  <button
+                    type="button"
+                    onClick={() => { setPickingWaypoint(null); setPicking(false); }}
+                    className="rounded-full border border-club-line px-2 py-0.5 font-medium text-club-ink"
+                  >
+                    취소
+                  </button>
+                </span>
+              </div>
+            )}
+            {picking && !namingPoi && !pickingWaypoint && (
               <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
                 <span className="pointer-events-auto flex items-center gap-2 rounded-full border border-club-line bg-white/95 px-3 py-1.5 text-[11px] text-club-ink-soft shadow-lg backdrop-blur">
                   지도를 클릭해 새 장소의 위치를 지정하세요
@@ -1017,6 +1061,9 @@ export function MapShell({
           onStartTrailPick={startTrailPick}
           onUseCourse={useCourseForHike}
           trailBusy={trailBusy}
+          onPickWaypoint={pickWaypoint}
+          courseDraft={courseDraft}
+          onCourseDraftChange={setCourseDraft}
           focusedPhotoId={focusedPhotoId}
           onFocusedPhotoConsumed={() => setFocusedPhotoId(null)}
           onBackToRoot={goToRoot}

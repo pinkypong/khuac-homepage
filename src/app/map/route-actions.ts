@@ -5,7 +5,7 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { fetchTrailsInBounds, fetchTrailsNear } from "@/lib/routes/overpass";
 import { stitchSegments, splitSurveyGaps, type TrailSegment } from "@/lib/routes/trails";
-import { placeHints, prepareRouteSnap, walkPreparedRoute, type HintablePoint, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
+import { placeHints, prepareRouteSnap, snapRouteToTrails, walkPreparedRoute, type HintablePoint, type RouteLeg, type SnapDiagnostics } from "@/lib/routes/snap";
 import { SAME_PLACE_M, type ClubPoi } from "@/lib/routes/poi";
 import { groupSegmentsByTile, mergeTileSegments, tilesForBounds, tilesFullyInside, TILE_DEG } from "@/lib/routes/tiles";
 import type { TrailBounds } from "@/lib/routes/overpass";
@@ -425,4 +425,70 @@ export async function saveClubPoi(input: {
 
   revalidatePath("/map");
   return { ok: true };
+}
+
+/**
+ * Redraws an album's line along its own waypoints.
+ *
+ * Saving the course used to change only the names and the numbers, because the
+ * drawn line lives in `track` and nothing recomputed it - so adding a waypoint
+ * put a marker on the map and left the line ending where it always had.
+ *
+ * Deliberately a button rather than something that happens on save. There is no
+ * column saying where a track came from - page.tsx reports "gpx" for any track
+ * at all - so a rebuild cannot tell a member's recorded walk from a line this
+ * same routine drew earlier, and redrawing on every save would eventually erase
+ * somebody's GPX. The caller warns before calling when a track already exists.
+ *
+ * The geometry is built here from our own tiles, never posted from the browser,
+ * for the same reason saveTrailRoute rebuilds its own: this is the field the
+ * map draws from.
+ */
+export async function rebuildCourseTrack(
+  hikeId: string,
+): Promise<ActionResult<{ pointCount: number; drawnLegs: number; totalLegs: number }>> {
+  const { supabase } = await requireApprovedMember();
+
+  const { data, error } = await supabase
+    .from("hikes").select("route_waypoints").eq("id", hikeId).maybeSingle();
+  if (error) return refusedByDatabase("경유지 읽기", error);
+  const points = ((data as { route_waypoints: { name: string; lat: number; lng: number }[] | null } | null)
+    ?.route_waypoints ?? []).filter((point) => isValidGps(point.lat, point.lng));
+  if (points.length < 2) {
+    return refused("경로를 그리려면 경유지가 두 곳 이상 있어야 합니다.");
+  }
+
+  // A margin around the points, so a path that bows out between two waypoints
+  // is still in the box the snapper gets to work with.
+  const lats = points.map((p) => p.lat);
+  const lngs = points.map((p) => p.lng);
+  const bounds: TrailBounds = {
+    south: Math.min(...lats) - PICK_SPAN_DEG, north: Math.max(...lats) + PICK_SPAN_DEG,
+    west: Math.min(...lngs) - PICK_SPAN_DEG, east: Math.max(...lngs) + PICK_SPAN_DEG,
+  };
+  const segments = await trailsForBounds(supabase, bounds);
+  if (segments.length === 0) {
+    return refused("이 구역의 등산로 자료가 아직 없어 경로를 그릴 수 없습니다.");
+  }
+
+  const legs = snapRouteToTrails(points, segments);
+  // Only the legs that found real ground are drawn. A leg the snapper could not
+  // follow is left out rather than joined with a straight line, which would be
+  // a path nobody walked drawn as though somebody had.
+  const onTrail = legs.filter((leg) => leg.onTrail);
+  const track = sanitizeTrack(onTrail.flatMap((leg) => leg.points));
+  if (!track || track.length < 2) {
+    return refused("경유지 사이를 잇는 등산로를 찾지 못했습니다.");
+  }
+
+  const { error: saveError, count } = await supabase
+    .from("hikes").update({ track }, { count: "exact" }).eq("id", hikeId);
+  if (saveError) return refusedByDatabase("경로 저장", saveError);
+  if (count === 0) return refused("이 앨범을 수정할 권한이 없습니다.");
+
+  revalidatePath("/map");
+  return {
+    ok: true,
+    value: { pointCount: track.length, drawnLegs: onTrail.length, totalLegs: legs.length },
+  };
 }

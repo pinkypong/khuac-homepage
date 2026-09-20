@@ -182,6 +182,8 @@ export async function updateActivity(input: {
 const MAX_FIELD = 60;
 /** Enough for a waypoint name and no more; the long text goes in notes. */
 const MAX_WAYPOINT_NAME = 60;
+/** The longest course in the library names six points; this is room to spare. */
+const MAX_WAYPOINTS = 60;
 
 /**
  * The course box: the points it passes, the numbers beside them, the caveats,
@@ -193,16 +195,21 @@ const MAX_WAYPOINT_NAME = 60;
  * shows - and that form opens at the top of the panel, so pressing the lower
  * button scrolled nothing into view and read as a dead button.
  *
- * Waypoint coordinates are never taken from here. A name is edited in place on
- * the point that already holds its position, so correcting 비둘기샘 - a name a
- * web answer invented - cannot move the line that is drawn through it. Dropping
- * a point is done by clearing its name.
+ * Points arrive whole - name and position together - because one can now be
+ * added by tapping the map, and a tap is the only place its coordinates could
+ * come from. They are range-checked here for that reason.
+ *
+ * A nameless point is refused, not dropped. Clearing the name used to be how a
+ * point was deleted, which collided with adding one: a point tapped onto the
+ * map arrives with no name, so the new row was born already marked for deletion
+ * and disappeared on save. Deleting has its own button now.
  */
 export async function updateCourseDetails(input: {
   hikeId: string;
   /** The member's own memo. Empty clears it. */
   description: string;
-  waypointNames: string[];
+  /** The points, in order. A blank name drops its point. */
+  waypoints: { name: string; lat: number; lng: number }[];
   distanceText: string;
   durationText: string;
   difficulty: string;
@@ -223,27 +230,27 @@ export async function updateCourseDetails(input: {
   ] as const) {
     if (value.trim().length > MAX_FIELD) return refused(`${label}는 ${MAX_FIELD}자 이내로 적어주세요.`);
   }
-  if (input.waypointNames.some((name) => name.trim().length > MAX_WAYPOINT_NAME)) {
+  if (input.waypoints.some((point) => point.name.trim().length > MAX_WAYPOINT_NAME)) {
     return refused(`경유지 이름은 ${MAX_WAYPOINT_NAME}자 이내로 적어주세요.`);
   }
-
-  // Read the points back rather than trusting what the browser sent: the
-  // coordinates are the part that must not change, and the only thing this
-  // edit is allowed to say about them is which name sits on each.
-  const { data, error: readError } = await supabase
-    .from("hikes").select("route_waypoints, course_info").eq("id", input.hikeId).maybeSingle();
-  if (readError) return refusedByDatabase("코스 정보 읽기", readError);
-  const row = data as {
-    route_waypoints: { name: string; lat: number; lng: number }[] | null;
-    course_info: unknown;
-  } | null;
-  const held = row?.route_waypoints ?? [];
-  if (input.waypointNames.length !== held.length) {
-    return refused("코스가 그 사이에 바뀌었습니다. 새로고침 후 다시 시도해주세요.");
+  if (input.waypoints.length > MAX_WAYPOINTS) {
+    return refused(`경유지는 ${MAX_WAYPOINTS}개까지 넣을 수 있습니다.`);
   }
-  const waypoints = held
-    .map((point, i) => ({ ...point, name: input.waypointNames[i].trim() }))
-    .filter((point) => point.name);
+  // Coordinates do come from the browser now - a point added by tapping the map
+  // has no other source - so every one of them is range-checked here.
+  const waypoints = input.waypoints
+    .map((point) => ({ name: point.name.trim(), lat: point.lat, lng: point.lng }));
+  if (waypoints.some((point) => !point.name)) {
+    return refused("이름 없는 경유지가 있습니다. 이름을 적거나 지워주세요.");
+  }
+  if (waypoints.some((point) => !isValidGps(point.lat, point.lng))) {
+    return refused("경유지 위치가 올바르지 않습니다. 지도에서 다시 찍어주세요.");
+  }
+
+  const { data, error: readError } = await supabase
+    .from("hikes").select("course_info").eq("id", input.hikeId).maybeSingle();
+  if (readError) return refusedByDatabase("코스 정보 읽기", readError);
+  const row = data as { course_info: unknown } | null;
 
   // The source links an answer cited are not on this form, so they are carried
   // over rather than dropped - editing a distance should not throw away where
@@ -261,7 +268,11 @@ export async function updateCourseDetails(input: {
   const empty = !courseInfo.distanceText && !courseInfo.durationText
     && !courseInfo.difficulty && !courseInfo.notes && sources.length === 0;
 
-  const { error } = await supabase
+  // count, because RLS refusing this is not an error: hikes_update allows the
+  // album's creator or an admin, and for anybody else PostgREST reports success
+  // having changed nothing. Without this the form would close, the panel would
+  // refresh, and the edit would simply not be there - with nothing said.
+  const { error, count } = await supabase
     .from("hikes")
     .update({
       description: description || null,
@@ -269,9 +280,10 @@ export async function updateCourseDetails(input: {
       // An all-blank card is cleared, not stored as four nulls - the album then
       // shows the "코스 정보 적기" prompt again rather than an empty box.
       course_info: empty ? null : courseInfo,
-    })
+    }, { count: "exact" })
     .eq("id", input.hikeId);
   if (error) return refusedByDatabase("코스 정보 수정", error);
+  if (count === 0) return refused("이 앨범을 수정할 권한이 없습니다. 만든 사람이나 관리자만 고칠 수 있습니다.");
 
   revalidatePath("/map");
   return { ok: true };

@@ -8,6 +8,7 @@ import type { ActivityType, LocationType } from "@/types/database";
 import { formatDistance, trackDistanceMeters, type TrackPoint } from "@/lib/gps/track";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import { HikeDetail } from "./hike-detail";
+import type { CourseDraft } from "./course-draft";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
 import type { KnownCourse } from "./route-album-actions";
@@ -150,6 +151,9 @@ export function SidePanel({
   onOpenHike,
   onStartTrailPick,
   onUseCourse,
+  onPickWaypoint,
+  courseDraft,
+  onCourseDraftChange,
   trailBusy,
   focusedPhotoId,
   onFocusedPhotoConsumed,
@@ -176,6 +180,11 @@ export function SidePanel({
   onOpenHike: (hike: MapHike) => void;
   onStartTrailPick: (hike: MapHike, lat: number, lng: number) => void;
   onUseCourse: (hike: MapHike, course: KnownCourse) => void;
+  /** Course editing needs a point from the map, and the draft it edits is held
+      above this panel because reaching the map can unmount it. */
+  onPickWaypoint: (hikeId: string) => void;
+  courseDraft: CourseDraft | null;
+  onCourseDraftChange: (draft: CourseDraft | null) => void;
   trailBusy: boolean;
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
@@ -308,6 +317,9 @@ export function SidePanel({
         onUseCourse={(course) => onUseCourse(activeHike, course)}
         trailBusy={trailBusy}
         onFocusedPhotoConsumed={onFocusedPhotoConsumed}
+        onPickWaypoint={() => onPickWaypoint(activeHike.id)}
+        courseDraft={courseDraft}
+        onCourseDraftChange={onCourseDraftChange}
       />
     );
   }

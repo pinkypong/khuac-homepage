@@ -13,6 +13,7 @@ import { PhotoLightbox, type LightboxPhoto } from "@/components/photo-lightbox";
 import { CommentThread } from "@/components/comment-thread";
 import type { MapHike, MapLocation } from "./map-shell";
 import { saveHikeTrack, updateActivity, updateCourseDetails } from "./actions";
+import { rebuildCourseTrack } from "./route-actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
 import { ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
@@ -21,6 +22,7 @@ import { isValidGps } from "@/lib/gps/validate";
 import { HikePhotoUpload } from "./hike-photo-upload";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
 import { originLabel } from "./course-origin";
+import { draftFromHike, type CourseDraft } from "./course-draft";
 
 export function HikeDetail({
   location,
@@ -34,6 +36,9 @@ export function HikeDetail({
   onStartTrailPick,
   onUseCourse,
   trailBusy,
+  onPickWaypoint,
+  courseDraft,
+  onCourseDraftChange,
 }: {
   location: MapLocation;
   hike: MapHike;
@@ -47,6 +52,11 @@ export function HikeDetail({
   /** Draw a course we already hold, for the member to confirm onto this album. */
   onUseCourse: (course: KnownCourse) => void;
   trailBusy: boolean;
+  /** Turn the map into a picker so a new waypoint can be placed. */
+  onPickWaypoint: () => void;
+  /** The course being edited. Held by map-shell - see course-draft.ts. */
+  courseDraft: CourseDraft | null;
+  onCourseDraftChange: (draft: CourseDraft | null) => void;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -63,12 +73,13 @@ export function HikeDetail({
   // The course box edits itself, in place. It used to share the header's form,
   // which holds none of the fields it shows and opens at the top of the panel -
   // so pressing 수정 down here scrolled nothing into view and looked dead.
-  // Keyed by hike for the same reason the rename draft is.
-  const [editingCourse, setEditingCourse] = useState<{
-    hikeId: string; description: string; waypointNames: string[];
-    distanceText: string; durationText: string; difficulty: string; notes: string;
-  } | null>(null);
+  //
+  // The draft is a prop rather than state here: reaching the map to place a
+  // waypoint can unmount this component, which twice took the edit with it.
+  const editingCourse = courseDraft?.hikeId === hike.id ? courseDraft : null;
+  const setEditingCourse = onCourseDraftChange;
   const [savingCourse, setSavingCourse] = useState(false);
+  const [redrawing, setRedrawing] = useState(false);
   // The courses already on file for this place. Read once the route section is
   // opened rather than on every album view: most visits never open it, and a
   // list nobody asked for is a query nobody needed.
@@ -129,27 +140,47 @@ export function HikeDetail({
 
   function openCourseEditor() {
     setRenaming(null); // never two forms at once
-    setEditingCourse({
-      hikeId: hike.id,
-      description: hike.description ?? "",
-      // Every held point, including any with a blank name, so the list this
-      // sends back lines up one-for-one with the coordinates on the server.
-      waypointNames: (hike.routeWaypoints ?? []).map((point) => point.name ?? ""),
-      distanceText: hike.courseInfo?.distanceText ?? "",
-      durationText: hike.courseInfo?.durationText ?? "",
-      difficulty: hike.courseInfo?.difficulty ?? "",
-      notes: hike.courseInfo?.notes ?? "",
-    });
+    setEditingCourse(draftFromHike(hike));
+  }
+
+  async function redrawTrack() {
+    // Warned, not assumed. There is no column saying where a track came from,
+    // so this cannot tell a member's recorded GPX from a line drawn here
+    // before - and quietly replacing the former would lose the only copy.
+    if (hike.track && hike.track.length >= 2
+      && !window.confirm("지금 그려진 경로를 지우고 경유지를 따라 다시 그립니다. GPX로 올린 경로였다면 사라집니다. 계속할까요?")) return;
+    setRedrawing(true);
+    try {
+      const result = await rebuildCourseTrack(hike.id);
+      if (!result.ok) { window.alert(result.reason); return; }
+      const { drawnLegs, totalLegs } = result.value;
+      if (drawnLegs < totalLegs) {
+        window.alert(`구간 ${totalLegs}개 중 ${drawnLegs}개만 등산로를 찾았습니다. 찾은 구간만 그렸습니다.`);
+      }
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "경로를 다시 그리지 못했습니다.");
+    } finally {
+      setRedrawing(false);
+    }
   }
 
   async function submitCourse() {
     if (!editingCourse) return;
+    // Refused rather than quietly dropped. A nameless point is almost always
+    // one just tapped onto the map and not yet labelled, and deleting it on
+    // save would throw away the tap that placed it.
+    const blank = editingCourse.waypoints.findIndex((point) => !point.name.trim());
+    if (blank >= 0) {
+      window.alert(`${blank + 1}번 경유지의 이름을 적어주세요. 지우려면 × 를 누르세요.`);
+      return;
+    }
     setSavingCourse(true);
     try {
       const result = await updateCourseDetails({
         hikeId: hike.id,
         description: editingCourse.description,
-        waypointNames: editingCourse.waypointNames,
+        waypoints: editingCourse.waypoints,
         distanceText: editingCourse.distanceText,
         durationText: editingCourse.durationText,
         difficulty: editingCourse.difficulty,
@@ -390,32 +421,85 @@ export function HikeDetail({
           >
             <h2 className="mb-2 text-xs font-semibold tracking-wide text-club-muted">코스 수정</h2>
 
-            {editingCourse.waypointNames.length > 0 && (
-              <div className="mb-3">
-                <p className="mb-1 text-xs text-club-faint">
-                  경유지 — 이름만 고쳐집니다. 지도에 그려진 위치는 그대로입니다.
-                  <br />
-                  이름을 비우면 그 지점이 목록에서 빠집니다.
-                </p>
+            <div className="mb-3">
+              <p className="mb-1 text-xs text-club-faint">
+                경유지 — 지우려면 × 를 누르세요.
+              </p>
+              {editingCourse.waypoints.length > 0 && (
                 <ul className="flex flex-col gap-1">
-                  {editingCourse.waypointNames.map((name, i) => (
+                  {editingCourse.waypoints.map((point, i) => (
                     <li key={i} className="flex items-center gap-1.5">
                       <span className="w-4 shrink-0 text-right text-xs text-club-faint">{i + 1}</span>
                       <input
-                        value={name}
+                        value={point.name}
                         onChange={(e) => {
-                          const next = [...editingCourse.waypointNames];
-                          next[i] = e.target.value;
-                          setEditingCourse({ ...editingCourse, waypointNames: next });
+                          const next = [...editingCourse.waypoints];
+                          next[i] = { ...point, name: e.target.value };
+                          setEditingCourse({ ...editingCourse, waypoints: next });
                         }}
+                        placeholder={point.name ? "" : "이 지점의 이름"}
+                        autoFocus={!point.name && i === editingCourse.waypoints.length - 1}
                         aria-label={`경유지 ${i + 1}`}
-                        className="min-w-0 flex-1 rounded border border-club-line bg-white px-2 py-1 text-sm md:text-xs"
+                        className={
+                          "min-w-0 flex-1 rounded border bg-white px-2 py-1 text-sm md:text-xs "
+                          + (point.name.trim() ? "border-club-line" : "border-amber-400")
+                        }
                       />
+                      <span
+                        title={`${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`}
+                        className="shrink-0 text-[10px] tabular-nums text-club-faint"
+                      >
+                        {point.lat.toFixed(4)}
+                      </span>
+                      {/* Removing is its own button. It used to be "clear the
+                          name", which collided with adding: a point tapped on
+                          the map arrives without a name, so the new row was
+                          born already marked for deletion and vanished on save
+                          if the member did not type fast enough. */}
+                      <button
+                        type="button"
+                        onClick={() => setEditingCourse({
+                          ...editingCourse,
+                          waypoints: editingCourse.waypoints.filter((_, at) => at !== i),
+                        })}
+                        aria-label={`경유지 ${i + 1} 삭제`}
+                        className="shrink-0 rounded border border-club-line px-1.5 py-0.5 text-xs leading-none text-club-faint hover:border-red-300 hover:text-red-600"
+                      >
+                        ×
+                      </button>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              )}
+              {/* A point needs a position, and typing one is not something to
+                  ask of anybody - so a new one is placed by tapping the map,
+                  the same way a new place is. It lands at the end of the list
+                  with an empty name waiting to be filled in. */}
+              <button
+                type="button"
+                onClick={onPickWaypoint}
+                className="mt-1.5 w-full rounded-sm border border-dashed border-club-line py-1.5 text-xs text-club-muted hover:border-club-muted hover:text-club-ink-soft"
+              >
+                + 지도에서 경유지 추가
+              </button>
+              {/* Separate from 저장 on purpose. Saving writes the names and the
+                  numbers; the line on the map is its own column, and redrawing
+                  it can replace a GPX somebody recorded - so it is asked for
+                  rather than assumed. */}
+              {editingCourse.waypoints.length >= 2 && (
+                <button
+                  type="button"
+                  onClick={redrawTrack}
+                  disabled={redrawing}
+                  className="mt-1.5 w-full rounded-sm border border-club-faint py-1.5 text-xs font-medium text-club-ink hover:bg-white disabled:opacity-50"
+                >
+                  {redrawing ? "등산로 따라 그리는 중…" : "경유지를 따라 지도에 경로 그리기"}
+                </button>
+              )}
+              <p className="mt-1 text-xs text-club-faint">
+                경유지를 저장해도 지도의 선은 그대로입니다. 선을 다시 그리려면 위 버튼을 누르세요.
+              </p>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               {([
