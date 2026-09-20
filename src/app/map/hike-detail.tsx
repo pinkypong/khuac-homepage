@@ -12,7 +12,7 @@ import {
 import { PhotoLightbox, type LightboxPhoto } from "@/components/photo-lightbox";
 import { CommentThread } from "@/components/comment-thread";
 import type { MapHike, MapLocation } from "./map-shell";
-import { saveHikeTrack, updateActivity } from "./actions";
+import { saveHikeTrack, updateActivity, updateCourseDetails } from "./actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
 import { ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
@@ -20,6 +20,7 @@ import type { ActivityType } from "@/types/database";
 import { isValidGps } from "@/lib/gps/validate";
 import { HikePhotoUpload } from "./hike-photo-upload";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
+import { originLabel } from "./course-origin";
 
 export function HikeDetail({
   location,
@@ -56,9 +57,18 @@ export function HikeDetail({
   const [deleting, setDeleting] = useState(false);
   // Keyed by hike id so moving to another activity can't carry a stale draft.
   const [renaming, setRenaming] = useState<{
-    hikeId: string; title: string; date: string; activityType: ActivityType; description: string;
+    hikeId: string; title: string; date: string; activityType: ActivityType;
   } | null>(null);
   const [savingName, setSavingName] = useState(false);
+  // The course box edits itself, in place. It used to share the header's form,
+  // which holds none of the fields it shows and opens at the top of the panel -
+  // so pressing 수정 down here scrolled nothing into view and looked dead.
+  // Keyed by hike for the same reason the rename draft is.
+  const [editingCourse, setEditingCourse] = useState<{
+    hikeId: string; description: string; waypointNames: string[];
+    distanceText: string; durationText: string; difficulty: string; notes: string;
+  } | null>(null);
+  const [savingCourse, setSavingCourse] = useState(false);
   // The courses already on file for this place. Read once the route section is
   // opened rather than on every album view: most visits never open it, and a
   // list nobody asked for is a query nobody needed.
@@ -103,12 +113,12 @@ export function HikeDetail({
   }
 
   function openEditor() {
+    setEditingCourse(null); // never two forms at once
     setRenaming({
       hikeId: hike.id,
       title: hike.title,
       date: hike.date,
       activityType: hike.activityType,
-      description: hike.description ?? "",
     });
   }
 
@@ -116,6 +126,47 @@ export function HikeDetail({
   const waypointNames = (hike.routeWaypoints ?? [])
     .map((point) => point.name)
     .filter((name): name is string => Boolean(name && name.trim()));
+
+  function openCourseEditor() {
+    setRenaming(null); // never two forms at once
+    setEditingCourse({
+      hikeId: hike.id,
+      description: hike.description ?? "",
+      // Every held point, including any with a blank name, so the list this
+      // sends back lines up one-for-one with the coordinates on the server.
+      waypointNames: (hike.routeWaypoints ?? []).map((point) => point.name ?? ""),
+      distanceText: hike.courseInfo?.distanceText ?? "",
+      durationText: hike.courseInfo?.durationText ?? "",
+      difficulty: hike.courseInfo?.difficulty ?? "",
+      notes: hike.courseInfo?.notes ?? "",
+    });
+  }
+
+  async function submitCourse() {
+    if (!editingCourse) return;
+    setSavingCourse(true);
+    try {
+      const result = await updateCourseDetails({
+        hikeId: hike.id,
+        description: editingCourse.description,
+        waypointNames: editingCourse.waypointNames,
+        distanceText: editingCourse.distanceText,
+        durationText: editingCourse.durationText,
+        difficulty: editingCourse.difficulty,
+        notes: editingCourse.notes,
+      });
+      if (!result.ok) {
+        window.alert(result.reason);
+        return;
+      }
+      setEditingCourse(null);
+      router.refresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "코스 정보 수정에 실패했습니다.");
+    } finally {
+      setSavingCourse(false);
+    }
+  }
 
   async function submitRename() {
     if (!renaming) return;
@@ -126,7 +177,8 @@ export function HikeDetail({
         title: renaming.title,
         date: renaming.date,
         activityType: renaming.activityType,
-        description: renaming.description,
+        // Left out on purpose: the memo is the course box's field now, and
+        // passing it here would let this form overwrite an edit made there.
       });
       if (!result.ok) {
         window.alert(result.reason);
@@ -221,17 +273,11 @@ export function HikeDetail({
               aria-label="활동 이름"
               className="min-w-0 rounded border border-club-line px-2 py-1 text-base md:text-sm"
             />
-            <textarea
-              value={renaming.description}
-              onChange={(e) => setRenaming({ ...renaming, description: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setRenaming(null);
-              }}
-              rows={4}
-              aria-label="메모"
-              placeholder={"이 산행에 대해 남길 메모\n물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것"}
-              className="min-w-0 resize-y rounded border border-club-line px-2 py-1 text-base leading-relaxed md:text-sm"
-            />
+            {/* 메모 is not here any more. It lives in the course box below,
+                under that box's own 수정 button. The two buttons used to open
+                this same form, which is what "기능이 같음" meant: this one is
+                the album's identity - what it is called, when it was, what kind
+                of outing - and the course box holds what the day was like. */}
             {/* What kind of outing it was. Editable because it is guessed: an
                 album made from a course is filed by reading the words in it,
                 and a guess from words is wrong sometimes. */}
@@ -337,7 +383,98 @@ export function HikeDetail({
             waypoints as a sentence, the distance as prose, the caveats run in
             after them - and a reader looking for "do I need a reservation" had
             to read all of it to find out. */}
-        {(hike.courseInfo || waypointNames.length > 0 || hike.description) ? (
+        {editingCourse?.hikeId === hike.id ? (
+          <section
+            aria-label="코스 정보 수정"
+            className="mb-4 rounded-sm border border-club-muted bg-club-paper px-3 py-2.5"
+          >
+            <h2 className="mb-2 text-xs font-semibold tracking-wide text-club-muted">코스 수정</h2>
+
+            {editingCourse.waypointNames.length > 0 && (
+              <div className="mb-3">
+                <p className="mb-1 text-xs text-club-faint">
+                  경유지 — 이름만 고쳐집니다. 지도에 그려진 위치는 그대로입니다.
+                  <br />
+                  이름을 비우면 그 지점이 목록에서 빠집니다.
+                </p>
+                <ul className="flex flex-col gap-1">
+                  {editingCourse.waypointNames.map((name, i) => (
+                    <li key={i} className="flex items-center gap-1.5">
+                      <span className="w-4 shrink-0 text-right text-xs text-club-faint">{i + 1}</span>
+                      <input
+                        value={name}
+                        onChange={(e) => {
+                          const next = [...editingCourse.waypointNames];
+                          next[i] = e.target.value;
+                          setEditingCourse({ ...editingCourse, waypointNames: next });
+                        }}
+                        aria-label={`경유지 ${i + 1}`}
+                        className="min-w-0 flex-1 rounded border border-club-line bg-white px-2 py-1 text-sm md:text-xs"
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {([
+                ["거리", "distanceText", "약 6.6km"],
+                ["소요", "durationText", "4시간"],
+                ["난이도", "difficulty", "중급"],
+              ] as const).map(([label, field, placeholder]) => (
+                <label key={field} className="flex min-w-[6rem] flex-1 flex-col gap-0.5">
+                  <span className="text-xs text-club-faint">{label}</span>
+                  <input
+                    value={editingCourse[field]}
+                    onChange={(e) => setEditingCourse({ ...editingCourse, [field]: e.target.value })}
+                    placeholder={placeholder}
+                    className="min-w-0 rounded border border-club-line bg-white px-2 py-1 text-sm md:text-xs"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <label className="mt-2 flex flex-col gap-0.5">
+              <span className="text-xs text-club-faint">주의할 점 (비법정탐방로 · 예약 · 낙석 등)</span>
+              <textarea
+                value={editingCourse.notes}
+                onChange={(e) => setEditingCourse({ ...editingCourse, notes: e.target.value })}
+                rows={3}
+                className="w-full resize-y rounded border border-club-line bg-white px-2 py-1 text-sm leading-relaxed md:text-xs"
+              />
+            </label>
+
+            <label className="mt-2 flex flex-col gap-0.5">
+              <span className="text-xs text-club-faint">메모 — 부원이 남기는 말</span>
+              <textarea
+                value={editingCourse.description}
+                onChange={(e) => setEditingCourse({ ...editingCourse, description: e.target.value })}
+                rows={4}
+                placeholder={"물 뜨는 곳, 실제 걸린 시간, 다음에 갈 사람이 알면 좋을 것"}
+                className="w-full resize-y rounded border border-club-line bg-white px-2 py-1 text-sm leading-relaxed md:text-xs"
+              />
+            </label>
+
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingCourse(null)}
+                className="rounded border border-club-line bg-white px-3 py-1.5 text-xs text-club-muted"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={submitCourse}
+                disabled={savingCourse}
+                className="rounded bg-club-ink px-3 py-1.5 text-xs text-white disabled:opacity-50"
+              >
+                {savingCourse ? "저장 중…" : "저장"}
+              </button>
+            </div>
+          </section>
+        ) : (hike.courseInfo || waypointNames.length > 0 || hike.description) ? (
           <section
             aria-label="코스 정보"
             className="mb-4 rounded-sm border border-club-line bg-club-paper px-3 py-2.5"
@@ -346,7 +483,7 @@ export function HikeDetail({
               <h2 className="text-xs font-semibold tracking-wide text-club-muted">코스</h2>
               <button
                 type="button"
-                onClick={openEditor}
+                onClick={openCourseEditor}
                 className="shrink-0 rounded border border-club-line bg-white px-1.5 py-0.5 text-xs text-club-muted hover:bg-club-paper"
               >
                 수정
@@ -416,7 +553,7 @@ export function HikeDetail({
             {!hike.description && (
               <button
                 type="button"
-                onClick={openEditor}
+                onClick={openCourseEditor}
                 className="mt-2 text-xs text-club-muted underline-offset-2 hover:text-club-ink hover:underline"
               >
                 + 메모 적기
@@ -426,10 +563,10 @@ export function HikeDetail({
         ) : (
           <button
             type="button"
-            onClick={openEditor}
+            onClick={openCourseEditor}
             className="mb-4 w-full rounded-sm border border-dashed border-club-line py-2 text-xs text-club-muted hover:border-club-muted hover:text-club-ink-soft"
           >
-            + 코스 정보 적기 (경유지 · 거리 · 물 · 예약 · 주의할 점)
+            + 코스 정보 적기 (거리 · 소요 · 난이도 · 주의할 점 · 메모)
           </button>
         )}
 
@@ -543,7 +680,28 @@ export function HikeDetail({
                         onClick={() => onUseCourse(course)}
                         className="w-full rounded-sm border border-club-line px-2.5 py-2 text-left hover:border-club-muted"
                       >
-                        <span className="block text-xs font-medium text-club-ink">{course.name}</span>
+                        <span className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 text-xs font-medium text-club-ink">{course.name}</span>
+                          {/* Where it came from. Without this a 산림청 survey and
+                              a web answer read the same, which is how 비둘기샘
+                              went unquestioned. */}
+                          {(() => {
+                            const origin = originLabel(course.origin);
+                            return (
+                              <span
+                                title={origin.hint}
+                                className={
+                                  "shrink-0 rounded px-1.5 py-px text-[10px] leading-4 " +
+                                  (origin.unverified
+                                    ? "bg-amber-100 text-amber-900"
+                                    : "bg-club-sunken text-club-muted")
+                                }
+                              >
+                                {origin.text}
+                              </span>
+                            );
+                          })()}
+                        </span>
                         {course.waypoints.length > 0 && (
                           <span className="mt-0.5 block text-[11px] leading-relaxed text-club-ink-soft">
                             {course.waypoints.join(" → ")}
