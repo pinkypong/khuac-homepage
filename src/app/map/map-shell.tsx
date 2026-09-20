@@ -28,11 +28,14 @@ import { ElevationProfile } from "./elevation-profile";
 import { attachCourseToHike, createAlbumFromRoute, type KnownCourse, type RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import { withWaypoint, type CourseDraft } from "./course-draft";
+import { albumCover } from "./album-cover";
 
 export interface MapPhoto {
   id: string;
   storageKey: string;
   takenAt: string | null;
+  /** When it was uploaded. The cover is the newest of these - see album-cover.ts. */
+  uploadedAt: string;
   exifLat: number | null;
   exifLng: number | null;
   uploaderName: string;
@@ -1092,7 +1095,7 @@ export function MapShell({
           }}
         />
       </div>
-      {mobileTab === "map" && mapOpen && activeLocation && <button className="club-map-sheet" onClick={()=>setMobileTab("album")}><span className="club-grabber"/>{activeLocation.hikes[0]?.photos[0] && <Image unoptimized src={getThumbnailUrl(activeLocation.hikes[0].photos[0].storageKey)} width={88} height={68} alt=""/>}<span><strong>{activeLocation.name}</strong><small>활동 {activeLocation.hikes.length} · 사진 {activeLocation.photoCount}</small></span><span aria-hidden="true">→</span></button>}
+      {mobileTab === "map" && mapOpen && activeLocation && <button className="club-map-sheet" onClick={()=>setMobileTab("album")}><span className="club-grabber"/>{albumCover(activeLocation.hikes[0]?.photos ?? []) && <Image unoptimized src={getThumbnailUrl(albumCover(activeLocation.hikes[0].photos)!.storageKey)} width={88} height={68} alt=""/>}<span><strong>{activeLocation.name}</strong><small>활동 {activeLocation.hikes.length} · 사진 {activeLocation.photoCount}</small></span><span aria-hidden="true">→</span></button>}
       </div>
 
       {mapOpen && !mapExpanded && !activeLocationId && !activeHikeId && mobileTab === "map" && (

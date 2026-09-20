@@ -8,6 +8,7 @@ import type { ActivityType, LocationType } from "@/types/database";
 import { formatDistance, trackDistanceMeters, type TrackPoint } from "@/lib/gps/track";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import { HikeDetail } from "./hike-detail";
+import { albumCover } from "./album-cover";
 import type { CourseDraft } from "./course-draft";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
@@ -73,7 +74,7 @@ function TrackThumb({
   hike: MapHike;
 }) {
   if (!track || track.length < 2) {
-    const cover = hike.photos[0];
+    const cover = albumCover(hike.photos);
     if (cover) {
       return (
         <span className="h-11 w-14 shrink-0 overflow-hidden rounded border border-club-line bg-club-sunken">

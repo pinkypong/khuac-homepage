@@ -32,6 +32,7 @@ interface LocationRow {
       id: string;
       storage_key_original: string;
       taken_at: string | null;
+      created_at: string;
       exif_lat: number | null;
       exif_lng: number | null;
       uploader_id: string | null;
@@ -62,7 +63,7 @@ export default async function MapPage() {
       .select(
         "id, name, type, region, elevation, lat, lng, created_at, " +
           "hikes(id, title, date, description, activity_type, lat, lng, track, track_source, updated_at, route_waypoints, course_info, course_id, " +
-          "photos(id, storage_key_original, taken_at, exif_lat, exif_lng, uploader_id))",
+          "photos(id, storage_key_original, taken_at, created_at, exif_lat, exif_lng, uploader_id))",
       )
       .not("lat", "is", null)
       .not("lng", "is", null)
@@ -104,6 +105,10 @@ export default async function MapPage() {
             id: p.id,
             storageKey: p.storage_key_original,
             takenAt: p.taken_at,
+            // When it was added, which is what decides the album's cover -
+            // the order below is when it was taken, which is what the grid
+            // and the lightbox read by.
+            uploadedAt: p.created_at,
             exifLat: p.exif_lat,
             exifLng: p.exif_lng,
             uploaderName:

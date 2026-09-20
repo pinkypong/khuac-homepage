@@ -4,16 +4,21 @@ import Image from "next/image";
 import type { MapHike, MapLocation } from "./map-shell";
 import { getPreviewUrl, getThumbnailUrl } from "@/lib/images/url";
 import { ACTIVITY_LABEL } from "./activity";
+import { albumCover, byLastActivity, newestFirst } from "./album-cover";
 
 export function RecentAlbums({ locations, onOpenHike }: {
   locations: MapLocation[];
   onOpenHike: (hike: MapHike) => void;
 }) {
   const albums = locations.flatMap(location => location.hikes.map(hike => ({ location, hike })))
-    .sort((a, b) => b.hike.date.localeCompare(a.hike.date) || a.hike.id.localeCompare(b.hike.id));
+    .sort(byLastActivity);
   const latest = albums[0];
   if (!latest) return <p className="px-6 py-10 text-sm text-club-muted">아직 등록된 활동이 없습니다.</p>;
   const { hike, location } = latest;
+  // Newest upload first here, unlike the album itself: this is the front page,
+  // and what it is for is showing that something new arrived.
+  const recent = newestFirst(hike.photos);
+  const cover = recent[0];
 
   return (
     <section className="recent-albums" aria-label="최근 앨범">
@@ -23,9 +28,9 @@ export function RecentAlbums({ locations, onOpenHike }: {
           {hike.title}<span aria-hidden="true">↗</span>
         </button>
         <p className="recent-meta">{ACTIVITY_LABEL[hike.activityType]} · {hike.date.replaceAll("-", ".")} · 사진 {hike.photos.length}</p>
-        {hike.photos[0] ? (
+        {cover ? (
           <button className="recent-cover" aria-label={`${hike.title} 앨범 열기`} onClick={() => onOpenHike(hike)}>
-            <Image unoptimized src={getPreviewUrl(hike.photos[0].storageKey)} alt={hike.title} width={1000} height={750} />
+            <Image unoptimized src={getPreviewUrl(cover.storageKey)} alt={hike.title} width={1000} height={750} />
           </button>
         ) : (
           <button className="recent-empty" onClick={() => onOpenHike(hike)}>
@@ -34,7 +39,7 @@ export function RecentAlbums({ locations, onOpenHike }: {
         )}
         {hike.photos.length > 1 && (
           <div className="recent-strip">
-            {hike.photos.slice(1, 4).map(photo => (
+            {recent.slice(1, 4).map(photo => (
               <button key={photo.id} onClick={() => onOpenHike(hike)} aria-label={`${hike.title} 사진 보기`}>
                 <Image unoptimized src={getThumbnailUrl(photo.storageKey)} alt="" width={240} height={180} />
               </button>
@@ -47,7 +52,7 @@ export function RecentAlbums({ locations, onOpenHike }: {
         {albums.length === 1 && <p className="py-6 text-sm text-club-muted">등록된 첫 번째 앨범입니다.</p>}
         {albums.slice(1).map(({ hike: item, location: place }) => (
           <button key={item.id} className="recent-row" onClick={() => onOpenHike(item)}>
-            {item.photos[0] ? <Image unoptimized src={getThumbnailUrl(item.photos[0].storageKey)} width={96} height={72} alt="" /> : <span className="recent-row-placeholder">사진 없음</span>}
+            {albumCover(item.photos) ? <Image unoptimized src={getThumbnailUrl(albumCover(item.photos)!.storageKey)} width={96} height={72} alt="" /> : <span className="recent-row-placeholder">사진 없음</span>}
             <span className="recent-row-text"><strong>{item.title}</strong><small>{place.name} · {item.date.replaceAll("-", ".")} · 사진 {item.photos.length}</small></span>
             <span aria-hidden="true">↗</span>
           </button>

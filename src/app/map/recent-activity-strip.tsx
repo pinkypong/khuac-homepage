@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { getThumbnailUrl } from "@/lib/images/url";
+import { albumCover, byLastActivity } from "./album-cover";
 import { ACTIVITY_LABEL } from "./activity";
 import type { MapHike, MapLocation } from "./map-shell";
 
@@ -16,7 +17,7 @@ export function RecentActivityStrip({
 }) {
   const activities = locations
     .flatMap((location) => location.hikes.map((hike) => ({ location, hike })))
-    .sort((a, b) => b.hike.date.localeCompare(a.hike.date) || a.hike.id.localeCompare(b.hike.id))
+    .sort(byLastActivity)
     .slice(0, 3);
 
   if (activities.length === 0) return null;
@@ -38,10 +39,10 @@ export function RecentActivityStrip({
               type="button"
               onClick={() => onOpenHike(hike)}
             >
-              {hike.photos[0] ? (
+              {albumCover(hike.photos) ? (
                 <Image
                   unoptimized
-                  src={getThumbnailUrl(hike.photos[0].storageKey)}
+                  src={getThumbnailUrl(albumCover(hike.photos)!.storageKey)}
                   width={360}
                   height={220}
                   alt=""
