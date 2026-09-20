@@ -29,6 +29,7 @@ import { attachCourseToHike, createAlbumFromRoute, type KnownCourse, type RouteW
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import { withWaypoint, type CourseDraft } from "./course-draft";
 import { albumCover } from "./album-cover";
+import { PresenceBeat } from "./presence-beat";
 
 export interface MapPhoto {
   id: string;
@@ -778,6 +779,7 @@ export function MapShell({
 
   const shell = (
     <div className="club-app flex h-app w-full flex-col overflow-hidden">
+      <PresenceBeat />
       <header className="club-header">
         <Link
           href="/map"

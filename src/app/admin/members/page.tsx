@@ -3,6 +3,8 @@ import { AdminCrown } from "@/components/admin-crown";
 import type { MemberRole } from "@/types/database";
 import { approveMember, rejectMember } from "./actions";
 import { RemoveMemberButton } from "./remove-member-button";
+import { Presence } from "./presence";
+import { RosterRefresh } from "./roster-refresh";
 
 interface MemberRow {
   id: string;
@@ -11,6 +13,7 @@ interface MemberRow {
   email: string | null;
   role: MemberRole;
   joined_at: string;
+  last_seen: string | null;
 }
 
 export default async function AdminMembersPage() {
@@ -19,7 +22,7 @@ export default async function AdminMembersPage() {
   // lists - the queue and the roster differ only by role.
   const { data, error } = await supabase
     .from("members")
-    .select("id, auth_user_id, name, email, role, joined_at")
+    .select("id, auth_user_id, name, email, role, joined_at, last_seen")
     .order("joined_at", { ascending: true });
   if (error) {
     // requireAdminSession also runs inside the actions, but middleware already
@@ -28,6 +31,9 @@ export default async function AdminMembersPage() {
     throw error;
   }
   const rows = data as unknown as MemberRow[];
+  // One clock for the whole page, read on the server. Each row measuring its
+  // own Date.now() would let two rows on one screen disagree.
+  const now = Date.now();
   const pendingMembers = rows.filter((m) => m.role === "pending");
   const approvedMembers = rows
     .filter((m) => m.role === "member" || m.role === "admin")
@@ -46,6 +52,7 @@ export default async function AdminMembersPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-8 md:py-10">
+      <RosterRefresh />
       <h1 className="mb-6 text-xl font-semibold">가입 승인 대기</h1>
 
       {pendingMembers.length === 0 ? (
@@ -102,6 +109,7 @@ export default async function AdminMembersPage() {
               <p className="flex items-center gap-1.5 font-medium">
                 {member.name}
                 {member.role === "admin" && <AdminCrown />}
+                <Presence lastSeen={member.last_seen} now={now} />
               </p>
               <p className="break-all text-sm text-neutral-500">{member.email}</p>
               <p className="text-xs text-neutral-400">
