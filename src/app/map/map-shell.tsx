@@ -95,6 +95,8 @@ const MapView = dynamic(() => import("./map-view").then((m) => m.MapView), {
 const MIN_MAP_WIDTH = 320;
 const MIN_PANEL_WIDTH = 340;
 const DEFAULT_MAP_WIDTH = 0.64;
+/** An open album wants room for photos, a course and a comment thread. */
+const ALBUM_MAP_SHARE = 0.44;
 
 /**
  * Which half of the app a phone is looking at.
@@ -358,6 +360,16 @@ export function MapShell({
   // The course being edited. Up here rather than in the panel because reaching
   // the map can unmount the panel - see course-draft.ts.
   const [courseDraft, setCourseDraft] = useState<CourseDraft | null>(null);
+  /**
+   * Whether the member has set the split themselves.
+   *
+   * Opening an album used to pin the map to 44% outright, which is why the
+   * divider moved and the panes did not: the width it wrote was real and the
+   * class ignored it. 44% is a sensible width for reading an album, so it stays
+   * as what happens by default - but only until somebody drags, after which the
+   * split is theirs and nothing moves it again.
+   */
+  const [widthChosen, setWidthChosen] = useState(false);
 
   useEffect(() => {
     if (mapWidth !== null) return;
@@ -371,7 +383,16 @@ export function MapShell({
     const next = event.clientX - rect.left;
     const max = rect.width - MIN_PANEL_WIDTH;
     setMapWidth(Math.min(Math.max(next, MIN_MAP_WIDTH), Math.max(MIN_MAP_WIDTH, max)));
+    setWidthChosen(true);
   }, []);
+
+  /** The width a screen opens at, while the member has not picked one. */
+  const settleWidth = useCallback((share: number) => {
+    if (widthChosen) return;
+    const width = containerRef.current?.clientWidth ?? 1200;
+    const max = Math.max(MIN_MAP_WIDTH, width - MIN_PANEL_WIDTH);
+    setMapWidth(Math.min(Math.max(width * share, MIN_MAP_WIDTH), max));
+  }, [widthChosen]);
 
   useEffect(() => {
     if (!dragging) return;
@@ -441,6 +462,8 @@ export function MapShell({
     // Clicking a hike pins its route on the map.
     setPinnedHikeId(hike.id);
     setMobileTab("album");
+    // What the hard-coded 44% used to do, now as a default somebody can override.
+    settleWidth(ALBUM_MAP_SHARE);
   }
 
   function pickPoint(point: PickedPoint) {
@@ -741,6 +764,7 @@ export function MapShell({
     setMobileTab("map");
     setMapOpen(true);
     setMapExpanded(false);
+    settleWidth(DEFAULT_MAP_WIDTH);
     // Half-finished map interactions. Leaving one armed means the next tap on
     // what looks like a fresh home screen drops a point or picks a trail.
     setPicking(false);
@@ -750,7 +774,7 @@ export function MapShell({
     setTrailPick(null);
     setMissingNames([]);
     setDerivedNames([]);
-  }, []);
+  }, [settleWidth]);
 
   const shell = (
     <div className="club-app flex h-app w-full flex-col overflow-hidden">
@@ -832,7 +856,11 @@ export function MapShell({
             style={mapWidthStyle}
             className={
               "absolute inset-0 flex w-full flex-col md:relative md:inset-auto md:shrink-0 " +
-              (mobileTab === "album" ? "md:w-[44%] " : "md:w-[var(--map-width)] ") +
+              // Always the chosen width. This read md:w-[44%] while an album
+              // was open, which silently overrode the divider - it dragged, the
+              // variable changed, and the pane did not move. The 44% lives in
+              // ALBUM_MAP_SHARE now, as a starting point rather than a lock.
+              "md:w-[var(--map-width)] " +
               (mobileTab === "map" ? "" : "invisible md:visible")
             }
           >
@@ -1033,7 +1061,7 @@ export function MapShell({
               dragging ? "is-dragging" : ""
             }`}
             tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); const width = containerRef.current?.clientWidth ?? 1200; setMapWidth(Math.max(MIN_MAP_WIDTH, Math.min(width - MIN_PANEL_WIDTH, (mapWidth ?? width * DEFAULT_MAP_WIDTH) + (e.key === "ArrowRight" ? 24 : -24)))); } }}
+            onKeyDown={(e) => { if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); setWidthChosen(true); const width = containerRef.current?.clientWidth ?? 1200; setMapWidth(Math.max(MIN_MAP_WIDTH, Math.min(width - MIN_PANEL_WIDTH, (mapWidth ?? width * DEFAULT_MAP_WIDTH) + (e.key === "ArrowRight" ? 24 : -24)))); } }}
             role="separator"
             aria-orientation="vertical"
             aria-label="지도 크기 조절"
