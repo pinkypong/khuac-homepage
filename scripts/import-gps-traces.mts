@@ -71,11 +71,33 @@ const CELL_DEG = 0.00012;
 /**
  * How many separate tracks have to pass through a cell before it is a path.
  *
- * Two is the whole filter. One track is one person's day, wrong turns and all;
- * two people taking the same line through the same thirteen metres is a path,
- * and a wrong turn repeated by two strangers is a path as well.
+ * Two. One track is one person's day, wrong turns and all; two people taking
+ * the same line through the same thirteen metres is a path, and a wrong turn
+ * repeated by two strangers is a path as well.
+ *
+ * It was going to scale with the crowd, because two out of nine hundred is not
+ * consensus and that is what braided 북한산. Measured over 사당능선 - 108
+ * tracks, far more than 인수봉's 15 - that made things worse, not better:
+ *
+ *     합의선 2   구간 122 · 좌표 8,326   구간당 68점
+ *     합의선 5   구간 151 · 좌표 5,992   구간당 40점
+ *
+ * More segments from fewer points is a path cut into pieces: the stricter bar
+ * removes cells from the middle of a line, and the router then has to join what
+ * it broke. Two segments per tile more than the surveyed data is not a braid -
+ * the braid was 910 in one tile against 37 surveyed.
+ *
+ * So it stays at two, and the curve that was going to replace it is not
+ * invented from a single measurement. TRACE_MIN_TRACKS overrides it when a
+ * range misbehaves, which is how the next one should be found - by measuring
+ * that range, not by guessing a rule.
  */
-const MIN_TRACKS = 2;
+const DEFAULT_MIN_TRACKS = 2;
+
+function agreementThreshold(): number {
+  const forced = Number(process.env.TRACE_MIN_TRACKS);
+  return Number.isFinite(forced) && forced >= 1 ? forced : DEFAULT_MIN_TRACKS;
+}
 
 /** Points off the agreed path that a run survives before it is broken. */
 const MAX_STRAY_POINTS = 3;
@@ -188,6 +210,8 @@ for (const [index, chunk] of chunks.entries()) {
   console.log(`  ${index + 1}/${chunks.length} · 트랙 ${found.length}개 · 누적 ${tracks.length}개`);
 }
 console.log(`트랙 ${tracks.length}개 · 좌표 ${tracks.reduce((n, t) => n + t.length, 0)}개`);
+// Fixed at two, this let a braid through wherever the mountain is popular.
+const MIN_TRACKS = agreementThreshold();
 
 // How many separate tracks touch each cell, and where their points average to.
 const walkers = new Map<string, Set<number>>();
@@ -225,7 +249,10 @@ for (const cell of walkers.keys()) {
   }
   if (nearby.size >= MIN_TRACKS) agreed.add(cell);
 }
-console.log(`격자 ${walkers.size}개 중 ${agreed.size}개에서 ${MIN_TRACKS}개 이상의 트랙이 일치`);
+console.log(
+  `격자 ${walkers.size}개 중 ${agreed.size}개에서 ${MIN_TRACKS}개 이상의 트랙이 일치`
+  + ` (트랙 ${tracks.length}개 기준 합의선 ${MIN_TRACKS})`,
+);
 
 /**
  * Every point in an agreed cell becomes that cell's average position, so two
