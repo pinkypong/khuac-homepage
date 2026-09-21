@@ -392,7 +392,11 @@ export function HikeDetail({
               the full text stays in the tooltip. */}
           <h1
             title={hike.title}
-            className="line-clamp-2 min-w-[10rem] flex-1 text-lg font-semibold leading-snug [overflow-wrap:anywhere]"
+            // Size and wrapping come from .club-album h1 in globals.css, which
+            // outranks a utility class here; text-lg sat in this list doing
+            // nothing. The clamp stays as the backstop for a title long enough
+            // to beat even the smallest size.
+            className="line-clamp-2 min-w-[10rem] flex-1"
           >
             {hike.title}
           </h1>

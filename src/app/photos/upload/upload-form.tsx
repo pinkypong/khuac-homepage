@@ -183,8 +183,11 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
           className="rounded border border-neutral-300 px-3 py-2"
         />
         <span className="text-xs text-neutral-500">{PHOTO_LIMITS_HINT}</span>
-        <span className="text-xs text-amber-700">
-          밴드·카카오톡에서 받은 사진은 위치정보가 지워져 지도에 뜨지 않습니다. 찍은 폰에서 바로 올려주세요.
+        <span className="text-xs text-neutral-700">
+          찍은 사람이 누구든 <strong>전부 올려주세요.</strong> 밴드·카톡에서 받은 사진도 괜찮습니다.
+        </span>
+        <span className="text-xs text-neutral-500">
+          다만 밴드·카톡을 거친 사진은 위치정보가 지워져 지도에만 안 뜹니다. 폰에서 바로 올리면 지도에도 표시됩니다.
         </span>
         {rejectedCount > 0 && (
           <span className="text-xs text-red-600">
@@ -196,7 +199,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
             {noGpsCount === files.length
               ? `고르신 ${noGpsCount}장 모두 위치정보가 없습니다.`
               : `${files.length}장 중 ${noGpsCount}장에 위치정보가 없습니다.`}
-            {" "}올라가긴 하지만 지도에는 표시되지 않습니다.
+            {" "}앨범에는 정상으로 들어가고, 지도에만 표시되지 않습니다.
           </span>
         )}
       </label>

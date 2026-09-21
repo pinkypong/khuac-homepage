@@ -91,15 +91,13 @@ body {
 .club-account { position:absolute; z-index:40; right:20px; top:100px; background:white; border:1px solid #deded8; padding:20px; display:flex; flex-direction:column; gap:18px; min-width:180px; }
 .club-account a,.club-account button { min-height:44px; }
 .club-album { container:album-pane / inline-size; }
-.club-album h1 { font-size:clamp(26px,3vw,36px); font-weight:600; letter-spacing:-.045em; line-height:1.3; padding:8px 0; text-wrap:balance; word-break:keep-all; overflow-wrap:anywhere; }
-/* A title that asks to be truncated has to win against the rule above.
-   `text-wrap:balance` sets text-wrap-mode:wrap, which undoes the nowrap
-   Tailwind's `truncate` applies through white-space - and it undoes it at
-   higher specificity, so the class had no effect. Together with
-   overflow-wrap:anywhere that left a squeezed title breaking one Hangul
-   syllable per line, which is what the album header did beside its
-   buttons. */
-.club-album h1.truncate { text-wrap:nowrap; overflow-wrap:normal; }
+/* cqi, not vw. The size was measured against the window while the text sits in
+   the panel, so dragging the divider narrowed the column and left the letters
+   the size they were - 북한산 인수봉 고독길-인수c 멀티등반 at 36px in a 340px
+   panel, clipped. .club-album is already a container, so cqi is the width this
+   text actually has. The floor drops to 22px for the same reason: a narrow
+   panel has to be allowed to set a smaller title, not just a clipped one. */
+.club-album h1 { font-size:clamp(22px,3.4cqi,34px); font-weight:600; letter-spacing:-.045em; line-height:1.3; padding:8px 0; text-wrap:balance; word-break:keep-all; overflow-wrap:anywhere; }
 .club-album h2 { font-size:22px; font-weight:600; letter-spacing:-.035em; line-height:1.4; }
 .club-album > div > div.border-b { padding:20px 24px; }
 .club-album input { min-height:44px; }

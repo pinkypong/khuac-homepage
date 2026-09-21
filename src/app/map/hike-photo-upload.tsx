@@ -112,7 +112,9 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
     setProgress([
       `${done}장 업로드 완료`,
       skipped > 0 ? `${skipped}장 제외됨` : null,
-      withoutGps > 0 ? `${withoutGps}장은 위치정보가 없어 지도에 표시되지 않습니다` : null,
+      // Says what did not happen and, just as plainly, what did - the album has
+      // them either way, and a bare "does not appear" reads as a rejection.
+      withoutGps > 0 ? `${withoutGps}장은 앨범에 들어갔지만 위치정보가 없어 지도에는 안 뜹니다` : null,
     ].filter(Boolean).join(" · "));
     router.refresh();
   }
@@ -132,12 +134,19 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
           <div>
             <h2 className="text-sm font-semibold">사진 올리기</h2>
             <p className="mt-0.5 text-xs text-club-muted">{PHOTO_LIMITS_HINT}</p>
-            {/* Said before the files are chosen, not only after. Measured: a
-                photo saved out of 네이버 밴드 arrives with every EXIF tag it
-                started with except the GPS ones. */}
-            <p className="mt-1 text-xs text-amber-700">
-              밴드·카카오톡에서 받은 사진은 위치정보가 지워져 지도에 뜨지 않습니다.
-              찍은 폰에서 바로 올려주세요.
+            {/* Leads with "upload them all", because the version that led with
+                the warning was read as a rule about whose photos may be posted:
+                somebody holding pictures they did not take, or who could not
+                remember which were theirs, would upload nothing. Every photo
+                belongs in the album. The GPS note is a tip about one feature,
+                not a condition of entry, and it reads as one now. */}
+            <p className="mt-1 text-xs text-club-muted">
+              찍은 사람이 누구든 <span className="font-medium text-club-ink">전부 올려주세요.</span>
+              {" "}밴드·카톡에서 받은 사진도 괜찮습니다.
+            </p>
+            <p className="mt-0.5 text-xs text-club-faint">
+              다만 밴드·카톡을 거친 사진은 위치정보가 지워져 지도에만 안 뜹니다.
+              폰에서 바로 올리면 지도에도 표시됩니다.
             </p>
           </div>
           <button
