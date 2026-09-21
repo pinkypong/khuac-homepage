@@ -29,6 +29,7 @@ import { attachCourseToHike, createAlbumFromRoute, type KnownCourse, type RouteW
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import { withWaypoint, type CourseDraft } from "./course-draft";
 import { albumCover } from "./album-cover";
+import { courseToSuggestion } from "./course-suggestion";
 import { PresenceBeat } from "./presence-beat";
 
 export interface MapPhoto {
@@ -548,19 +549,33 @@ export function MapShell({
     setTrailPick(null);
     setAttachTo({ hikeId: hike.id, title: hike.title, courseId: course.id });
     setSuggestedRoute({
-      route: {
-        name: course.name,
-        waypoints: course.waypoints,
-        distanceText: course.distanceText,
-        durationText: course.durationText,
-        difficulty: course.difficulty,
-        description: null,
-        notes: null,
-        sourceUrls: [],
-        courseId: course.id,
-      },
+      route: courseToSuggestion(course),
       center: place ? { lat: place.lat, lng: place.lng } : null,
       placeName: place?.name ?? hike.title,
+      resolved: null,
+      track: null,
+    });
+    setMapOpen(true);
+    setMobileTab("map");
+  }
+
+  /**
+   * A course picked while making a new album, drawn for confirmation.
+   *
+   * The same road the assistant's answers take: draw it, let the member look,
+   * then the existing 앨범 만들기 bar creates it. Making the album here instead
+   * would be a second way of doing it - with its own idea of what the line is -
+   * and the two would drift apart the first time either changed.
+   *
+   * No attachTo, because there is no album yet to attach to.
+   */
+  function previewCourseForNewAlbum(course: KnownCourse, place: MapLocation) {
+    setTrailPick(null);
+    setAttachTo(null);
+    setSuggestedRoute({
+      route: courseToSuggestion(course),
+      center: { lat: place.lat, lng: place.lng },
+      placeName: place.name,
       resolved: null,
       track: null,
     });
@@ -1115,6 +1130,8 @@ export function MapShell({
           // fighting over the fold.
           showAlbums={mobileTab === "album"}
           showAi={mobileTab !== "album"}
+          aiSelected={mobileTab === "ai"}
+          onPickCourse={previewCourseForNewAlbum}
           picking={picking}
           pickedPoint={pickedPoint}
           onPickPoint={pickPoint}

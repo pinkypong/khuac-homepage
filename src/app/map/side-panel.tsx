@@ -172,6 +172,8 @@ export function SidePanel({
   creatingAlbum,
   showAlbums,
   showAi,
+  aiSelected,
+  onPickCourse,
 }: {
   locations: MapLocation[];
   activeLocation: MapLocation | null;
@@ -211,6 +213,10 @@ export function SidePanel({
   showAlbums: boolean;
   /** False on the phone's 앨범 tab, which is the album list on its own. */
   showAi: boolean;
+  /** The KHUAC AI tab is the one selected, so it outranks an open album. */
+  aiSelected: boolean;
+  /** A library course chosen while making a new album - drawn for confirmation. */
+  onPickCourse: (course: KnownCourse, place: MapLocation) => void;
 }) {
   const router = useRouter();
   const [rootView, setRootView] = useState<"recent" | "places">("recent");
@@ -304,7 +310,13 @@ export function SidePanel({
 
   const activeHike = activeLocation?.hikes.find((h) => h.id === activeHikeId) ?? null;
 
-  if (activeHike && activeLocation) {
+  // Not while the member is asking KHUAC AI something. This returned an open
+  // album before looking at the tabs at all, so on a phone the AI tab did
+  // nothing once an album was open: the tab changed, this did not, and the
+  // screen sat there. Only the AI tab overrides it - 지도 also leaves
+  // mobileTab elsewhere while an album is open, and that must still come back
+  // to the album rather than to the assistant.
+  if (activeHike && activeLocation && !aiSelected) {
     return (
       <HikeDetail
         location={activeLocation}
@@ -425,7 +437,13 @@ export function SidePanel({
             활동 기록 {activeLocation.hikes.length}건
           </p>
           <div className="mb-3">
-            <NewHikeForm locationId={activeLocation.id} locationType={activeLocation.type} />
+            <NewHikeForm
+              locationId={activeLocation.id}
+              locationType={activeLocation.type}
+              locationName={activeLocation.name}
+              locationRegion={activeLocation.region}
+              onPickCourse={(course) => onPickCourse(course, activeLocation)}
+            />
           </div>
           {activeLocation.hikes.length === 0 ? (
             <p className="py-8 text-center text-sm text-club-muted">
