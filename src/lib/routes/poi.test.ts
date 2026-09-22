@@ -168,3 +168,28 @@ describe("isUsableWaypoint", () => {
     expect(isUsableWaypoint("사당역", "사당역", SUBWAY, "관악산")).toBe(true);
   });
 });
+
+describe("isPlausibleMatch, a vowel is a spelling and a 받침 is not", () => {
+  // Korean hangs the word on its final consonant. Each pair below is one
+  // letter apart by any count that treats letters as letters, and each pair is
+  // two places.
+  it("rejects a temple against the mountain standing over it", () => {
+    // 600m apart on the ground. The course said 불암사 and was drawn to 불암산;
+    // 호암사 and 호암산 are the same pair on 관악산.
+    expect(isPlausibleMatch("불암사", "불암산", "불암산")).toBe(false);
+    expect(isPlausibleMatch("호암사", "호암산", "관악산")).toBe(false);
+  });
+
+  it("rejects a name that only gains a 받침", () => {
+    expect(isPlausibleMatch("도봉산", "도봉상", "도봉산")).toBe(false);
+  });
+
+  it("still accepts the vowel spelled the other way", () => {
+    expect(isPlausibleMatch("영추사", "영취사", "북한산")).toBe(true);
+  });
+
+  it("still rejects a syllable whose consonants changed", () => {
+    expect(isPlausibleMatch("인수암", "인수봉", "북한산")).toBe(false);
+    expect(isPlausibleMatch("위문", "관문", "북한산")).toBe(false);
+  });
+});
