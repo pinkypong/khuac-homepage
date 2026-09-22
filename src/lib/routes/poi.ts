@@ -251,6 +251,24 @@ const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|stati
 /** Names that are asking for a station specifically. */
 const STATION_NAME = /역$|역\s/;
 
+/**
+ * A waypoint that names the top of the hill rather than a place on it.
+ *
+ * These are the one class of waypoint whose right answer is the mountain
+ * itself. Places has no separate entry for 불암산's summit - asked for
+ * "불암산 정상" it offers 불암산, tagged mountain_peak - and the name comparison
+ * throws that away, because 불암산 and 정상 share no letters at all. The search
+ * then falls back to the bare word and finds whatever nearby business is
+ * called 정상, which is how a cram school ended up in the middle of a course.
+ *
+ * Only these words, and only against a peak: a bare mountain name is the right
+ * answer to "the summit" and the wrong answer to almost anything else, so
+ * "주차장" answered with 불암산 stays refused.
+ */
+const SUMMIT_WORD = /^(정상|정상부|산정|꼭대기)$/;
+/** What Places calls a summit. */
+const PEAK_TYPE = "mountain_peak";
+
 /** Two waypoints closer than this are one place under two names. */
 export const SAME_PLACE_M = 60;
 
@@ -281,5 +299,13 @@ export function isUsableWaypoint(
   // lists Korean stations without the suffix, so 망월사역 comes back as
   // "망월사" - and so does the temple a kilometre up the hill.
   if (STATION_NAME.test(asked) && !isTransit) return false;
+  // The summit, answered with the mountain. Checked here rather than inside
+  // isPlausibleMatch because it turns on the type, which the name comparison
+  // never sees.
+  if (
+    SUMMIT_WORD.test(asked.trim())
+    && types.includes(PEAK_TYPE)
+    && normalisePoiName(found) === normalisePoiName(place)
+  ) return true;
   return isPlausibleMatch(asked, found, place);
 }

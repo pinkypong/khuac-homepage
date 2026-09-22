@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findClubPoi, isPlausibleMatch, normalisePoiName, type ClubPoi } from "./poi";
+import { findClubPoi, isPlausibleMatch, isUsableWaypoint, normalisePoiName, type ClubPoi } from "./poi";
 
 const pois: ClubPoi[] = [
   {
@@ -116,5 +116,55 @@ describe("isPlausibleMatch, names that differ at the front", () => {
   it("still accepts the trailhead written more fully", () => {
     expect(isPlausibleMatch("백운대탐방지원센터(도선사)", "백운대 탐방지원센터", "북한산")).toBe(true);
     expect(isPlausibleMatch("정릉탐방지원센터", "북한산국립공원 정릉탐방지원센터", "북한산")).toBe(true);
+  });
+});
+
+describe("isUsableWaypoint", () => {
+  const PEAK = ["mountain_peak", "natural_feature", "establishment"];
+  const ACADEMY = ["educational_institution", "point_of_interest", "establishment"];
+  const PARK = ["park", "point_of_interest", "establishment"];
+  const SUBWAY = ["subway_station", "transit_station", "establishment"];
+
+  it("refuses an academy that merely starts with the word asked for", () => {
+    // 정상어학원 중계분원 is 3km from 불암산 and was routed through: both legs
+    // either side of it came back with no path, because a hagwon is not on the
+    // trail graph.
+    expect(isUsableWaypoint("정상", "정상어학원 중계분원", ACADEMY, "불암산")).toBe(false);
+    expect(isUsableWaypoint("정상", "정상어학원 중계분원", ACADEMY, "수락산")).toBe(false);
+  });
+
+  it("takes the mountain itself as the summit", () => {
+    expect(isUsableWaypoint("정상", "불암산", PEAK, "불암산")).toBe(true);
+    expect(isUsableWaypoint("정상", "수락산", PEAK, "수락산")).toBe(true);
+  });
+
+  it("takes the summit written with the mountain in front", () => {
+    expect(isUsableWaypoint("정상", "관악산 정상", PEAK, "관악산")).toBe(true);
+  });
+
+  it("does not hand the mountain to any other waypoint", () => {
+    // The summit rule is for the words that mean the summit, and nothing else.
+    // Two neighbours of this case are older and looser than the rule added
+    // here, and are left alone deliberately: a bare 주차장 is stripped to
+    // nothing and then accepts whatever came back, and 불암사 is one jamo from
+    // 불암산 so the spelling tolerance takes it. Both are their own decision.
+    expect(isUsableWaypoint("철모바위", "불암산", PEAK, "불암산")).toBe(false);
+    expect(isUsableWaypoint("깔딱고개", "수락산", PEAK, "수락산")).toBe(false);
+  });
+
+  it("does not take a station named after the mountain as its summit", () => {
+    // OSM and Places both carry a subway entry called 불암산, at the bottom of
+    // the valley.
+    expect(isUsableWaypoint("정상", "불암산", SUBWAY, "불암산")).toBe(false);
+  });
+
+  it("still takes a valley named more fully than it was asked for", () => {
+    // Two characters asked, four found - the fix for the hagwon must not cost
+    // this, which is the ordinary shape of a generic name answered specifically.
+    expect(isUsableWaypoint("계곡", "벽운계곡", PARK, "수락산")).toBe(true);
+  });
+
+  it("still lets a course start at a station", () => {
+    expect(isUsableWaypoint("사당역", "사당역", SUBWAY, "관악산")).toBe(true);
   });
 });
