@@ -128,7 +128,7 @@ export function NewHikeForm({
               className="mt-1.5 w-full rounded border border-club-line px-2 py-1 text-base md:text-xs"
             />
           )}
-          <ul className="mt-1.5 flex max-h-56 flex-col gap-1 overflow-y-auto">
+          <ul className="mt-1.5 flex max-h-56 flex-col gap-1 overflow-y-auto overscroll-contain">
             {matching.map((course) => {
               const origin = originLabel(course.origin);
               return (

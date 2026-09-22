@@ -192,7 +192,7 @@ export function PhotoLightbox({
             draft with the photo it was meant for. */}
         <aside
           onClick={(e) => e.stopPropagation()}
-          className="max-h-[40dvh] w-full shrink-0 overflow-y-auto rounded-lg bg-white p-3 md:max-h-none md:w-80"
+          className="max-h-[40dvh] w-full shrink-0 overflow-y-auto overscroll-contain rounded-lg bg-white p-3 md:max-h-none md:w-80"
         >
           <CommentThread key={open.id} subjectKind="photo" subjectId={open.id} />
         </aside>

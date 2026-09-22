@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   AdvancedMarker,
   InfoWindow,
@@ -54,6 +54,18 @@ const SELECTED_COLOR = "#D23B2E";
 // borrowing the red that means a saved route.
 const TRAIL_CANDIDATE_COLOR = "#5B7C99";
 const TRAIL_CHOSEN_COLOR = "#D98C2B";
+/**
+ * How wide a candidate path is to tap, as against the three pixels it is to
+ * look at.
+ *
+ * Sixteen rather than the forty-four a touch guideline asks for: these paths
+ * run parallel a few metres apart - the same braid the trace importer had to
+ * fight - and a target that wide would cover the neighbouring path as often as
+ * its own. Sixteen is a thumb's width of tolerance while still leaving two
+ * paths distinguishable at the zoom somebody actually picks at, and a wrong
+ * pick is one more tap to undo.
+ */
+const TRAIL_TAP_WEIGHT = 16;
 
 function toPath(track: TrackPoint[]) {
   return track.map(([lat, lng]) => ({ lat, lng }));
@@ -585,17 +597,32 @@ export function MapView({
       {trailSegments?.map((segment) => {
         const order = chosenTrailIds.indexOf(segment.id);
         const chosen = order >= 0;
+        const path = toPath(segment.points);
         return (
-          <Polyline
-            key={segment.id}
-            path={toPath(segment.points)}
-            strokeColor={chosen ? TRAIL_CHOSEN_COLOR : TRAIL_CANDIDATE_COLOR}
-            strokeOpacity={chosen ? 1 : 0.55}
-            strokeWeight={chosen ? 6 : 3}
-            zIndex={chosen ? 3 : 1}
-            clickable
-            onClick={() => onToggleTrail(segment.id)}
-          />
+          <Fragment key={segment.id}>
+            {/* The line that takes the tap, invisible and a fingertip wide.
+                The drawn one is three pixels, which is a fine mouse target and
+                an impossible thumb one - and this flow is the phone's, since
+                hardly any outing arrives with a GPX to draw instead. Beneath
+                the visible line and carrying the handler alone, so a tap has
+                one target rather than two overlapping ones. */}
+            <Polyline
+              path={path}
+              strokeOpacity={0}
+              strokeWeight={TRAIL_TAP_WEIGHT}
+              zIndex={chosen ? 2 : 0}
+              clickable
+              onClick={() => onToggleTrail(segment.id)}
+            />
+            <Polyline
+              path={path}
+              strokeColor={chosen ? TRAIL_CHOSEN_COLOR : TRAIL_CANDIDATE_COLOR}
+              strokeOpacity={chosen ? 1 : 0.55}
+              strokeWeight={chosen ? 6 : 3}
+              zIndex={chosen ? 3 : 1}
+              clickable={false}
+            />
+          </Fragment>
         );
       })}
 

@@ -1010,23 +1010,38 @@ export function MapShell({
                 course that began two kilometres up the hill with no sign that
                 its start was missing - but a guessed trailhead read as a fact
                 is worse than no line, so it is named and called an estimate. */}
-            {derivedNames.length > 0 && !trailPick && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(6.0rem+env(safe-area-inset-bottom))]">
-                <span className="max-w-[min(26rem,calc(100vw-2rem))] rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-center text-[11px] text-amber-800 shadow backdrop-blur">
-                  &lsquo;{derivedNames.join(", ")}&rsquo;의 위치는 코스 거리로 추정했습니다 · 실제와 다를 수 있습니다
-                </span>
-              </div>
-            )}
-            {trailsUnavailable && !trailPick && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(4.2rem+env(safe-area-inset-bottom))]">
-                <span className="rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-[11px] text-amber-800 shadow backdrop-blur">
-                  일부 구간의 실제 경로를 확인하지 못했습니다 · 확인된 등산로만 표시합니다
-                </span>
-              </div>
-            )}
-            {missingNames.length > 0 && !trailPick && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3 pb-[calc(2.4rem+env(safe-area-inset-bottom))]">
-                {namingPoi ? (
+            {/* One stack, not three offsets. These used to be absolutely
+                positioned at 6.0/4.2/2.4rem, which held only while each was a
+                single line: the bottom slot also carries PoiForm - a heading,
+                two coordinate fields and buttons - and the banner pinned
+                1.8rem above it landed in the middle of the form. The two
+                conditions arrive together often, because a course with a name
+                nothing could place is usually also a course with a leg nothing
+                could route. Stacked with a gap, any of them can be as tall as
+                it needs to be. */}
+            {!trailPick && (derivedNames.length > 0 || trailsUnavailable || missingNames.length > 0) && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-2 p-3 pb-[calc(2.4rem+env(safe-area-inset-bottom))]">
+                {/* A course drawn through a point we guessed at. The line is
+                    still worth showing - it is the right paths, and the
+                    alternative was a course that began two kilometres up the
+                    hill with no sign that its start was missing - but a guessed
+                    trailhead read as a fact is worse than no line, so it is
+                    named and called an estimate. */}
+                {derivedNames.length > 0 && (
+                  <span className="max-w-[min(26rem,calc(100vw-2rem))] rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-center text-[11px] text-amber-800 shadow backdrop-blur">
+                    &lsquo;{derivedNames.join(", ")}&rsquo;의 위치는 코스 거리로 추정했습니다 · 실제와 다를 수 있습니다
+                  </span>
+                )}
+                {trailsUnavailable && (
+                  <span className="max-w-[min(26rem,calc(100vw-2rem))] rounded-full border border-amber-300 bg-amber-50/95 px-3 py-1.5 text-center text-[11px] text-amber-800 shadow backdrop-blur">
+                    일부 구간의 실제 경로를 확인하지 못했습니다 · 확인된 등산로만 표시합니다
+                  </span>
+                )}
+                {/* Only while a course has a name nothing could place. The
+                    club's own point for it is the fix, and this is the moment
+                    the member both knows the answer and has a reason to give
+                    it. */}
+                {missingNames.length > 0 && (namingPoi ? (
                   <PoiForm
                     name={namingPoi}
                     picked={poiPoint}
@@ -1053,11 +1068,11 @@ export function MapShell({
                   <button
                     type="button"
                     onClick={() => setNamingPoi(missingNames[0])}
-                    className="pointer-events-auto m-2 rounded-full border border-club-line bg-white/95 px-3 py-1.5 text-[11px] text-club-ink-soft shadow-lg backdrop-blur"
+                    className="pointer-events-auto max-w-[min(26rem,calc(100vw-2rem))] rounded-full border border-club-line bg-white/95 px-3 py-1.5 text-[11px] text-club-ink-soft shadow-lg backdrop-blur"
                   >
                     지도에 없는 &lsquo;{missingNames[0]}&rsquo; · 위치 지정
                   </button>
-                )}
+                ))}
               </div>
             )}
             {trailPick && (

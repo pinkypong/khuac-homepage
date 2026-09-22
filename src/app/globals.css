@@ -53,6 +53,19 @@ body {
   min-height: 100dvh;
 }
 
+/* A panel that has run out of scroll must not hand the gesture on to the page
+   behind it. On a phone that hand-off is a pull-to-refresh arriving in the
+   middle of reading an album, and the reload takes the open album, the map's
+   centre and any half-picked route with it. The panels written in Tailwind
+   carry overscroll-contain in their class lists; these are the ones whose
+   scrolling is defined here. */
+.club-ai-card,
+.club-search-results,
+.upload-results,
+.map-photo-picker {
+  overscroll-behavior: contain;
+}
+
 /* KHUAC: shared desktop and iPhone working surface. */
 /* One source: the CSS below keeps its old names, pointing at the theme. */
 :root { --club-burgundy: var(--color-club-burgundy); --club-paper: var(--color-club-paper); }
