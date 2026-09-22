@@ -217,6 +217,15 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
  *
  * Worth naming as a class rather than one station at a time: Korean transit is
  * full of stops named after the mountain above them (북한산우이, 도봉산, 관악산).
+ *
+ * The same shape broke a bare "정상" two different ways: Places' only answer
+ * to "불암산 정상" was 불암산 itself, which isPlausibleMatch refuses (a mountain's
+ * bare name shares no text with the word 정상), so the search fell back to
+ * "정상" alone and took 정상어학원 중계분원 - a cram school 3km away that starts
+ * with the same two syllables. 수락산 hit the identical hagwon for the same
+ * reason. Both routed legs on either side of it came back with no path at all.
+ * A hagwon is never a hiking waypoint regardless of what it is named, so it
+ * belongs excluded here rather than left for the name comparison to catch.
  */
 export const NOT_A_WAYPOINT = new Set([
   "subway_station",
@@ -230,6 +239,11 @@ export const NOT_A_WAYPOINT = new Set([
   // The same station listed a second time - "북한산보국문역(우이신설선)" -
   // carries none of the types above, only this one.
   "transportation_service",
+  // 학원 chains: educational_institution is the type Places gives an academy;
+  // child_care_agency showed up on one branch of the same chain.
+  "educational_institution",
+  "school",
+  "child_care_agency",
 ]);
 
 /** Names that are asking for a station, so the rule above does not apply. */
