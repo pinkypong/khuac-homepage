@@ -6,7 +6,7 @@ import type { ActivityType, LocationType } from "@/types/database";
 import { createHike } from "./actions";
 import { ACTIVITY_HAS_OWN_SPOT, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, DEFAULT_ACTIVITY_FOR_LOCATION } from "./activity";
 import { PlaceSearch, type PlaceResult } from "./place-search";
-import { coursesForLocation, type KnownCourse } from "./route-album-actions";
+import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
 import { originLabel } from "./course-origin";
 
 export function NewHikeForm({
@@ -41,6 +41,7 @@ export function NewHikeForm({
   // every render of the location screen - most visits never make an album.
   const [courses, setCourses] = useState<KnownCourse[] | null>(null);
   const [courseQuery, setCourseQuery] = useState("");
+  const [asking, setAsking] = useState(false);
 
   useEffect(() => {
     if (!open || courses !== null) return;
@@ -107,6 +108,36 @@ export function NewHikeForm({
   return (
     <form onSubmit={submit} className="rounded-lg border border-club-line p-3">
       <p className="text-xs font-semibold">새 앨범 만들기</p>
+
+      {/* Nothing on file, so ask rather than leave the member at a dead end.
+          삼성산 숨은암장 is why: Google has no place by that name and the
+          library holds one course for the whole mountain, so making an album
+          for it simply could not be done - while the assistant, two screens
+          away, can find it and does. The search is the same one the album's
+          course section runs, and it saves what it finds, so this place is
+          answered from the library from then on. */}
+      {courses !== null && courses.length === 0 && (
+        <div className="mt-2 rounded border border-club-line bg-club-paper p-2">
+          <p className="text-xs text-club-muted">
+            이 장소로 등록된 코스가 아직 없습니다. KHUAC AI가 찾아서 저장해둡니다 —
+            한 번만 물어보면 이후 이 장소의 모든 앨범에서 바로 고를 수 있습니다.
+          </p>
+          <button
+            type="button"
+            disabled={asking}
+            onClick={async () => {
+              setAsking(true);
+              const result = await searchCoursesForLocation(locationName, locationRegion, locationType);
+              setAsking(false);
+              if (!result.ok) { setError(result.reason); return; }
+              setCourses(result.value);
+            }}
+            className="mt-2 w-full rounded-sm border border-club-faint py-2 text-xs font-medium text-club-ink hover:bg-white disabled:opacity-50"
+          >
+            {asking ? "찾는 중… (30초쯤 걸립니다)" : "KHUAC AI에게 이 장소 코스 물어보기"}
+          </button>
+        </div>
+      )}
 
       {/* The courses this place already holds, before any search. Making an
           album used to start at a Google place box - a paid lookup that answers
