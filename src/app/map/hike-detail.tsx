@@ -432,7 +432,7 @@ export function HikeDetail({
         </p>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {/* The course, above the photos, because opening an album to plan a
             walk asks "what was this route" before it asks what it looked like.
             In the scrolling part rather than the header it shares with the

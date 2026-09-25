@@ -78,62 +78,57 @@ function distinctivePart(name: string, place: string): string {
   return core;
 }
 
-/** Characters that have to change to turn one string into the other. */
-function editDistance(a: string, b: string): number {
-  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const current = [i];
-    for (let j = 1; j <= b.length; j++) {
-      current[j] = Math.min(
-        previous[j] + 1,
-        current[j - 1] + 1,
-        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
-      );
-    }
-    previous = current;
-  }
-  return previous[b.length];
-}
-
 const HANGUL_BASE = 0xac00;
 const HANGUL_LAST = 0xd7a3;
-const INITIALS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
-const MEDIALS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
-const FINALS = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ";
 
 /**
- * A Hangul name broken into its actual letters rather than its syllable
- * blocks.
+ * One Hangul block as the three letters it is built from, or null for anything
+ * that is not one.
  *
- * A Korean syllable is one visual block for a sound made of two or three
- * letters, and comparing whole blocks makes every one-block difference look
- * the same size - 영취사 spelled 영추사 (one vowel swapped) counts the same as
- * 인수암 read as 인수봉 (every letter in the block replaced), when the first
- * is a slip of the pen and the second is not the same word. Decomposing to
- * onset, vowel and coda before measuring the distance is what tells those
- * apart on the letters actually in each name, rather than on how many blocks
- * happen to differ.
+ * A Korean syllable is a single visual block for a sound made of two or three
+ * letters, so comparing whole blocks makes every one-block difference look the
+ * same size. It is not: 영취사 written 영추사 is one temple spelled two ways,
+ * and 인수암 read as 인수봉 is a hermitage read as the rock peak 375m from it.
  */
-function toJamo(name: string): string {
-  let out = "";
-  for (const char of name) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code < HANGUL_BASE || code > HANGUL_LAST) {
-      out += char;
-      continue;
-    }
-    const offset = code - HANGUL_BASE;
-    const initial = Math.floor(offset / (21 * 28));
-    const medial = Math.floor((offset % (21 * 28)) / 28);
-    const final = offset % 28;
-    out += INITIALS[initial] + MEDIALS[medial] + (final === 0 ? "" : FINALS[final]);
-  }
-  return out;
+function syllable(char: string): { initial: number; medial: number; final: number } | null {
+  const code = char.codePointAt(0) ?? 0;
+  if (code < HANGUL_BASE || code > HANGUL_LAST) return null;
+  const offset = code - HANGUL_BASE;
+  return {
+    initial: Math.floor(offset / (21 * 28)),
+    medial: Math.floor((offset % (21 * 28)) / 28),
+    final: offset % 28,
+  };
 }
 
-/** Letters that have to change to turn one Hangul name into the other. */
-function jamoEditDistance(a: string, b: string): number {
-  return editDistance(toJamo(a), toJamo(b));
+/**
+ * Whether two names are one name spelled two ways.
+ *
+ * Only a vowel may move, and only in one syllable. 영추사 and 영취사 hold their
+ * consonants and disagree on ㅜ against ㅟ, which is what a transliteration or
+ * a slip of the pen does to a name.
+ *
+ * A 받침 is not a spelling. 불암사 and 불암산 differ by one letter on any count
+ * that treats letters as letters - the ㄴ that 사 lacks and 산 carries - and
+ * they are a temple and the mountain standing over it, 600m apart; 호암사 and
+ * 호암산 are the same pair, and a course naming the temple was drawn to the
+ * mountain. Korean hangs the word on that final consonant, so a name that
+ * gains or loses one is a different name, and an initial consonant says which
+ * word it is at all.
+ */
+function spelledTheSameWay(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let differing = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] === b[i]) continue;
+    if (++differing > 1) return false;
+    const one = syllable(a[i]);
+    const other = syllable(b[i]);
+    // Outside Hangul there is no vowel to have spelled differently.
+    if (!one || !other) return false;
+    if (one.initial !== other.initial || one.final !== other.final) return false;
+  }
+  return differing === 1;
 }
 
 /**
@@ -192,19 +187,12 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
   // taken any two names sharing a first syllable as the same place. Character
   // overlap without position or length review is gone.
   //
-  // What is left is "one character apart", and that rule has the same problem
-  // one level down: 인수암 and 인수봉 are also one whole character apart - 암
-  // against 봉 - and counting syllable blocks says that is as close as 영추사
-  // is to 영취사. It is not. 추/취 differ in one letter, a vowel a typing slip
-  // or a transliteration reaches for; 암 and 봉 share none of onset, vowel or
-  // final. Measured in the letters a Korean syllable is actually built from
-  // rather than in whole blocks, 영추사/영취사 is one letter apart and
-  // 인수암/인수봉 is three - which is the number that says one is a spelling
-  // and the other a different word. 위문 and 관문, one block apart and twenty
-  // kilometres apart on the ground, come out three letters apart the same way:
-  // the two names share their second syllable whole and disagree on every
-  // letter of the first.
-  return wanted.length >= 3 && got.length >= 3 && jamoEditDistance(wanted, got) <= 1;
+  // What is left is the one difference that is a spelling rather than a
+  // different word: a single syllable whose vowel moved. Counting letters and
+  // allowing any one of them to change was close but not it - 불암사 and 불암산
+  // are one letter apart by that count, and they are a temple and the mountain
+  // above it. Which letter moved is the whole question.
+  return wanted.length >= 3 && got.length >= 3 && spelledTheSameWay(wanted, got);
 }
 
 /**
@@ -217,6 +205,15 @@ export function isPlausibleMatch(asked: string, found: string, place: string): b
  *
  * Worth naming as a class rather than one station at a time: Korean transit is
  * full of stops named after the mountain above them (북한산우이, 도봉산, 관악산).
+ *
+ * The same shape broke a bare "정상" two different ways: Places' only answer
+ * to "불암산 정상" was 불암산 itself, which isPlausibleMatch refuses (a mountain's
+ * bare name shares no text with the word 정상), so the search fell back to
+ * "정상" alone and took 정상어학원 중계분원 - a cram school 3km away that starts
+ * with the same two syllables. 수락산 hit the identical hagwon for the same
+ * reason. Both routed legs on either side of it came back with no path at all.
+ * A hagwon is never a hiking waypoint regardless of what it is named, so it
+ * belongs excluded here rather than left for the name comparison to catch.
  */
 export const NOT_A_WAYPOINT = new Set([
   "subway_station",
@@ -230,12 +227,35 @@ export const NOT_A_WAYPOINT = new Set([
   // The same station listed a second time - "북한산보국문역(우이신설선)" -
   // carries none of the types above, only this one.
   "transportation_service",
+  // 학원 chains: educational_institution is the type Places gives an academy;
+  // child_care_agency showed up on one branch of the same chain.
+  "educational_institution",
+  "school",
+  "child_care_agency",
 ]);
 
 /** Names that are asking for a station, so the rule above does not apply. */
 const ASKING_FOR_TRANSIT = /역$|역\s|버스\s*종점|정류장|터미널|station/i;
 /** Names that are asking for a station specifically. */
 const STATION_NAME = /역$|역\s/;
+
+/**
+ * A waypoint that names the top of the hill rather than a place on it.
+ *
+ * These are the one class of waypoint whose right answer is the mountain
+ * itself. Places has no separate entry for 불암산's summit - asked for
+ * "불암산 정상" it offers 불암산, tagged mountain_peak - and the name comparison
+ * throws that away, because 불암산 and 정상 share no letters at all. The search
+ * then falls back to the bare word and finds whatever nearby business is
+ * called 정상, which is how a cram school ended up in the middle of a course.
+ *
+ * Only these words, and only against a peak: a bare mountain name is the right
+ * answer to "the summit" and the wrong answer to almost anything else, so
+ * "주차장" answered with 불암산 stays refused.
+ */
+const SUMMIT_WORD = /^(정상|정상부|산정|꼭대기)$/;
+/** What Places calls a summit. */
+const PEAK_TYPE = "mountain_peak";
 
 /** Two waypoints closer than this are one place under two names. */
 export const SAME_PLACE_M = 60;
@@ -267,5 +287,13 @@ export function isUsableWaypoint(
   // lists Korean stations without the suffix, so 망월사역 comes back as
   // "망월사" - and so does the temple a kilometre up the hill.
   if (STATION_NAME.test(asked) && !isTransit) return false;
+  // The summit, answered with the mountain. Checked here rather than inside
+  // isPlausibleMatch because it turns on the type, which the name comparison
+  // never sees.
+  if (
+    SUMMIT_WORD.test(asked.trim())
+    && types.includes(PEAK_TYPE)
+    && normalisePoiName(found) === normalisePoiName(place)
+  ) return true;
   return isPlausibleMatch(asked, found, place);
 }
