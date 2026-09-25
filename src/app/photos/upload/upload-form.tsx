@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { presignPhotoUpload, processUploadedPhoto } from "./actions";
 import { parseExif } from "@/lib/gps/exif";
+import { detectFace } from "@/lib/photos/face-detect";
 import {
   MAX_PHOTO_BYTES,
   PHOTO_ACCEPT_ATTR,
@@ -56,7 +57,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
   const [rejectedCount, setRejectedCount] = useState(0);
   /** How many of the chosen files carry no position. Null until counted. */
   const [noGpsCount, setNoGpsCount] = useState<number | null>(null);
-  const uploaded = useRef(new WeakMap<File, { storageKey: string; hikeId: string }>());
+  const uploaded = useRef(new WeakMap<File, { storageKey: string; hikeId: string; hasFace: boolean | null }>());
 
   async function onFilesSelected(selected: FileList | null) {
     if (!selected) return;
@@ -94,17 +95,22 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
         contentType,
       });
 
-      const putResponse = await fetch(signed.uploadUrl, {
-        method: "PUT",
-        body: file,
-        headers: { "content-type": contentType },
-        signal: AbortSignal.timeout(120_000),
-      });
+      // In parallel: decoding and scanning a full-resolution photo is real
+      // CPU time, and nothing here needs the upload to finish first.
+      const [putResponse, hasFace] = await Promise.all([
+        fetch(signed.uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: { "content-type": contentType },
+          signal: AbortSignal.timeout(120_000),
+        }),
+        detectFace(file),
+      ]);
       if (!putResponse.ok) {
         return { state: "error", message: `업로드 실패 (${putResponse.status})` };
       }
       storageKey = signed.storageKey;
-      uploaded.current.set(file, { storageKey, hikeId });
+      uploaded.current.set(file, { storageKey, hikeId, hasFace });
     }
 
     // The server no longer reads the file back to find this - see
@@ -120,6 +126,7 @@ export function UploadForm({ hikes }: { hikes: Hike[] }) {
         width: exif.width,
         height: exif.height,
       },
+      hasFace: uploaded.current.get(file)?.hasFace,
     });
     return { state: "done", status: result.status };
   }

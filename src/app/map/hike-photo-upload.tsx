@@ -10,6 +10,7 @@ import {
 } from "@/lib/photos/limits";
 import { presignPhotoUpload, processUploadedPhoto } from "@/app/photos/upload/actions";
 import { parseExif } from "@/lib/gps/exif";
+import { detectFace } from "@/lib/photos/face-detect";
 import { staleDeploymentMessage } from "@/app/stale-deployment";
 
 // A dialog rather than its own page: the hike is already open, so there is
@@ -57,6 +58,9 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
     // photos that arrived with all 46 of their other EXIF tags intact, while
     // the same phone uploading straight here keeps them.
     let withoutGps = 0;
+    // Held back pending a public-view feature that does not exist yet - see
+    // face-detect.ts. Counted the same way: quietly, reported at the end.
+    let withFace = 0;
 
     setProgress(`0/${queue.length} 업로드 중…`);
 
@@ -77,13 +81,21 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
             filename: file.name,
             contentType,
           });
-          const put = await fetch(uploadUrl, {
-            method: "PUT",
-            body: file,
-            headers: { "content-type": contentType },
-            signal: AbortSignal.timeout(120_000),
-          });
+          // Detection runs alongside the network upload rather than before
+          // it: decoding and scanning a full-resolution phone photo is real
+          // CPU time, and there is no reason to make a multi-megabyte PUT
+          // wait on it when neither depends on the other finishing first.
+          const [put, hasFace] = await Promise.all([
+            fetch(uploadUrl, {
+              method: "PUT",
+              body: file,
+              headers: { "content-type": contentType },
+              signal: AbortSignal.timeout(120_000),
+            }),
+            detectFace(file),
+          ]);
           if (!put.ok) throw new Error(`업로드 실패 (${put.status})`);
+          if (hasFace !== false) withFace += 1;
           await processUploadedPhoto({
             storageKey,
             hikeId,
@@ -96,6 +108,7 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
               width: exif?.width ?? null,
               height: exif?.height ?? null,
             },
+            hasFace,
           });
           done += 1;
           setProgress(`${done}/${queue.length} 업로드 중…`);
@@ -115,6 +128,11 @@ export function HikePhotoUpload({ hikeId, onClose }: { hikeId: string; onClose: 
       // Says what did not happen and, just as plainly, what did - the album has
       // them either way, and a bare "does not appear" reads as a rejection.
       withoutGps > 0 ? `${withoutGps}장은 앨범에 들어갔지만 위치정보가 없어 지도에는 안 뜹니다` : null,
+      // Worded as "detected", not "hidden" or "제한됨" - nothing reads this
+      // column yet to restrict anything. Saying more would promise a feature
+      // that is not live: the login wall covers every photo regardless of
+      // this classification until a public view exists to need it.
+      withFace > 0 ? `${withFace}장에서 얼굴이 감지됐습니다` : null,
     ].filter(Boolean).join(" · "));
     router.refresh();
   }

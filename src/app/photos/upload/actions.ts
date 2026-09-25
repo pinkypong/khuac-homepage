@@ -68,6 +68,11 @@ export async function processUploadedPhoto(input: {
   storageKey: string;
   hikeId: string | null;
   exif?: ClientExif;
+  /** From src/lib/photos/face-detect.ts. Undefined and null are both stored
+      as unset - see has_face's column comment for why that reads as "has a
+      face" wherever anything gates on it. Not trusted as a security boundary:
+      a browser could report anything here. */
+  hasFace?: boolean | null;
 }): Promise<ProcessPhotoResult> {
   const { supabase, memberId } = await requireApprovedMember();
   const photoId = uploadPhotoId(input.storageKey, memberId);
@@ -156,6 +161,7 @@ export async function processUploadedPhoto(input: {
       matched_location_id: match.matchedLocationId,
       width: exif.width,
       height: exif.height,
+      has_face: input.hasFace ?? null,
     })
     .select("id")
     .single();
