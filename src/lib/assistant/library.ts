@@ -26,6 +26,13 @@ export async function rememberCourses(
   supabase: Client,
   mountain: string | null,
   routes: RouteSuggestion[],
+  /** Where the asking folder is, when one asked. Written onto the new rows so
+      they group with that folder's mountain: filed with no region, a row joins
+      whichever one mountain of its name already has a place - and for 삼성산
+      that is the one in 경산시, so every course the album screen found for
+      the 관악구·안양시 삼성산 would have been filed as the Gyeongsan one's and
+      then, correctly, hidden from the folder that asked for it. */
+  region?: string | null,
 ): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
   if (!mountain || routes.length === 0) return ids;
@@ -64,6 +71,9 @@ export async function rememberCourses(
     sources: route.sourceUrls ?? [],
     origin: "search",
     updated_at: new Date().toISOString(),
+    // Only when given: the assistant's own filing has no folder behind it, and
+    // an upsert that wrote null here would wipe a region a better pass set.
+    ...(region ? { region } : {}),
   }));
   if (rows.length === 0) return ids;
   const { data: written, error } = await supabase

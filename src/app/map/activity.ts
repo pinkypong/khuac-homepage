@@ -74,6 +74,29 @@ export const ACTIVITY_HAS_OWN_SPOT: Record<ActivityType, boolean> = {
 };
 
 /**
+ * Whether a hike being filed under this location still needs its own pin.
+ *
+ * ACTIVITY_HAS_OWN_SPOT alone answers "does this kind of outing usually get
+ * its own marker", and that is right for the 인수봉-inside-북한산 case the
+ * comment above describes - a `mountain` folder is broad enough to hold many
+ * distinct peaks and faces, so a hike or climb filed there needs a second pin
+ * to say which one. It stopped being right the moment a climb could be filed
+ * directly under 인수봉 itself, or under 삼성산 숨은암장: those locations do
+ * not host several distinct peaks the way 북한산 does - each one *is* the
+ * specific place, down to its own coordinates on the folder pin - and asking
+ * for a second search there was asking a member to re-locate somewhere they
+ * had already navigated to by opening that folder. That search box used
+ * Google Places, same as the folder search one screen up, and neither of them
+ * knew about the other - two searches, in two forms, hunting the same point.
+ *
+ * `mountain` is the only location type broad enough that a second pin still
+ * disambiguates anything; every other type already names one specific place.
+ */
+export function needsOwnSpot(activityType: ActivityType, locationType: LocationType): boolean {
+  return ACTIVITY_HAS_OWN_SPOT[activityType] && locationType === "mountain";
+}
+
+/**
  * The activity a new hike under this location most likely is.
  *
  * A default, not a rule - a mountain can carry a climb (북한산 holds 인수봉)
@@ -139,4 +162,38 @@ export function withActivity<
       hikes: location.hikes.filter((hike) => hike.activityType === activity),
     }))
     .filter((location) => location.hikes.length > 0);
+}
+
+/**
+ * A mountain's own hikes, sorted into their activity - 워킹, 암벽등반 and the
+ * rest each their own group, in ACTIVITY_TYPES order.
+ *
+ * This is the reason a mountain is now one location and not several: 삼성산
+ * folding 워킹 and 등반 into the same folder was the point, not a side effect
+ * to route around - the whole reason activityType exists is so climbing can
+ * be gathered and read at a glance regardless of which mountain it happened
+ * on, and the site-wide 활동 필터 already does exactly that across every
+ * mountain at once. What it did not do is the same thing one level down:
+ * inside a single mountain's own screen, every hike sat in one flat list with
+ * only a small coloured tag telling 워킹 apart from 등반, so opening 삼성산
+ * with both on file showed one undifferentiated pile rather than two things
+ * a member came to compare.
+ *
+ * Groups with nothing in them are left out rather than returned empty, so a
+ * mountain that only ever hosts one kind of outing - or a screen already
+ * narrowed by the site-wide filter to one activity - naturally comes back as
+ * a single group, and the caller can read "one group" as "skip the heading".
+ */
+export function groupHikesByActivity<H extends { activityType: ActivityType }>(
+  hikes: H[],
+): { type: ActivityType; hikes: H[] }[] {
+  const byType = new Map<ActivityType, H[]>();
+  for (const hike of hikes) {
+    const group = byType.get(hike.activityType);
+    if (group) group.push(hike);
+    else byType.set(hike.activityType, [hike]);
+  }
+  return ACTIVITY_TYPES
+    .filter((type) => byType.has(type))
+    .map((type) => ({ type, hikes: byType.get(type)! }));
 }

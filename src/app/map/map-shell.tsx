@@ -321,6 +321,18 @@ export function MapShell({
   // until the member says so.
   const [attachTo, setAttachTo] = useState<{ hikeId: string; title: string; courseId: string } | null>(null);
   const [attaching, setAttaching] = useState(false);
+  // A new album waiting on a course picked in a folder's own 새 앨범 만들기.
+  // The confirm button for a course used to exist only inside an answer's
+  // route list, so a course picked from the form was drawn and then had no
+  // button anywhere to turn it into an album - the member was left looking at
+  // a line. This holds what they already chose in the form so the bar over
+  // the map can finish the job with it.
+  const [newAlbumFor, setNewAlbumFor] = useState<{
+    locationId: string;
+    placeName: string;
+    activityType: ActivityType;
+    date: string;
+  } | null>(null);
   // A course waypoint nothing could place, and the point a member is putting
   // on the map for it. Null unless they asked to record one, so the map stays
   // clear the rest of the time.
@@ -520,7 +532,7 @@ export function MapShell({
         window.alert("이 주변에 등록된 등산로가 없습니다. GPX 파일을 올려주세요.");
         return;
       }
-      setAttachTo(null);
+      setAttachTo(null); setNewAlbumFor(null);
       setSuggestedRoute(null);
       setTrailPick({ hikeId: hike.id, lat, lng, segments, chosen: [] });
       // The paths are on the map, which on a phone is the other tab.
@@ -547,6 +559,7 @@ export function MapShell({
     // the one question - what line does this album have - so starting either
     // ends the other. Both bars were on screen at once, asking it twice.
     setTrailPick(null);
+    setNewAlbumFor(null);
     setAttachTo({ hikeId: hike.id, title: hike.title, courseId: course.id });
     setSuggestedRoute({
       route: courseToSuggestion(course),
@@ -563,15 +576,23 @@ export function MapShell({
    * A course picked while making a new album, drawn for confirmation.
    *
    * The same road the assistant's answers take: draw it, let the member look,
-   * then the existing 앨범 만들기 bar creates it. Making the album here instead
-   * would be a second way of doing it - with its own idea of what the line is -
-   * and the two would drift apart the first time either changed.
+   * then createAlbum makes it. This comment used to say "the existing 앨범
+   * 만들기 bar creates it" - but that button only ever rendered inside an
+   * answer's own route list, so a course picked here was drawn and then had
+   * nowhere to be confirmed. newAlbumFor is what the bar over the map now
+   * shows for, carrying the folder, activity and date the member already
+   * chose in the form.
    *
    * No attachTo, because there is no album yet to attach to.
    */
-  function previewCourseForNewAlbum(course: KnownCourse, place: MapLocation) {
+  function previewCourseForNewAlbum(
+    course: KnownCourse,
+    place: MapLocation,
+    draft: { activityType: ActivityType; date: string },
+  ) {
     setTrailPick(null);
     setAttachTo(null);
+    setNewAlbumFor({ locationId: place.id, placeName: place.name, ...draft });
     setSuggestedRoute({
       route: courseToSuggestion(course),
       center: { lat: place.lat, lng: place.lng },
@@ -597,7 +618,7 @@ export function MapShell({
         window.alert(result.reason);
         return;
       }
-      setAttachTo(null);
+      setAttachTo(null); setNewAlbumFor(null);
       setSuggestedRoute(null);
       router.refresh();
     } catch {
@@ -654,6 +675,8 @@ export function MapShell({
       setDerivedNames([]);
       return;
     }
+    // An answer's course is not the one the form was waiting on.
+    setNewAlbumFor(null);
     setSuggestedRoute({
       route,
       center: place.center,
@@ -683,11 +706,12 @@ export function MapShell({
       window.alert("코스 위치를 지도에서 찾지 못했습니다. 지도에서 코스를 먼저 눌러 위치를 불러와주세요.");
       return;
     }
+    const fromForm = newAlbumFor;
     setCreatingAlbum(true);
     try {
       const result = await createAlbumFromRoute({
         routeName: route.name,
-        placeName: current.placeName,
+        placeName: fromForm?.placeName ?? current.placeName,
         courseId: route.courseId ?? null,
         waypoints,
         track: current.track ? flattenTrack(current.track) : null,
@@ -697,15 +721,22 @@ export function MapShell({
         notes: route.notes,
         sources: route.sourceUrls,
         question: asked,
+        locationId: fromForm?.locationId ?? null,
+        activityType: fromForm?.activityType ?? null,
+        date: fromForm?.date ?? null,
       });
       if (!result.ok) {
         window.alert(result.reason);
         return;
       }
       setSuggestedRoute(null);
+      setNewAlbumFor(null);
       setActiveLocationId(result.value.locationId);
       setActiveHikeId(result.value.hikeId);
       setPinnedHikeId(result.value.hikeId);
+      // From the form the member's next step is the album itself - adding
+      // photos - and on a phone that is the other tab, behind the map.
+      if (fromForm) setMobileTab("album");
       router.refresh();
     } catch {
       // Only a fault reaches here: every refusal comes back as a value above,
@@ -771,7 +802,7 @@ export function MapShell({
     setPinnedHikeId(null);
     setFocusedPhotoId(null);
     setSuggestedRoute(null);
-    setAttachTo(null);
+    setAttachTo(null); setNewAlbumFor(null);
     setCourseProfile(null);
     setSearch("");
     setActivity("all");
@@ -806,6 +837,33 @@ export function MapShell({
           <span className="club-brand-copy"><strong className="club-brand-fullname"><span>Kyunghee University</span><span>Alpine Club</span></strong><small>경희대학교 산악부</small></span>
         </Link>
         <div className={"club-header-tools " + (mobileTab === "ai" || accountOpen ? "club-header-tools-mobile-hidden" : "")}>
+          {/* At desktop this header is the only persistent chrome, and the
+              panel opens on KHUAC AI by design (아래 확정된 결정: "AI는 앨범
+              전환 위에 둔다") - which left nothing on screen saying where
+              앨범 만들기 lives. The filter chip beside this looks like it
+              answers that, but it reads as "filter what you can already
+              see", not "go make one" - a member has to already be looking at
+              albums for that label to make sense. This button says the thing
+              itself: 앨범 목록·새 장소 추가가 이 화면 어딘가에 있다는 것.
+              Hidden below md by club-album-nav-button in globals.css, not a
+              Tailwind hidden/md:flex pair - .club-filter-trigger's own
+              display:flex is unlayered custom CSS sitting after
+              @import "tailwindcss" in that file, and unlayered CSS beats
+              every Tailwind layer including utilities regardless of variant
+              or source order, so a Tailwind visibility utility here would
+              have been silently overruled. The phone already has this exact
+              label in its bottom nav (NavIcon "album"); duplicating it in a
+              header that itself disappears under md would only be noise. */}
+          <button
+            type="button"
+            // goToRoot first: pressed from inside an open album, the panel
+            // would otherwise stay on that album rather than the list.
+            onClick={() => { goToRoot(); setMapOpen(true); setMobileTab("album"); }}
+            className="club-filter-trigger club-album-nav-button"
+          >
+            <NavIcon kind="album" />
+            <span>앨범 보기·만들기</span>
+          </button>
           <div className="club-filter-menu">
             <button
               type="button"
@@ -994,10 +1052,41 @@ export function MapShell({
                   </button>
                   <button
                     type="button"
-                    onClick={() => { setAttachTo(null); setSuggestedRoute(null); }}
+                    onClick={() => { setAttachTo(null); setNewAlbumFor(null); setSuggestedRoute(null); }}
                     className="rounded-full border border-club-line px-2.5 py-1 font-medium text-club-ink"
                   >
                     취소
+                  </button>
+                </span>
+              </div>
+            )}
+            {/* The other half of picking a course in 새 앨범 만들기: the line
+                is on the map, and this is where it becomes the album. It says
+                back what the form was told - which place, what kind of outing,
+                which day - because the member left the form to get here and
+                would otherwise be confirming blind. */}
+            {newAlbumFor && suggestedRoute && !attachTo && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center p-3">
+                <span className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border border-club-line bg-white/95 px-3 py-2 text-[12px] text-club-ink-soft shadow-lg backdrop-blur">
+                  <span className="min-w-0 basis-full text-center">
+                    <strong className="font-semibold text-club-ink">{newAlbumFor.placeName}</strong>
+                    {" · "}{ACTIVITY_LABEL[newAlbumFor.activityType]}{" · "}{newAlbumFor.date}
+                    <span className="block break-keep">&lsquo;{suggestedRoute.route.name}&rsquo; 코스로 앨범을 만들까요?</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => createAlbum(suggestedRoute.route, suggestedRoute.route.name)}
+                    disabled={creatingAlbum}
+                    className="rounded-full bg-[#5b1a23] px-3 py-1.5 font-medium text-white disabled:opacity-40"
+                  >
+                    {creatingAlbum ? "만드는 중…" : "앨범 만들기"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setNewAlbumFor(null); setSuggestedRoute(null); setMobileTab("album"); }}
+                    className="rounded-full border border-club-line px-3 py-1.5 font-medium text-club-ink"
+                  >
+                    다른 코스 고르기
                   </button>
                 </span>
               </div>
@@ -1147,6 +1236,7 @@ export function MapShell({
           showAi={mobileTab !== "album"}
           aiSelected={mobileTab === "ai"}
           onPickCourse={previewCourseForNewAlbum}
+          allLocationNames={locations.map((location) => location.name)}
           picking={picking}
           pickedPoint={pickedPoint}
           onPickPoint={pickPoint}

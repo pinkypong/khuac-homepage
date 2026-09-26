@@ -6,7 +6,7 @@ import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { isValidGps } from "@/lib/gps/validate";
 import type { ActivityType, LocationType } from "@/types/database";
-import { ACTIVITY_HAS_OWN_SPOT, ACTIVITY_TYPES } from "@/app/map/activity";
+import { ACTIVITY_TYPES, needsOwnSpot } from "@/app/map/activity";
 import { asCourseInfo } from "@/app/map/course-info";
 import { rebuildCourseTrack } from "@/app/map/route-actions";
 
@@ -82,12 +82,21 @@ export async function createHike(input: {
   if (!title) throw new Error("활동 이름을 입력해주세요.");
   if (!input.date) throw new Error("날짜를 선택해주세요.");
 
+  // Read rather than taken from the client: this is what the requirement
+  // below actually turns on, and a stale or spoofed locationType would only
+  // matter here - trusting the row is cheap insurance against either.
+  const { data: locationRow, error: locationError } = await supabase
+    .from("locations").select("type").eq("id", input.locationId).maybeSingle();
+  if (locationError) throw locationError;
+  const locationType = (locationRow as { type: LocationType } | null)?.type ?? "mountain";
+
   const hasSpot = input.lat != null && isValidGps(input.lat, input.lng);
-  // A hike or a climb sits somewhere specific inside its folder - 대청봉 and
-  // 울산바위 are both 설악산 - so without a point the map can say no more than
+  // A hike or a climb sits somewhere specific inside its mountain - 대청봉 and
+  // 울산바위 are both 설악산, and after 인수봉 lost its own location row to
+  // 북한산, so is 인수봉 - so without a point the map can say no more than
   // "somewhere on this mountain". A gym or wall session happens at the venue
-  // itself, so it is exempt.
-  if (ACTIVITY_HAS_OWN_SPOT[input.activityType] && !hasSpot) {
+  // itself, so it is exempt; see needsOwnSpot for the full reasoning.
+  if (needsOwnSpot(input.activityType, locationType) && !hasSpot) {
     throw new Error("산행·등반은 봉우리나 코스 위치를 검색해 지정해주세요.");
   }
 

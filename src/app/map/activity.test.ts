@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityForCourse, withActivity } from "./activity";
+import { activityForCourse, groupHikesByActivity, needsOwnSpot, withActivity } from "./activity";
 import type { ActivityType } from "@/types/database";
 
 describe("activityForCourse", () => {
@@ -66,5 +66,57 @@ describe("withActivity", () => {
     expect(withActivity(places, "indoor_climbing").map((p) => p.name)).toEqual(["더클라임"]);
     expect(withActivity(places, "outdoor_wall").map((p) => p.name)).toEqual(["뚝섬"]);
     expect(withActivity(places, "climbing").map((p) => p.name)).toEqual(["인수봉"]);
+  });
+});
+
+describe("needsOwnSpot", () => {
+  it("still asks for a spot when climbing or hiking under a mountain", () => {
+    // 인수봉's climbs are filed under 북한산 now, exactly like 대청봉's hikes
+    // are filed under 설악산 - both need their own pin to say which peak.
+    expect(needsOwnSpot("climbing", "mountain")).toBe(true);
+    expect(needsOwnSpot("hiking", "mountain")).toBe(true);
+  });
+
+  it("never asks at a gym or an artificial wall, mountain reasoning or not", () => {
+    expect(needsOwnSpot("indoor_climbing", "climbing_gym")).toBe(false);
+    expect(needsOwnSpot("outdoor_wall", "crag")).toBe(false);
+  });
+
+  it("does not ask at a venue even for an activity that would ask on a mountain", () => {
+    // Nobody files a 산행 at a climbing gym, but the rule should not depend
+    // on that - the venue itself is the answer to "where", not a second pin.
+    expect(needsOwnSpot("climbing", "climbing_gym")).toBe(false);
+    expect(needsOwnSpot("hiking", "crag")).toBe(false);
+  });
+});
+
+describe("groupHikesByActivity", () => {
+  const hike = (activityType: ActivityType, name: string) => ({ activityType, name });
+
+  it("keeps 워킹 and 등반 apart under one mountain", () => {
+    // 삼성산's whole reason for holding both: opening it should show two
+    // things to compare, not one pile with a tag on each row.
+    const hikes = [hike("hiking", "정기산행"), hike("climbing", "숨은암장 등반"), hike("hiking", "가족산행")];
+    const groups = groupHikesByActivity(hikes);
+    expect(groups.map((g) => g.type)).toEqual(["hiking", "climbing"]);
+    expect(groups[0].hikes.map((h) => h.name)).toEqual(["정기산행", "가족산행"]);
+    expect(groups[1].hikes.map((h) => h.name)).toEqual(["숨은암장 등반"]);
+  });
+
+  it("orders groups by ACTIVITY_TYPES regardless of input order", () => {
+    const hikes = [hike("climbing", "a"), hike("hiking", "b")];
+    expect(groupHikesByActivity(hikes).map((g) => g.type)).toEqual(["hiking", "climbing"]);
+  });
+
+  it("comes back as one group when only one activity is on file", () => {
+    // The caller reads this as "skip the section heading" - a mountain with
+    // only 워킹 so far, or a screen already narrowed by the site filter.
+    const groups = groupHikesByActivity([hike("hiking", "a"), hike("hiking", "b")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].hikes).toHaveLength(2);
+  });
+
+  it("returns nothing for an empty list, not an empty group", () => {
+    expect(groupHikesByActivity([])).toEqual([]);
   });
 });

@@ -189,3 +189,46 @@ export function groupByMountain<T extends Placed>(rows: T[]): MountainGroup<T>[]
   }
   return groups;
 }
+
+/**
+ * Whether a folder's place and a course's place are the same district.
+ *
+ * A folder's region is whatever a member typed, and 한라산's reads "서귀포시
+ * 한라산" - a district with no province before it, which placesOf spells
+ * "null/서귀포시" while every course row says "제주/서귀포시". Measured over
+ * the real folders, comparing those strictly lost 한라산 all eleven of its
+ * courses. So a folder place with no province matches on the district alone;
+ * a folder that did name its province still has to agree on it, which is
+ * what keeps 경기도 광주시 apart from 광주.
+ */
+function samePlace(folder: string, course: string): boolean {
+  if (folder === course) return true;
+  if (!folder.startsWith("null/")) return false;
+  return course.slice(course.indexOf("/") + 1) === folder.slice("null/".length);
+}
+
+/**
+ * Which of a name's mountains a folder in `region` is, or null for none.
+ *
+ * A group that shares a 시·군 with the folder is the answer. Failing that, a
+ * lone group used to be taken on its own - there was nothing to choose between
+ * - and that is how the club's 삼성산 (관악구·안양시) was offered the single
+ * course_library row for the 삼성산 in 경산시: one candidate, taken unasked.
+ * A lone group is still taken when either side is too vague to compare - "서울"
+ * or "경남/전남" names no 시·군, and a region-less row says nothing - because
+ * that is the case the shortcut was for. Where both sides do name districts
+ * and none of them agree, they are two mountains, and no course is better than
+ * one 300km away.
+ */
+export function pickMountainGroup<T extends Placed>(
+  groups: MountainGroup<T>[],
+  region: string | null,
+): MountainGroup<T> | null {
+  const here = new Set(placesOf(region));
+  const shared = groups.find((group) =>
+    [...group.places].some((place) => [...here].some((mine) => samePlace(mine, place))));
+  if (shared) return shared;
+  if (groups.length !== 1) return null;
+  const [only] = groups;
+  return here.size === 0 || only.places.size === 0 ? only : null;
+}

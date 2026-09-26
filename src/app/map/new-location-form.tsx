@@ -7,8 +7,33 @@ import { createLocation } from "./actions";
 import type { PickedPoint } from "./map-shell";
 import { TYPE_LABEL } from "./side-panel";
 import { PlaceSearch, type PlaceResult } from "./place-search";
+import { similarLocationName } from "./location-names";
 
-const TYPES: LocationType[] = ["mountain", "climbing_gym", "crag", "multi_pitch", "hard_free"];
+/**
+ * multi_pitch and hard_free are deliberately absent here.
+ *
+ * They used to mean "this location is itself a specific crag or peak, not the
+ * whole mountain" - which is why 인수봉 and 삼성산 숨은암장 were each given
+ * their own location row. That was the wrong layer for it: course_library
+ * already groups by the mountain a route is on (인수봉's approaches are all
+ * filed under mountain=북한산, named as waypoints), so a second, independent
+ * location row for the same feature just gave a member two names to choose
+ * between for one place, with no way to tell which the club's own courses
+ * would actually match.
+ *
+ * A location created from here is now always the whole named area - one row
+ * per mountain, the same grouping course_library already uses - and which
+ * specific peak or wall a hike happened at is the job of its own spot (see
+ * needsOwnSpot in activity.ts) and the course attached to it, not a second
+ * location. climbing_gym and crag stay: a gym or an artificial wall is a real
+ * separate building, not a feature of a mountain that already has its own
+ * location.
+ *
+ * The enum still carries multi_pitch/hard_free - Postgres does not drop enum
+ * values cheaply - but nothing here offers them, and no row uses them after
+ * migrating 인수봉's hikes onto 북한산 and remaking 삼성산 숨은암장 as 삼성산.
+ */
+const TYPES: LocationType[] = ["mountain", "climbing_gym", "crag"];
 
 export function NewLocationForm({
   picking,
@@ -16,6 +41,7 @@ export function NewLocationForm({
   onPickingChange,
   onPickPoint,
   onCreated,
+  existingNames,
 }: {
   /** The shared map-picking flag, also used by the missing-waypoint flow.
       Watched rather than owned: cancelling from the floating map banner or
@@ -26,6 +52,9 @@ export function NewLocationForm({
   onPickingChange: (picking: boolean) => void;
   onPickPoint: (point: PickedPoint) => void;
   onCreated: (locationId: string) => void;
+  /** Every location's name, so a new one can be checked against them before
+      it is saved - see location-names.ts for the collision this catches. */
+  existingNames: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -35,6 +64,12 @@ export function NewLocationForm({
   const [elevation, setElevation] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Ticked once the member has looked at the collision below and still means
+  // a different place. Reset whenever the name changes so it cannot survive
+  // past the warning it was ticked for.
+  const [confirmedDifferent, setConfirmedDifferent] = useState(false);
+
+  const similar = similarLocationName(name, existingNames);
 
   function handlePlace(place: PlaceResult) {
     onPickPoint({ lat: place.lat, lng: place.lng });
@@ -51,6 +86,7 @@ export function NewLocationForm({
       setRegion("");
       setElevation("");
       setError(null);
+      setConfirmedDifferent(false);
     }
   }
 
@@ -71,6 +107,13 @@ export function NewLocationForm({
     setError(null);
     if (!pickedPoint) {
       setError("지도를 클릭해서 위치를 지정해주세요.");
+      return;
+    }
+    // The warning is a checkbox to tick, not just text to have read - a
+    // member skimming past a paragraph is exactly how 삼성산 would have been
+    // saved bare instead of as 삼성산 숨은암장.
+    if (similar && !confirmedDifferent) {
+      setError(`이미 있는 ‘${similar}’과(와) 다른 곳이면 위 체크박스를 눌러주세요.`);
       return;
     }
     setSaving(true);
@@ -99,7 +142,7 @@ export function NewLocationForm({
         onClick={() => toggle(true)}
         className="w-full rounded-lg border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
       >
-        + 새 장소 추가 (산·암장)
+        + 목록에 없는 산·실내암장 추가
       </button>
     );
   }
@@ -107,8 +150,12 @@ export function NewLocationForm({
   return (
     <form onSubmit={submit} className="rounded-lg border border-club-line p-3">
       <p className="text-xs font-semibold">새 장소 추가</p>
-      <p className="mt-0.5 text-xs text-club-muted">
-        앨범을 담을 곳입니다. 이미 있는 산이면 목록에서 그 산을 눌러 들어가세요.
+      {/* Said before anything else, because the commonest wrong turn is
+          making a second folder for a crag on a mountain that already has
+          one - see location-names.ts. */}
+      <p className="mt-0.5 break-keep text-xs text-club-muted">
+        목록에 이미 있는 산이면 여기가 아니라 그 산을 눌러 앨범을 만드세요.
+        산 안의 암장·봉우리(예: 삼성산 숨은암장)도 산 이름 하나로 둡니다.
       </p>
       <div className="mt-2">
         <label className="mb-1 block text-xs text-club-muted">장소 검색</label>
@@ -123,11 +170,38 @@ export function NewLocationForm({
 
       <input
         value={name}
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => { setName(e.target.value); setConfirmedDifferent(false); }}
         placeholder="장소 이름 (예: 관악산)"
         required
         className="mt-2 w-full rounded border border-club-line px-2 py-1.5 text-base md:text-sm"
       />
+
+      {/* Never a hard block - 관악산 and a same-named mountain 300km away are
+          both real, and only a person can tell which this is. What it must
+          not be is skippable without being seen: a name this close to an
+          existing one, saved as a bare mountain name, is exactly how 삼성산
+          would have been filed instead of 삼성산 숨은암장, which
+          coursesForLocation cannot tell apart from an unrelated 삼성산
+          already in course_library once only one of them exists to check
+          against. */}
+      {similar && (
+        <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-2.5 py-2">
+          <p className="break-keep text-xs text-amber-900">
+            이미 <span className="font-medium">&lsquo;{similar}&rsquo;</span> 장소가 있습니다.
+            그 산의 암장·봉우리라면 새 장소를 만들지 말고, 목록에서 &lsquo;{similar}&rsquo;을(를) 눌러
+            앨범을 만드세요. 암장·봉우리는 앨범에서 코스로 지정합니다.
+          </p>
+          <label className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-900">
+            <input
+              type="checkbox"
+              checked={confirmedDifferent}
+              onChange={(e) => setConfirmedDifferent(e.target.checked)}
+              className="mt-0.5"
+            />
+            이름만 비슷한 다른 곳입니다
+          </label>
+        </div>
+      )}
 
       <div className="mt-2 flex gap-2">
         <select

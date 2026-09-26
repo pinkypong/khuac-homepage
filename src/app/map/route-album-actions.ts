@@ -4,13 +4,13 @@ import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { isValidGps } from "@/lib/gps/validate";
 import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
-import { activityForCourse } from "./activity";
+import { ACTIVITY_TYPES, activityForCourse } from "./activity";
 import { sanitizeTrack, unflattenTrack } from "@/lib/gps/track";
-import { groupByMountain, placesOf } from "@/lib/assistant/region";
+import { groupByMountain, pickMountainGroup } from "@/lib/assistant/region";
 import { rankOf } from "@/lib/assistant/origin";
 import { rememberCourses } from "@/lib/assistant/library";
 import { extractRoutes, searchRoutes } from "@/lib/assistant/routes";
-import type { LocationType } from "@/types/database";
+import type { ActivityType, LocationType } from "@/types/database";
 
 export interface RouteWaypoint {
   name: string;
@@ -62,6 +62,14 @@ export async function createAlbumFromRoute(input: {
       question does - "북한산 인수봉 어프로치" names a mountain and a rock face
       and the course that comes back may mention neither. */
   question?: string | null;
+  /** Set when a member started from a folder's own 새 앨범 만들기 rather than
+      from an answer: they are already inside the place, and they have already
+      said what they did and when. Guessing any of those back from the course's
+      name - or filing today's date for last Saturday's climb - would undo what
+      they just chose. */
+  locationId?: string | null;
+  activityType?: ActivityType | null;
+  date?: string | null;
 }): Promise<ActionResult<{ locationId: string; hikeId: string }>> {
   const { supabase, memberId } = await requireApprovedMember();
 
@@ -75,15 +83,17 @@ export async function createAlbumFromRoute(input: {
     return refused("코스 위치를 지도에서 찾지 못해 앨범을 만들 수 없습니다.");
   }
 
-  const { data: existing, error: lookupError } = await supabase
-    .from("locations")
-    .select("id")
-    .eq("name", placeName)
-    .limit(1)
-    .maybeSingle();
-  if (lookupError) return refusedByDatabase("장소 조회", lookupError);
-
-  let locationId = (existing as { id: string } | null)?.id ?? null;
+  let locationId = input.locationId ?? null;
+  if (!locationId) {
+    const { data: existing, error: lookupError } = await supabase
+      .from("locations")
+      .select("id")
+      .eq("name", placeName)
+      .limit(1)
+      .maybeSingle();
+    if (lookupError) return refusedByDatabase("장소 조회", lookupError);
+    locationId = (existing as { id: string } | null)?.id ?? null;
+  }
 
   if (!locationId) {
     // The first waypoint is the trailhead, which is where someone setting out
@@ -140,15 +150,21 @@ export async function createAlbumFromRoute(input: {
   // said about the course, because the word that settles it turns up in a
   // different place each time: in the question, in the course's name, or only
   // down in its notes.
-  const activityType = activityForCourse(
-    input.question, routeName, placeName, input.notes, points.map((point) => point.name).join(" "));
+  const activityType =
+    input.activityType && ACTIVITY_TYPES.includes(input.activityType)
+      ? input.activityType
+      : activityForCourse(
+          input.question, routeName, placeName, input.notes, points.map((point) => point.name).join(" "));
+  const date = input.date && /^\d{4}-\d{2}-\d{2}$/.test(input.date)
+    ? input.date
+    : new Date().toISOString().slice(0, 10);
 
   const { data: hike, error: hikeError } = await supabase
     .from("hikes")
     .insert({
       location_id: locationId,
       title: routeName,
-      date: new Date().toISOString().slice(0, 10),
+      date,
       activity_type: activityType,
       course_info: courseInfo,
       // Deliberately not validated against the library here. It is a foreign
@@ -233,12 +249,7 @@ export async function coursesForLocation(
   const sameName = all.filter((row) => row.mountain === name);
   let direct: LibraryRow[] = [];
   if (sameName.length > 0) {
-    const groups = groupByMountain(sameName);
-    const here = new Set(placesOf(region));
-    const picked =
-      groups.length === 1
-        ? groups[0]
-        : (groups.find((group) => [...group.places].some((place) => here.has(place))) ?? null);
+    const picked = pickMountainGroup(groupByMountain(sameName), region);
     direct = picked ? picked.rows : [];
   }
 
@@ -339,12 +350,18 @@ export async function searchCoursesForLocation(
   mountain: string,
   region: string | null,
   locationType: LocationType,
+  /** What the member picked in the form. A mountain now holds its climbs as
+      well as its walks - 삼성산's 숨은암장 is filed under 삼성산 - so the
+      folder's own type can no longer say which to search for; asking
+      "삼성산 등산 코스" for somebody recording a climb would only ever file
+      walks. */
+  activityType?: ActivityType,
 ): Promise<ActionResult<KnownCourse[]>> {
   const { supabase } = await requireApprovedMember();
   const name = mountain.trim();
   if (name.length < 2) return refused("장소 이름이 없습니다.");
 
-  const climbing = CLIMBS.includes(locationType);
+  const climbing = activityType === "climbing" || CLIMBS.includes(locationType);
   const question = climbing
     ? `${name} 암벽등반 어프로치와 등반 루트`
     : `${name} 등산 코스`;
@@ -354,7 +371,7 @@ export async function searchCoursesForLocation(
     if (result.routes.length === 0) {
       return refused("이 장소의 코스를 찾지 못했습니다. KHUAC AI에 직접 물어봐주세요.");
     }
-    await rememberCourses(supabase, name, result.routes);
+    await rememberCourses(supabase, name, result.routes, region);
   } catch {
     return refused("코스를 찾는 데 실패했습니다. 잠시 후 다시 시도해주세요.");
   }

@@ -13,7 +13,7 @@ import type { CourseDraft } from "./course-draft";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
 import type { KnownCourse } from "./route-album-actions";
-import { ACTIVITY_COLOR, ACTIVITY_LABEL, folderMarkerColor } from "./activity";
+import { ACTIVITY_COLOR, ACTIVITY_LABEL, folderMarkerColor, groupHikesByActivity } from "./activity";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import { deleteLocation } from "./admin-actions";
@@ -21,10 +21,10 @@ import { renameLocation } from "./actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 export const TYPE_LABEL: Record<LocationType, string> = {
-  // Renamed to match the activity vocabulary these places actually host
-  // (워킹/실내암장/외벽/암벽등반, see activity.ts) rather than the three names
-  // this had before, which said nothing about what tells them apart.
-  mountain: "워킹",
+  // A place's kind, not an outing's - that is ActivityType. A mountain holds
+  // its walks and its climbs together (삼성산 carries 숨은암장), so labelling
+  // it "워킹" told a member filing a climb to pick the wrong thing.
+  mountain: "산 (워킹·암벽등반)",
   climbing_gym: "실내클라이밍짐",
   // An artificial outdoor wall - 뚝섬 and the like - the same thing
   // ActivityType.outdoor_wall means. Natural rock is multi_pitch/hard_free.
@@ -174,6 +174,7 @@ export function SidePanel({
   showAi,
   aiSelected,
   onPickCourse,
+  allLocationNames,
 }: {
   locations: MapLocation[];
   activeLocation: MapLocation | null;
@@ -216,7 +217,12 @@ export function SidePanel({
   /** The KHUAC AI tab is the one selected, so it outranks an open album. */
   aiSelected: boolean;
   /** A library course chosen while making a new album - drawn for confirmation. */
-  onPickCourse: (course: KnownCourse, place: MapLocation) => void;
+  onPickCourse: (course: KnownCourse, place: MapLocation, draft: { activityType: ActivityType; date: string }) => void;
+  /** Every folder's name, unfiltered. `locations` above is what the site-wide
+      활동 필터 and search leave visible, so checking a new name against it
+      would miss 삼성산 whenever the screen is narrowed to 암벽등반 and 삼성산
+      holds no climb yet. */
+  allLocationNames: string[];
 }) {
   const router = useRouter();
   const [rootView, setRootView] = useState<"recent" | "places">("recent");
@@ -442,7 +448,9 @@ export function SidePanel({
               locationType={activeLocation.type}
               locationName={activeLocation.name}
               locationRegion={activeLocation.region}
-              onPickCourse={(course) => onPickCourse(course, activeLocation)}
+              locationLat={activeLocation.lat}
+              locationLng={activeLocation.lng}
+              onPickCourse={(course, draft) => onPickCourse(course, activeLocation, draft)}
             />
           </div>
           {activeLocation.hikes.length === 0 ? (
@@ -450,32 +458,63 @@ export function SidePanel({
               아직 등록된 활동이 없습니다.
             </p>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {activeLocation.hikes.map((hike) => (
-                <li key={hike.id}>
-                  <button
-                    onClick={() => onOpenHike(hike)}
-                    className={
-                      "flex w-full items-center gap-3 rounded-lg border p-2 text-left transition-colors " +
-                      (pinnedHikeId === hike.id
-                        ? "border-red-400 bg-red-50"
-                        : "border-club-line hover:border-club-faint")
-                    }
-                  >
-                    <TrackThumb track={hike.track} pinned={pinnedHikeId === hike.id} hike={hike} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="min-w-0 truncate text-sm font-semibold">{hike.title}</span>
-                        <ActivityTag type={hike.activityType} />
-                      </span>
-                      <span className="mt-0.5 block text-xs text-club-muted">
-                        {hikeMeta(hike).join(" · ")}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            // A heading only when there is more than one kind on file - see
+            // groupHikesByActivity. A mountain that only ever hosts one kind,
+            // or a screen already narrowed by the site-wide 활동 필터, would
+            // otherwise show a single redundant "워킹 3개" label above the
+            // only three things there are to see.
+            (() => {
+              const groups = groupHikesByActivity(activeLocation.hikes);
+              const showHeadings = groups.length > 1;
+              return (
+                <div className="flex flex-col gap-4">
+                  {groups.map((group) => (
+                    <div key={group.type}>
+                      {showHeadings && (
+                        <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-club-muted">
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: ACTIVITY_COLOR[group.type] }}
+                            aria-hidden="true"
+                          />
+                          {ACTIVITY_LABEL[group.type]} {group.hikes.length}개
+                        </p>
+                      )}
+                      <ul className="flex flex-col gap-2">
+                        {group.hikes.map((hike) => (
+                          <li key={hike.id}>
+                            <button
+                              onClick={() => onOpenHike(hike)}
+                              className={
+                                "flex w-full items-center gap-3 rounded-lg border p-2 text-left transition-colors " +
+                                (pinnedHikeId === hike.id
+                                  ? "border-red-400 bg-red-50"
+                                  : "border-club-line hover:border-club-faint")
+                              }
+                            >
+                              <TrackThumb track={hike.track} pinned={pinnedHikeId === hike.id} hike={hike} />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="min-w-0 truncate text-sm font-semibold">{hike.title}</span>
+                                  {/* Redundant with the section heading once
+                                      there is one, but still the only marker
+                                      when groups collapse to one - see
+                                      showHeadings above. */}
+                                  {!showHeadings && <ActivityTag type={hike.activityType} />}
+                                </span>
+                                <span className="mt-0.5 block text-xs text-club-muted">
+                                  {hikeMeta(hike).join(" · ")}
+                                </span>
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()
           )}
         </div>
       </div>
@@ -536,6 +575,7 @@ export function SidePanel({
             onPickingChange={onPickingChange}
             onPickPoint={onPickPoint}
             onCreated={onOpenLocation}
+            existingNames={allLocationNames}
           />
         </div>
 

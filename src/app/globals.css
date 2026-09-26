@@ -599,6 +599,20 @@ body {
    The map/AI workspace owns every remaining pixel down to the bottom edge. */
 .club-header { position:relative; z-index:35; }
 .club-header-tools { display:flex; min-width:0; align-items:center; gap:8px; }
+/* Desktop-only entry into 앨범 보기·만들기, spelled out because the panel
+   opens on KHUAC AI by default and the filter chip beside this reads as
+   "narrow what you see", not "go make one". The phone already has this exact
+   label in its own bottom nav, so this would only repeat it there - hence
+   display:none below md rather than a Tailwind hidden/md:flex pair, which
+   .club-filter-trigger's own unlayered display:flex (see the file's opening
+   @import "tailwindcss" - everything after it here is unlayered, and
+   unlayered CSS outranks every Tailwind layer, utilities included) would
+   have silently overridden. */
+/* Doubled class, not source order: .club-filter-trigger's display:flex sits
+   below this in the file and, at equal specificity, won - the phone showed
+   the button and pushed the search box off the edge. */
+.club-filter-trigger.club-album-nav-button { display:none; }
+@media(min-width:768px) { .club-filter-trigger.club-album-nav-button { display:flex; } }
 .club-filter-menu { position:relative; flex:0 0 auto; }
 .club-filter-trigger {
  display:flex;

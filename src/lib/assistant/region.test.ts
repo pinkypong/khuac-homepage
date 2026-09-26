@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupByMountain, placesOf, regionWords, type Placed } from "./region";
+import { groupByMountain, pickMountainGroup, placesOf, regionWords, type Placed } from "./region";
 
 /** Regions exactly as the two sources write them, copied from course_library. */
 const 지리산_공단 = "경상남도 함양군";
@@ -146,5 +146,54 @@ describe("regionWords", () => {
 
   it("offers both spellings of a province", () => {
     expect(regionWords("전라남도 광양시")).toContain("전남");
+  });
+});
+
+describe("pickMountainGroup", () => {
+  const row = (region: string | null) => ({ mountain: "삼성산", region });
+
+  it("does not hand a lone candidate to a folder in another district", () => {
+    // The actual row in course_library, and the club's folder.
+    const groups = groupByMountain([row("경상북도 경산시 남산면")]);
+    expect(pickMountainGroup(groups, "서울특별시 관악구, 경기도 안양시")).toBeNull();
+  });
+
+  it("picks the group that shares a district once both are on file", () => {
+    const groups = groupByMountain([row("경상북도 경산시 남산면"), row("서울특별시 관악구, 경기도 안양시")]);
+    expect(pickMountainGroup(groups, "경기도 안양시")?.places.has("경기/안양시")).toBe(true);
+  });
+
+  it("still takes a lone candidate when the folder names no district", () => {
+    // 북한산's folder says only "서울" - nothing to compare, so the shortcut stands.
+    const groups = groupByMountain([{ mountain: "북한산", region: "경기도 고양시 덕양구" }]);
+    expect(pickMountainGroup(groups, "서울")).toBe(groups[0]);
+  });
+
+  it("still takes a lone candidate whose rows name no district", () => {
+    const groups = groupByMountain([row(null)]);
+    expect(pickMountainGroup(groups, "경기도 안양시")).toBe(groups[0]);
+  });
+
+  it("returns null when nothing is on file", () => {
+    expect(pickMountainGroup([], "경기도 안양시")).toBeNull();
+  });
+});
+
+describe("pickMountainGroup with a folder that names no province", () => {
+  it("matches 한라산's folder, written without 제주, to its courses", () => {
+    // Measured on the real rows: a strict comparison dropped all eleven.
+    const groups = groupByMountain([
+      { mountain: "한라산", region: "제주특별자치도 제주시" },
+      { mountain: "한라산", region: "제주특별자치도 서귀포시" },
+    ]);
+    expect(pickMountainGroup(groups, "서귀포시 한라산")).not.toBeNull();
+  });
+
+  it("still keeps a province the folder did name", () => {
+    const groups = groupByMountain([
+      { mountain: "태화산", region: "경기도 광주시" },
+      { mountain: "태화산", region: "충청북도 단양군" },
+    ]);
+    expect(pickMountainGroup(groups, "전라남도 광주시")).toBeNull();
   });
 });
