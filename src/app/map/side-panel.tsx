@@ -5,7 +5,7 @@ import { ClubCrest } from "@/components/club-crest";
 import { RecentAlbums } from "./recent-albums";
 import { KhuacAiCard } from "./khuac-ai-card";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { formatDistance, trackDistanceMeters, type TrackPoint } from "@/lib/gps/track";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
@@ -14,7 +14,7 @@ import { albumCover } from "./album-cover";
 import type { CourseDraft } from "./course-draft";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
-import type { KnownCourse } from "./route-album-actions";
+import { searchCourseLibraryPlaces, type KnownCourse } from "./route-album-actions";
 import { ACTIVITY_COLOR, ACTIVITY_LABEL, CLIMBING_STYLE_LABEL, folderMarkerColor, groupHikesByActivity } from "./activity";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
@@ -344,6 +344,36 @@ export function SidePanel({
       );
   }, [locations, query]);
 
+  // Only asked when the plain search above found nothing - the common case
+  // is typing a mountain's own name, which folders already answers with no
+  // round trip. 삼성산 숨은암장 is the case this exists for: five courses
+  // already sit in course_library named for it, but before any album there
+  // existed, folders had no field of its own to match "숨은암장" against at
+  // all, and nothing said 삼성산 was where it lived.
+  const [courseMatches, setCourseMatches] = useState<{ mountain: string; courseName: string }[]>([]);
+  useEffect(() => {
+    const q = query.trim();
+    if (folders.length > 0 || q.length < 2) {
+      setCourseMatches([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchCourseLibraryPlaces(q)
+        .then((rows) => { if (!cancelled) setCourseMatches(rows); })
+        .catch(() => { if (!cancelled) setCourseMatches([]); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query, folders.length]);
+
+  // Only a mountain course_library and locations actually agree on - a course
+  // filed under a mountain nobody has made a folder for yet has nowhere this
+  // can send a member, and guessing at creating one on their behalf is a
+  // bigger decision than a search suggestion should make.
+  const courseMatchLocations = courseMatches
+    .map((match) => ({ match, location: locations.find((l) => l.name === match.mountain) ?? null }))
+    .filter((row): row is { match: typeof courseMatches[number]; location: MapLocation } => row.location !== null);
+
   const activeHike = activeLocation?.hikes.find((h) => h.id === activeHikeId) ?? null;
 
   // Not while the member is asking KHUAC AI something. This returned an open
@@ -656,11 +686,53 @@ export function SidePanel({
           <h2 className="text-sm font-semibold">장소 앨범</h2>
           <span className="text-xs text-club-muted">{folders.length}곳</span>
         </div>
+        {/* The "+" on each row (below) says the same thing this does, but a
+            mark alone is a mark someone has to already have learned the
+            meaning of - a member who has never seen it before has no reason
+            to read "+" as "you can add here". Said once, in words, above the
+            list rather than repeated on every row: read once, it explains
+            every "+" below it at the same time. */}
+        {canEdit && folders.length > 0 && (
+          <p className="mb-2 text-xs text-club-faint">
+            장소를 누르면 그 안에서 새 앨범을 추가할 수 있습니다.
+          </p>
+        )}
 
         {folders.length === 0 ? (
-          <p className="py-8 text-center text-sm text-club-muted">
-            {query ? "검색 결과가 없습니다." : "아직 등록된 장소가 없습니다."}
-          </p>
+          courseMatchLocations.length > 0 ? (
+            // 삼성산 has no album named 숨은암장 yet - locations/hikes had
+            // nothing for "숨은암장" to match - but course_library already
+            // holds five courses filed under it. Rather than a dead end, this
+            // is the connection the member was looking for: the crag they
+            // typed is a route inside a mountain that already has a folder.
+            <div className="py-4">
+              <p className="mb-2 text-center text-sm text-club-muted">
+                &lsquo;{query}&rsquo; 장소는 없지만, 그 이름의 코스가 있는 산을 찾았습니다.
+              </p>
+              <ul className="flex flex-col gap-2">
+                {courseMatchLocations.map(({ match, location }) => (
+                  <li key={location.id}>
+                    <button
+                      onClick={() => onOpenLocation(location.id)}
+                      className="w-full rounded-lg border border-amber-300 bg-amber-50 p-3 text-left hover:border-amber-400"
+                    >
+                      <span className="flex items-center gap-2">
+                        <FolderDot location={location} />
+                        <span className="min-w-0 truncate text-sm font-semibold">{location.name}</span>
+                      </span>
+                      <span className="mt-1 block text-xs text-amber-900">
+                        코스: {match.courseName}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-sm text-club-muted">
+              {query ? "검색 결과가 없습니다." : "아직 등록된 장소가 없습니다."}
+            </p>
+          )
         ) : (
           <ul className="flex flex-col gap-2">
             {folders.map(({ location, latestHike }) => (

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireApprovedMember } from "@/lib/supabase/require-role";
+import { createClient } from "@/lib/supabase/server";
 import { isValidGps } from "@/lib/gps/validate";
 import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/result";
 import { ACTIVITY_TYPES, activityForCourse } from "./activity";
@@ -287,6 +288,47 @@ export async function coursesForLocation(
       difficulty: row.difficulty,
       origin: row.origin,
     }));
+}
+
+/**
+ * The mountains a course name search finds, for a member who thinks of a
+ * place by a route or crag inside it rather than by the mountain's own name.
+ *
+ * 삼성산 숨은암장 is why this exists: it is filed as five courses under
+ * mountain=삼성산 (course_library already holds "숨은암장 - 나들이길" and four
+ * more), but the plain text search over locations/hikes in side-panel.tsx
+ * only ever matched a folder's own name and its albums' titles - so typing
+ * "숨은암장" before any album there existed found nothing at all, with
+ * nothing to say that 삼성산 was where it lived. No requireApprovedMember:
+ * this is read alongside a search box a stranger browsing the public map can
+ * already use, and course_library_select is public read for the same reason
+ * locations/hikes are.
+ *
+ * Only the course name is matched, not waypoints - course_library.waypoints
+ * is jsonb, and PostgREST has no substring operator over a jsonb array's
+ * elements. The name is where a crag's own name overwhelmingly turns up
+ * anyway ("숨은암장 - 나들이길"), so this covers the case it was built for
+ * without reaching for raw SQL.
+ */
+export async function searchCourseLibraryPlaces(
+  query: string,
+): Promise<{ mountain: string; courseName: string }[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("course_library")
+    .select("mountain, name")
+    .ilike("name", `%${q}%`)
+    .limit(20);
+  const rows = (data ?? []) as { mountain: string; name: string }[];
+
+  // One suggestion per mountain, not one per matching course - 삼성산 held
+  // five rows mentioning 숨은암장, and offering it five times over would read
+  // as five different places.
+  const byMountain = new Map<string, string>();
+  for (const row of rows) if (!byMountain.has(row.mountain)) byMountain.set(row.mountain, row.name);
+  return [...byMountain.entries()].slice(0, 5).map(([mountain, courseName]) => ({ mountain, courseName }));
 }
 
 /**
