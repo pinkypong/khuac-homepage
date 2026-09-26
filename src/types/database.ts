@@ -9,6 +9,12 @@ export type LocationType = "mountain" | "climbing_gym" | "crag" | "multi_pitch" 
 
 export type ActivityType = "hiking" | "indoor_climbing" | "outdoor_wall" | "climbing";
 
+/** A tag on a climbing hike, not a place - see the migration that added it
+    (20260926082200_climbing_style.sql) for why this lives on the hike and not
+    on locations.type the way it used to (multi_pitch/hard_free). Null on any
+    non-climbing hike, and left null on a climb whose member did not say. */
+export type ClimbingStyle = "multi_pitch" | "hard_free";
+
 export type PhotoLocationMatchStatus =
   | "auto_matched"
   | "manual_pending"

@@ -16,8 +16,8 @@ import { saveHikeTrack, updateActivity, updateCourseDetails } from "./actions";
 import { rebuildCourseTrack } from "./route-actions";
 import { deleteActivity } from "./admin-actions";
 import { deletePhoto } from "./photo-actions";
-import { ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES } from "./activity";
-import type { ActivityType } from "@/types/database";
+import { ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, CLIMBING_STYLES, CLIMBING_STYLE_LABEL } from "./activity";
+import type { ActivityType, ClimbingStyle } from "@/types/database";
 import { isValidGps } from "@/lib/gps/validate";
 import { HikePhotoUpload } from "./hike-photo-upload";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
@@ -69,6 +69,7 @@ export function HikeDetail({
   // Keyed by hike id so moving to another activity can't carry a stale draft.
   const [renaming, setRenaming] = useState<{
     hikeId: string; title: string; date: string; activityType: ActivityType;
+    climbingStyle: ClimbingStyle | null;
     baseUpdatedAt: string;
   } | null>(null);
   const [savingName, setSavingName] = useState(false);
@@ -136,6 +137,7 @@ export function HikeDetail({
       title: hike.title,
       date: hike.date,
       activityType: hike.activityType,
+      climbingStyle: hike.climbingStyle,
       baseUpdatedAt: hike.updatedAt,
     });
   }
@@ -222,6 +224,7 @@ export function HikeDetail({
         title: renaming.title,
         date: renaming.date,
         activityType: renaming.activityType,
+        climbingStyle: renaming.climbingStyle,
         baseUpdatedAt: renaming.baseUpdatedAt,
         // Left out on purpose: the memo is the course box's field now, and
         // passing it here would let this form overwrite an edit made there.
@@ -335,7 +338,14 @@ export function HikeDetail({
                   role="radio"
                   aria-checked={renaming.activityType === type}
                   title={ACTIVITY_HINT[type]}
-                  onClick={() => setRenaming({ ...renaming, activityType: type })}
+                  onClick={() => setRenaming({
+                    ...renaming,
+                    activityType: type,
+                    // The database refuses a climbing_style on a non-climbing
+                    // row (hikes_climbing_style_only_for_climbing) - cleared
+                    // here rather than left for the server to reject.
+                    climbingStyle: type === "climbing" ? renaming.climbingStyle : null,
+                  })}
                   className={
                     "rounded border px-2 py-1 text-xs transition-colors "
                     + (renaming.activityType === type
@@ -350,6 +360,30 @@ export function HikeDetail({
                 </button>
               ))}
             </div>
+            {renaming.activityType === "climbing" && (
+              <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="등반 종류">
+                {CLIMBING_STYLES.map((style) => (
+                  <button
+                    key={style}
+                    type="button"
+                    role="radio"
+                    aria-checked={renaming.climbingStyle === style}
+                    onClick={() => setRenaming({
+                      ...renaming,
+                      climbingStyle: renaming.climbingStyle === style ? null : style,
+                    })}
+                    className={
+                      "rounded border px-2 py-1 text-xs transition-colors "
+                      + (renaming.climbingStyle === style
+                        ? "border-club-ink bg-club-ink text-white"
+                        : "border-club-line text-club-muted hover:bg-club-paper")
+                    }
+                  >
+                    {CLIMBING_STYLE_LABEL[style]}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <input
                 type="date"

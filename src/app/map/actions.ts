@@ -5,7 +5,7 @@ import { refused, refusedByDatabase, type ActionResult } from "@/lib/actions/res
 import { requireApprovedMember } from "@/lib/supabase/require-role";
 import { sanitizeTrack } from "@/lib/gps/track";
 import { isValidGps } from "@/lib/gps/validate";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { ACTIVITY_TYPES, needsOwnSpot } from "@/app/map/activity";
 import { asCourseInfo } from "@/app/map/course-info";
 import { rebuildCourseTrack } from "@/app/map/route-actions";
@@ -72,6 +72,10 @@ export async function createHike(input: {
   title: string;
   date: string;
   activityType: ActivityType;
+  /** Ignored unless activityType is climbing - the database itself enforces
+      this (hikes_climbing_style_only_for_climbing), so a stray value here is
+      dropped rather than turned into a round trip that fails. */
+  climbingStyle: ClimbingStyle | null;
   description: string | null;
   lat: number | null;
   lng: number | null;
@@ -107,6 +111,7 @@ export async function createHike(input: {
       title,
       date: input.date,
       activity_type: input.activityType,
+      climbing_style: input.activityType === "climbing" ? input.climbingStyle : null,
       description: input.description?.trim() || null,
       lat: hasSpot ? input.lat : null,
       lng: hasSpot ? input.lng : null,
@@ -156,6 +161,11 @@ export async function updateActivity(input: {
   title: string;
   date: string;
   activityType?: ActivityType;
+  /** Only meaningful when activityType is also given - see below. Ignored
+      (not merely left alone) whenever activityType changes away from
+      climbing, because the database rejects a climbing_style on any other
+      activity_type (hikes_climbing_style_only_for_climbing). */
+  climbingStyle?: ClimbingStyle | null;
   /** The course notes. Empty clears them; undefined leaves them alone. */
   description?: string;
   /** The album's updated_at when this form opened - same guard as the course
@@ -180,7 +190,16 @@ export async function updateActivity(input: {
     .update({
       title,
       date: input.date,
-      ...(input.activityType ? { activity_type: input.activityType } : {}),
+      // Both written together, never one without the other: a climbing_style
+      // left over from before an activityType change is exactly what the
+      // database's check constraint exists to catch, and it would fail this
+      // whole update rather than just drop the stale tag.
+      ...(input.activityType
+        ? {
+            activity_type: input.activityType,
+            climbing_style: input.activityType === "climbing" ? (input.climbingStyle ?? null) : null,
+          }
+        : {}),
       // Cleared rather than blanked: an empty box means there is nothing to
       // say, and the column already has a word for that.
       ...(description !== undefined ? { description: description || null } : {}),

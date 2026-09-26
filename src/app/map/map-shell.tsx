@@ -2,13 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { flattenTrack } from "@/lib/gps/track";
 import type { TrackPoint } from "@/lib/gps/track";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ACTIVITY_TYPES, ACTIVITY_LABEL, withActivity } from "./activity";
+import { ACTIVITY_TYPES, ACTIVITY_LABEL, CLIMBING_STYLE_LABEL, withActivity } from "./activity";
 import type { CourseInfo } from "./course-info";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { APIProvider } from "@vis.gl/react-google-maps";
@@ -50,6 +50,9 @@ export interface MapHike {
   date: string;
   description: string | null;
   activityType: ActivityType;
+  /** Set only when activityType is climbing, and even then only when the
+      member said - see CLIMBING_STYLE_LABEL in activity.ts. */
+  climbingStyle: ClimbingStyle | null;
   // The specific peak/route inside the location, e.g. 대청봉 within 설악산.
   // Null until someone pins one; the location's own point stands in.
   lat: number | null;
@@ -331,6 +334,7 @@ export function MapShell({
     locationId: string;
     placeName: string;
     activityType: ActivityType;
+    climbingStyle: ClimbingStyle | null;
     date: string;
   } | null>(null);
   // A course waypoint nothing could place, and the point a member is putting
@@ -588,7 +592,7 @@ export function MapShell({
   function previewCourseForNewAlbum(
     course: KnownCourse,
     place: MapLocation,
-    draft: { activityType: ActivityType; date: string },
+    draft: { activityType: ActivityType; climbingStyle: ClimbingStyle | null; date: string },
   ) {
     setTrailPick(null);
     setAttachTo(null);
@@ -723,6 +727,7 @@ export function MapShell({
         question: asked,
         locationId: fromForm?.locationId ?? null,
         activityType: fromForm?.activityType ?? null,
+        climbingStyle: fromForm?.climbingStyle ?? null,
         date: fromForm?.date ?? null,
       });
       if (!result.ok) {
@@ -1070,7 +1075,9 @@ export function MapShell({
                 <span className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border border-club-line bg-white/95 px-3 py-2 text-[12px] text-club-ink-soft shadow-lg backdrop-blur">
                   <span className="min-w-0 basis-full text-center">
                     <strong className="font-semibold text-club-ink">{newAlbumFor.placeName}</strong>
-                    {" · "}{ACTIVITY_LABEL[newAlbumFor.activityType]}{" · "}{newAlbumFor.date}
+                    {" · "}{ACTIVITY_LABEL[newAlbumFor.activityType]}
+                    {newAlbumFor.climbingStyle && ` · ${CLIMBING_STYLE_LABEL[newAlbumFor.climbingStyle]}`}
+                    {" · "}{newAlbumFor.date}
                     <span className="block break-keep">&lsquo;{suggestedRoute.route.name}&rsquo; 코스로 앨범을 만들까요?</span>
                   </span>
                   <button

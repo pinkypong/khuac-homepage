@@ -10,7 +10,7 @@ import { groupByMountain, pickMountainGroup } from "@/lib/assistant/region";
 import { rankOf } from "@/lib/assistant/origin";
 import { rememberCourses } from "@/lib/assistant/library";
 import { extractRoutes, searchRoutes } from "@/lib/assistant/routes";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 
 export interface RouteWaypoint {
   name: string;
@@ -69,6 +69,9 @@ export async function createAlbumFromRoute(input: {
       they just chose. */
   locationId?: string | null;
   activityType?: ActivityType | null;
+  /** Ignored unless activityType is climbing, same as createHike - the
+      database enforces it either way. */
+  climbingStyle?: ClimbingStyle | null;
   date?: string | null;
 }): Promise<ActionResult<{ locationId: string; hikeId: string }>> {
   const { supabase, memberId } = await requireApprovedMember();
@@ -166,6 +169,7 @@ export async function createAlbumFromRoute(input: {
       title: routeName,
       date,
       activity_type: activityType,
+      climbing_style: activityType === "climbing" ? (input.climbingStyle ?? null) : null,
       course_info: courseInfo,
       // Deliberately not validated against the library here. It is a foreign
       // key: an id that names no course is refused by the database, which is

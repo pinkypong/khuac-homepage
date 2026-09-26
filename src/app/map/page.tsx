@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { asCourseInfo } from "./course-info";
 import { UNKNOWN_MEMBER_NAME, memberDirectory } from "@/lib/supabase/member-names";
 import type { TrackPoint } from "@/lib/gps/track";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { MapShell, type MapLocation, type MapHike } from "./map-shell";
 
 interface LocationRow {
@@ -20,6 +20,7 @@ interface LocationRow {
     date: string;
     description: string | null;
     activity_type: ActivityType;
+    climbing_style: ClimbingStyle | null;
     lat: number | null;
     lng: number | null;
     track: TrackPoint[] | null;
@@ -62,7 +63,7 @@ export default async function MapPage() {
       .from("locations")
       .select(
         "id, name, type, region, elevation, lat, lng, created_at, " +
-          "hikes(id, title, date, description, activity_type, lat, lng, track, track_source, updated_at, route_waypoints, course_info, course_id, " +
+          "hikes(id, title, date, description, activity_type, climbing_style, lat, lng, track, track_source, updated_at, route_waypoints, course_info, course_id, " +
           "photos(id, storage_key_original, taken_at, created_at, exif_lat, exif_lng, uploader_id))",
       )
       .not("lat", "is", null)
@@ -122,6 +123,7 @@ export default async function MapPage() {
           date: hike.date,
           description: hike.description,
           activityType: hike.activity_type,
+          climbingStyle: hike.climbing_style,
           lat: hike.lat,
           lng: hike.lng,
           // Only a real GPX track draws a line now. A polyline through photo

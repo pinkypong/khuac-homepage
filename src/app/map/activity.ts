@@ -1,5 +1,5 @@
 import { isClimbingQuestion } from "@/lib/assistant/intent";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 
 // Shared by the form, the panel rows and the detail header. Kept in its own
 // module so hike-detail.tsx can use it without importing side-panel.tsx,
@@ -32,6 +32,26 @@ export const ACTIVITY_HINT: Record<ActivityType, string> = {
   indoor_climbing: "실내 클라이밍장",
   outdoor_wall: "실외 인공 암벽",
   climbing: "자연 암벽",
+};
+
+/**
+ * A finer tag on a 암벽등반 hike, optional, not its own activity.
+ *
+ * This used to be locations.type - a crag was made its own place because it
+ * needed *some* way to say "this is a wall of pitches" versus "this is a
+ * short hard line". That place-level split is what got merged away (인수봉
+ * back into 북한산, see needsOwnSpot's history), because course_library
+ * already groups by mountain and a second place for the same feature just
+ * gave a member two names to choose between. The distinction itself was
+ * real, though, so it moved to where it always actually described something -
+ * the climb, not the mountain hosting it. 북한산 can hold both kinds now, the
+ * way it always could, just without a folder for each.
+ */
+export const CLIMBING_STYLES: ClimbingStyle[] = ["multi_pitch", "hard_free"];
+
+export const CLIMBING_STYLE_LABEL: Record<ClimbingStyle, string> = {
+  multi_pitch: "멀티피치",
+  hard_free: "하드프리",
 };
 
 // One colour vocabulary shared by the map markers and the list badges, so a

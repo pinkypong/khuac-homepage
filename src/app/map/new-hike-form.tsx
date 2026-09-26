@@ -2,10 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { createHike } from "./actions";
 import {
-  ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, DEFAULT_ACTIVITY_FOR_LOCATION, activityForCourse, needsOwnSpot,
+  ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, CLIMBING_STYLES, CLIMBING_STYLE_LABEL,
+  DEFAULT_ACTIVITY_FOR_LOCATION, activityForCourse, needsOwnSpot,
 } from "./activity";
 import { PlaceSearch, type PlaceResult } from "./place-search";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
@@ -54,7 +55,10 @@ export function NewHikeForm({
   locationLng: number;
   /** Draw a library course and let the member confirm it into a new album,
       carrying what they already chose here. */
-  onPickCourse: (course: KnownCourse, draft: { activityType: ActivityType; date: string }) => void;
+  onPickCourse: (
+    course: KnownCourse,
+    draft: { activityType: ActivityType; climbingStyle: ClimbingStyle | null; date: string },
+  ) => void;
 }) {
   const defaultActivity = DEFAULT_ACTIVITY_FOR_LOCATION[locationType];
   const router = useRouter();
@@ -62,6 +66,10 @@ export function NewHikeForm({
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(localToday);
   const [activityType, setActivityType] = useState<ActivityType>(defaultActivity);
+  // A refinement on 암벽등반 only, and optional even then - see
+  // CLIMBING_STYLE_LABEL in activity.ts for why this is a tag on the climb
+  // rather than its own activity or its own place.
+  const [climbingStyle, setClimbingStyle] = useState<ClimbingStyle | null>(null);
   const [description, setDescription] = useState("");
   const [spot, setSpot] = useState<PlaceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +124,7 @@ export function NewHikeForm({
     setTitle("");
     setDate(localToday());
     setActivityType(defaultActivity);
+    setClimbingStyle(null);
     setDescription("");
     setSpot(null);
     setError(null);
@@ -129,7 +138,7 @@ export function NewHikeForm({
       setCourseError("날짜를 먼저 골라주세요.");
       return;
     }
-    onPickCourse(course, { activityType, date });
+    onPickCourse(course, { activityType, climbingStyle, date });
   }
 
   async function submit(event: React.FormEvent) {
@@ -146,6 +155,7 @@ export function NewHikeForm({
         title,
         date,
         activityType,
+        climbingStyle: activityType === "climbing" ? climbingStyle : null,
         description: description || null,
         lat: spot?.lat ?? null,
         lng: spot?.lng ?? null,
@@ -193,7 +203,7 @@ export function NewHikeForm({
             <button
               key={t}
               type="button"
-              onClick={() => setActivityType(t)}
+              onClick={() => { setActivityType(t); if (t !== "climbing") setClimbingStyle(null); }}
               aria-pressed={activityType === t}
               className={
                 "rounded border px-2 py-2 text-sm md:py-1.5 md:text-xs " +
@@ -207,6 +217,30 @@ export function NewHikeForm({
           ))}
         </div>
         <p className="mt-1 text-xs text-club-faint">{ACTIVITY_HINT[activityType]}</p>
+
+        {/* 암벽등반을 골랐을 때만 - 멀티피치·하드프리는 등반의 세부 태그일
+            뿐, 자체 활동도 자체 장소도 아니다. 고르지 않아도 앨범은 그대로
+            만들어진다. */}
+        {activityType === "climbing" && (
+          <div className="mt-2 flex gap-1.5">
+            {CLIMBING_STYLES.map((style) => (
+              <button
+                key={style}
+                type="button"
+                onClick={() => setClimbingStyle((current) => (current === style ? null : style))}
+                aria-pressed={climbingStyle === style}
+                className={
+                  "rounded border px-2.5 py-1 text-xs " +
+                  (climbingStyle === style
+                    ? "border-club-ink bg-club-ink text-white"
+                    : "border-club-line text-club-ink-soft hover:border-club-muted")
+                }
+              >
+                {CLIMBING_STYLE_LABEL[style]}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-3">

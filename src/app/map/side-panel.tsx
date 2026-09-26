@@ -4,7 +4,7 @@ import { RecentAlbums } from "./recent-albums";
 import { KhuacAiCard } from "./khuac-ai-card";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import type { ActivityType, LocationType } from "@/types/database";
+import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { formatDistance, trackDistanceMeters, type TrackPoint } from "@/lib/gps/track";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import { HikeDetail } from "./hike-detail";
@@ -13,7 +13,7 @@ import type { CourseDraft } from "./course-draft";
 import { NewLocationForm } from "./new-location-form";
 import { NewHikeForm } from "./new-hike-form";
 import type { KnownCourse } from "./route-album-actions";
-import { ACTIVITY_COLOR, ACTIVITY_LABEL, folderMarkerColor, groupHikesByActivity } from "./activity";
+import { ACTIVITY_COLOR, ACTIVITY_LABEL, CLIMBING_STYLE_LABEL, folderMarkerColor, groupHikesByActivity } from "./activity";
 import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import { deleteLocation } from "./admin-actions";
@@ -131,7 +131,12 @@ function TrackThumb({
 }
 
 function hikeMeta(hike: MapHike) {
-  const parts: string[] = [new Date(hike.date).toLocaleDateString("ko-KR")];
+  const parts: string[] = [];
+  // Leads the line, ahead of the date: 멀티피치/하드프리 is what tells two
+  // 암벽등반 rows in the same mountain's group apart, and the ACTIVITY_TYPES
+  // group heading above them already says 암벽등반 once for both.
+  if (hike.climbingStyle) parts.push(CLIMBING_STYLE_LABEL[hike.climbingStyle]);
+  parts.push(new Date(hike.date).toLocaleDateString("ko-KR"));
   if (hike.track && hike.track.length >= 2) {
     parts.push(formatDistance(trackDistanceMeters(hike.track)));
   }
@@ -217,7 +222,11 @@ export function SidePanel({
   /** The KHUAC AI tab is the one selected, so it outranks an open album. */
   aiSelected: boolean;
   /** A library course chosen while making a new album - drawn for confirmation. */
-  onPickCourse: (course: KnownCourse, place: MapLocation, draft: { activityType: ActivityType; date: string }) => void;
+  onPickCourse: (
+    course: KnownCourse,
+    place: MapLocation,
+    draft: { activityType: ActivityType; climbingStyle: ClimbingStyle | null; date: string },
+  ) => void;
   /** Every folder's name, unfiltered. `locations` above is what the site-wide
       활동 필터 and search leave visible, so checking a new name against it
       would miss 삼성산 whenever the screen is narrowed to 암벽등반 and 삼성산
