@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { LocationType } from "@/types/database";
 import { createLocation } from "./actions";
 import type { PickedPoint } from "./map-shell";
 import { TYPE_LABEL } from "./side-panel";
 import { PlaceSearch, type PlaceResult } from "./place-search";
 import { similarLocationName } from "./location-names";
+import { parseExif } from "@/lib/gps/exif";
 
 /**
  * multi_pitch and hard_free are deliberately absent here.
@@ -68,6 +69,9 @@ export function NewLocationForm({
   // a different place. Reset whenever the name changes so it cannot survive
   // past the warning it was ticked for.
   const [confirmedDifferent, setConfirmedDifferent] = useState(false);
+  const photoRef = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const similar = similarLocationName(name, existingNames);
 
@@ -76,6 +80,39 @@ export function NewLocationForm({
     if (!name) setName(place.name);
     if (!region && place.address) setRegion(place.address);
     setError(null);
+  }
+
+  /**
+   * A point from a photo's own GPS, for exactly the place Places has no
+   * listing for - 숨은암장, 인수봉 고독길 들머리, none of it. Tapping the
+   * map was the only fallback for those, and asking a member to find one
+   * unmarked point among a wall of green on a phone screen, at the zoom
+   * level where the map still shows the whole ridge, is not a realistic ask.
+   * A photo taken standing there already carries a far better fix than any
+   * tap would land - the phone's own GPS chip, recorded at the moment of
+   * pressing the shutter.
+   *
+   * Feeds the same onPickPoint map-tap already does, not a parallel path -
+   * this is a second way to answer "where", not a second kind of answer.
+   */
+  async function onPhotoSelected(file: File | undefined) {
+    if (!file) return;
+    setPhotoError(null);
+    setPhotoBusy(true);
+    try {
+      const exif = await parseExif(file);
+      if (exif.lat == null || exif.lng == null) {
+        setPhotoError("이 사진에는 위치 정보가 없습니다. 다른 사진을 선택하거나 검색·지도로 지정해주세요.");
+        return;
+      }
+      onPickPoint({ lat: exif.lat, lng: exif.lng });
+      setError(null);
+    } catch {
+      setPhotoError("사진에서 위치를 읽지 못했습니다.");
+    } finally {
+      setPhotoBusy(false);
+      if (photoRef.current) photoRef.current.value = "";
+    }
   }
 
   function toggle(next: boolean) {
@@ -87,6 +124,7 @@ export function NewLocationForm({
       setElevation("");
       setError(null);
       setConfirmedDifferent(false);
+      setPhotoError(null);
     }
   }
 
@@ -162,10 +200,31 @@ export function NewLocationForm({
         <PlaceSearch onSelect={handlePlace} />
       </div>
 
+      {/* Google이 모르는 곳(숨은암장 등)을 위한 두 번째 방법. 지도를 손끝으로
+          찍어 봉우리 하나를 맞히는 것보다, 그 자리에서 찍은 사진 하나의 GPS가
+          훨씬 정확하고 훨씬 쉽다. */}
+      <div className="mt-2">
+        <input
+          ref={photoRef}
+          type="file"
+          accept="image/*"
+          id="new-location-photo"
+          onChange={(e) => onPhotoSelected(e.target.files?.[0])}
+          className="hidden"
+        />
+        <label
+          htmlFor="new-location-photo"
+          className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded border border-dashed border-club-line py-2 text-xs text-club-muted hover:border-club-muted"
+        >
+          {photoBusy ? "위치 읽는 중…" : "📷 그 자리에서 찍은 사진으로 위치 지정"}
+        </label>
+        {photoError && <p className="mt-1 text-xs text-red-600">{photoError}</p>}
+      </div>
+
       <p className="mt-2 text-xs text-club-muted">
         {pickedPoint
           ? `선택한 위치: ${pickedPoint.lat.toFixed(5)}, ${pickedPoint.lng.toFixed(5)} (지도를 클릭해 미세 조정 가능)`
-          : "검색해서 고르거나, 지도를 직접 클릭해 지정하세요."}
+          : "검색이나 사진으로 안 되면, 지도를 직접 클릭해 지정하세요."}
       </p>
 
       <input

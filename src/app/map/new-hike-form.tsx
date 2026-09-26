@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { createHike } from "./actions";
 import {
@@ -11,6 +11,7 @@ import {
 import { PlaceSearch, type PlaceResult } from "./place-search";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
 import { originLabel } from "./course-origin";
+import { parseExif } from "@/lib/gps/exif";
 
 /** Today on the member's own clock. toISOString is UTC, which before 9am in
     Korea is still yesterday - the morning of a climb is exactly when an album
@@ -77,6 +78,9 @@ export function NewHikeForm({
   // phone the foot is a screen away from the button that failed.
   const [courseError, setCourseError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const photoSpotRef = useRef<HTMLInputElement>(null);
+  const [photoSpotBusy, setPhotoSpotBusy] = useState(false);
+  const [photoSpotError, setPhotoSpotError] = useState<string | null>(null);
   // The courses this place already has. Read when the form opens rather than on
   // every render of the location screen - most visits never make an album.
   const [courses, setCourses] = useState<KnownCourse[] | null>(null);
@@ -130,6 +134,30 @@ export function NewHikeForm({
     setError(null);
     setCourseError(null);
     setCourseQuery("");
+    setPhotoSpotError(null);
+  }
+
+  /** Same fix as new-location-form.tsx's own photo option, for the same
+      reason: 숨은암장's own entrance has no Google listing and no reasonable
+      tap target on a phone-sized map, and a photo taken standing at it
+      already carries a better coordinate than any tap would land. */
+  async function onPhotoSpotSelected(file: File | undefined) {
+    if (!file) return;
+    setPhotoSpotError(null);
+    setPhotoSpotBusy(true);
+    try {
+      const exif = await parseExif(file);
+      if (exif.lat == null || exif.lng == null) {
+        setPhotoSpotError("이 사진에는 위치 정보가 없습니다. 다른 사진을 선택하거나 검색해주세요.");
+        return;
+      }
+      setSpot({ name: "사진에서 가져온 위치", address: null, lat: exif.lat, lng: exif.lng });
+    } catch {
+      setPhotoSpotError("사진에서 위치를 읽지 못했습니다.");
+    } finally {
+      setPhotoSpotBusy(false);
+      if (photoSpotRef.current) photoSpotRef.current.value = "";
+    }
   }
 
   function pickCourse(course: KnownCourse) {
@@ -396,6 +424,25 @@ export function NewHikeForm({
                 if (!title) setTitle(place.name);
               }}
             />
+            {/* Google이 모르는 지점(숨은암장, 인수봉 고독길 들머리)을 위한
+                두 번째 방법 - 그 자리에서 찍은 사진 한 장의 GPS가, 폰 화면에서
+                산등성이 어딘가를 손가락으로 맞히는 것보다 훨씬 정확하고 훨씬
+                쉽다. new-location-form.tsx와 같은 구현. */}
+            <input
+              ref={photoSpotRef}
+              type="file"
+              accept="image/*"
+              id="new-hike-spot-photo"
+              onChange={(e) => onPhotoSpotSelected(e.target.files?.[0])}
+              className="hidden"
+            />
+            <label
+              htmlFor="new-hike-spot-photo"
+              className="mt-1.5 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded border border-dashed border-club-line py-2 text-xs text-club-muted hover:border-club-muted"
+            >
+              {photoSpotBusy ? "위치 읽는 중…" : "📷 그 자리에서 찍은 사진으로 위치 지정"}
+            </label>
+            {photoSpotError && <p className="mt-1 text-xs text-red-600">{photoSpotError}</p>}
             {spot ? (
               <p className="mt-1 flex items-center gap-1.5 text-xs text-club-muted">
                 <span className="min-w-0 truncate">{spot.name}</span>
@@ -409,8 +456,9 @@ export function NewHikeForm({
               </p>
             ) : (
               <p className="mt-1 text-xs text-club-faint">
-                지도에 붉은 핀으로 표시될 지점입니다. 검색에 안 나오면{" "}
-                {/* Google has no 숨은암장 and no 인수봉 고독길 들머리. Without
+                지도에 붉은 핀으로 표시될 지점입니다. 검색도 사진도 안 되면{" "}
+                {/* Google has no 숨은암장 and no 인수봉 고독길 들머리, and not
+                    every member has a geotagged photo on hand either. Without
                     this the only way past a required field it could not fill
                     was to give up - the folder's own pin is honest about being
                     "somewhere on this mountain", which is what the member
