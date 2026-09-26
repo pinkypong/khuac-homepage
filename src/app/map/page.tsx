@@ -46,8 +46,9 @@ export default async function MapPage() {
 
   // getSession reads the cookie; getUser would spend a network round trip
   // validating it against the auth server. Nothing here is an authorisation
-  // decision - the middleware already refused anyone who does not belong on
-  // this route, and RLS decides what the id below is allowed to read.
+  // decision - /map is deliberately reachable with no session at all
+  // (middleware's PUBLIC_READ_PATHS), and RLS decides what the id below, if
+  // there is one, is allowed to read.
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -76,6 +77,16 @@ export default async function MapPage() {
 
   const viewer = (memberResult.data as { name: string; role: string } | null) ?? null;
   const isAdmin = viewer?.role === "admin";
+  // Anonymous and pending visitors get the read-only map (see middleware's
+  // PUBLIC_READ_PATHS); this is what the page hides create/edit controls
+  // behind so a control that would only throw requireApprovedMember's
+  // "Not authenticated" never renders for them in the first place.
+  const canEdit = viewer?.role === "member" || isAdmin;
+  // Distinct from canEdit: a pending member is logged in (has a real account,
+  // a name, a sign-out button worth showing) but still cannot edit anything.
+  // viewerName alone cannot tell a stranger from a member who has not set a
+  // name yet - both come back as "".
+  const isLoggedIn = viewer !== null;
   const rows = data as unknown as LocationRow[];
 
   // Both of these needed the results above, and neither needs the other.
@@ -166,6 +177,8 @@ export default async function MapPage() {
       locations={locations}
       viewerName={viewer?.name ?? ""}
       isAdmin={isAdmin}
+      canEdit={canEdit}
+      isLoggedIn={isLoggedIn}
       pendingCount={pendingCount ?? 0}
     />
   );

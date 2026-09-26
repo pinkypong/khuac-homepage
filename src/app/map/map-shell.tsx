@@ -219,11 +219,21 @@ export function MapShell({
   locations,
   viewerName,
   isAdmin,
+  canEdit,
+  isLoggedIn,
   pendingCount,
 }: {
   locations: MapLocation[];
   viewerName: string;
   isAdmin: boolean;
+  /** An approved (non-pending) member. False for a stranger just visiting and
+      for a member still waiting on approval - both get the read-only map,
+      neither gets a control that would only throw when pressed. */
+  canEdit: boolean;
+  /** True for a pending member too - distinct from canEdit, and from
+      viewerName being non-empty, which a pending member with no name set yet
+      cannot be told apart from a stranger by. */
+  isLoggedIn: boolean;
   pendingCount: number;
 }) {
   const router = useRouter();
@@ -764,7 +774,13 @@ export function MapShell({
     : (pinnedHike?.routeWaypoints ?? []);
 
   useEffect(() => {
-    if (!profileTrack || profileTrack.length < 2) {
+    // loadCourseElevation requires an approved member - not because the
+    // profile itself is sensitive (it is a computed shape over a track that
+    // is already public once the hike is), but it was written before anyone
+    // but a member could reach this screen at all. Skipped rather than
+    // loosened here: the safe default until that gate is deliberately
+    // reconsidered, not a judgement that it needs to stay.
+    if (!profileTrack || profileTrack.length < 2 || !canEdit) {
       setCourseProfile(null);
       return;
     }
@@ -867,7 +883,7 @@ export function MapShell({
             className="club-filter-trigger club-album-nav-button"
           >
             <NavIcon kind="album" />
-            <span>앨범 보기·만들기</span>
+            <span>{canEdit ? "앨범 보기·만들기" : "앨범 보기"}</span>
           </button>
           <div className="club-filter-menu">
             <button
@@ -923,7 +939,25 @@ export function MapShell({
         </div>
         <div className="club-header-actions"><button className="club-profile" aria-label="내 정보" aria-expanded={accountOpen} onClick={() => setAccountOpen(!accountOpen)}><NavIcon kind="profile"/></button></div>
       </header>
-      {accountOpen && <section className="club-account" aria-label="내 정보">{viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}<Link href="/photos/upload">사진 업로드</Link><Link href="/members">부원</Link>{isAdmin && <Link href="/admin/members">관리자 <PendingBadge count={pendingCount}/></Link>}<SignOutButton/><button onClick={() => setAccountOpen(false)}>닫기</button></section>}
+      {accountOpen && (
+        <section className="club-account" aria-label="내 정보">
+          {isLoggedIn ? (
+            <>
+              {viewerName && <ViewerName initialName={viewerName} isAdmin={isAdmin} />}
+              <Link href="/photos/upload">사진 업로드</Link>
+              <Link href="/members">부원</Link>
+              {isAdmin && <Link href="/admin/members">관리자 <PendingBadge count={pendingCount}/></Link>}
+              <SignOutButton/>
+            </>
+          ) : (
+            // A stranger browsing the read-only map - 사진 업로드/부원/관리자
+            // and signing out all presuppose an account this visitor does not
+            // have, so the one thing worth offering here is the way to get one.
+            <Link href="/login">로그인 · 회원가입</Link>
+          )}
+          <button onClick={() => setAccountOpen(false)}>닫기</button>
+        </section>
+      )}
 
     <div ref={containerRef} className="club-workspace relative flex min-h-0 w-full flex-1 overflow-hidden">
       {mapOpen && (
@@ -1218,6 +1252,7 @@ export function MapShell({
           activeLocation={activeLocation}
           activeHikeId={activeHikeId}
           isAdmin={isAdmin}
+          canEdit={canEdit}
           pinnedHikeId={pinnedHikeId}
           onOpenLocation={openLocation}
           onOpenHike={openHike}

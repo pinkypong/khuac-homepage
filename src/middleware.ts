@@ -9,6 +9,16 @@ const RESET_PASSWORD_PATH = "/auth/reset-password";
 // Paths reachable without a session (or, for /login, without redirect logic).
 const PUBLIC_PATHS = [LOGIN_PATH, "/auth/callback", RESET_PASSWORD_PATH, "/privacy"];
 
+// Viewable without an account, and even while an account is still pending -
+// "일반 웹페이지처럼" was the ask: open the map and see the club's albums,
+// no sign-up required. Creating or editing one still needs an approved
+// account; every server action enforces that itself (requireApprovedMember),
+// independent of this middleware, and the page hides those controls for
+// whoever this lets through (see the canEdit prop from map/page.tsx down).
+// Deliberately not photos or the member roster - locations_select and
+// hikes_select were opened for this in RLS, photos_select was not.
+const PUBLIC_READ_PATHS = ["/map"];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const { supabase, getResponse } = createMiddlewareClient(request);
@@ -29,7 +39,7 @@ export async function middleware(request: NextRequest) {
   };
 
   if (!user) {
-    if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    if ([...PUBLIC_PATHS, ...PUBLIC_READ_PATHS].some((p) => pathname.startsWith(p))) {
       return getResponse();
     }
     return redirectTo(LOGIN_PATH);
@@ -64,6 +74,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!isApproved) {
+    // A pending member gets at least what a stranger gets - waiting for
+    // approval should not mean seeing less of the club's own site.
+    if (PUBLIC_READ_PATHS.some((p) => pathname.startsWith(p))) return getResponse();
     return redirectTo(PENDING_APPROVAL_PATH);
   }
 

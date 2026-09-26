@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getThumbnailUrl } from "@/lib/images/url";
@@ -32,6 +33,7 @@ export function HikeDetail({
   onBackToLocation,
   onShowOnMap,
   isAdmin,
+  canEdit,
   focusedPhotoId,
   onFocusedPhotoConsumed,
   onStartTrailPick,
@@ -47,6 +49,11 @@ export function HikeDetail({
   onBackToLocation: () => void;
   onShowOnMap: () => void;
   isAdmin: boolean;
+  /** An approved member. False for a stranger and for a still-pending member -
+      every button here that writes anything (rename, GPX, course edit, photo
+      upload, delete) is gated on this, since the server action behind each of
+      them would otherwise just throw "Not authenticated". */
+  canEdit: boolean;
   focusedPhotoId: string | null;
   onFocusedPhotoConsumed: () => void;
   onStartTrailPick: () => void;
@@ -440,13 +447,15 @@ export function HikeDetail({
           >
             {ACTIVITY_LABEL[hike.activityType]}
           </span>
-          <button
-            type="button"
-            onClick={() => openEditor()}
-            className="shrink-0 rounded border border-club-line px-2 py-1 text-xs text-club-muted hover:bg-club-paper md:py-0.5 md:text-xs"
-          >
-            수정
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => openEditor()}
+              className="shrink-0 rounded border border-club-line px-2 py-1 text-xs text-club-muted hover:bg-club-paper md:py-0.5 md:text-xs"
+            >
+              수정
+            </button>
+          )}
           {isAdmin && (
             <button
               type="button"
@@ -642,13 +651,15 @@ export function HikeDetail({
                 there - and nobody pressed the button to write one. */}
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <h2 className="text-xs font-semibold tracking-wide text-club-muted">코스 · 메모</h2>
-              <button
-                type="button"
-                onClick={openCourseEditor}
-                className="shrink-0 rounded border border-club-muted bg-white px-2 py-1 text-xs font-medium text-club-ink hover:bg-club-paper"
-              >
-                ✎ 코스 · 메모 수정
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={openCourseEditor}
+                  className="shrink-0 rounded border border-club-muted bg-white px-2 py-1 text-xs font-medium text-club-ink hover:bg-club-paper"
+                >
+                  ✎ 코스 · 메모 수정
+                </button>
+              )}
             </div>
 
             {/* The points, from the column that holds them with coordinates -
@@ -739,7 +750,7 @@ export function HikeDetail({
             {/* Shown where the memo would be, rather than as a link below the
                 card. An empty space says nothing; this says what the space is
                 for and that the button above fills it. */}
-            {!hike.description && (
+            {!hike.description && canEdit && (
               <div className="mt-2.5">
                 <h3 className="mb-0.5 flex items-center gap-1 text-xs font-semibold tracking-wide text-club-muted">
                   <span aria-hidden="true">✎</span> 메모
@@ -758,7 +769,7 @@ export function HikeDetail({
               </div>
             )}
           </section>
-        ) : (
+        ) : canEdit ? (
           <button
             type="button"
             onClick={openCourseEditor}
@@ -766,18 +777,27 @@ export function HikeDetail({
           >
             + 코스 정보 적기 (거리 · 소요 · 난이도 · 주의할 점 · 메모)
           </button>
+        ) : null}
+
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setUploadOpen(true)}
+            className="mb-4 w-full rounded-sm border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
+          >
+            + 이 활동에 사진 올리기
+          </button>
         )}
 
-        <button
-          type="button"
-          onClick={() => setUploadOpen(true)}
-          className="mb-4 w-full rounded-sm border border-dashed border-club-line py-2.5 text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
-        >
-          + 이 활동에 사진 올리기
-        </button>
-
         {photos.length === 0 ? (
-          <p className="py-8 text-center text-sm text-club-muted">아직 올라온 사진이 없습니다.</p>
+          <p className="py-8 text-center text-sm text-club-muted">
+            {/* photos_select stays approved-member-only in RLS, so this array
+                is empty here whether or not photos actually exist - "없습니다"
+                would misreport a hidden gallery as an empty one. */}
+            {canEdit
+              ? "아직 올라온 사진이 없습니다."
+              : <>사진은 로그인해야 볼 수 있습니다. <Link href="/login" className="underline">로그인</Link></>}
+          </p>
         ) : (
           <ul className="club-photo-grid grid grid-cols-2 gap-2 sm:grid-cols-3">
             {photos.map((photo, index) => (
@@ -822,7 +842,10 @@ export function HikeDetail({
             already for a course made from an answer. The summary says which
             of the two states this activity is in, so folding it away costs no
             information. */}
-        {location.type !== "climbing_gym" && (
+        {/* GPX upload, drawing a route, picking a known course - every control
+            in this whole section writes something, so a view-only visitor
+            gets none of it rather than a button that only throws. */}
+        {location.type !== "climbing_gym" && canEdit && (
           <details
             className="mt-5 border-t border-club-line pt-4"
             onToggle={(e) => {
@@ -968,9 +991,18 @@ export function HikeDetail({
         )}
 
         {/* Keyed by hike so switching activities inside the panel remounts the
-            thread instead of showing the previous one's comments. */}
+            thread instead of showing the previous one's comments. comments_select
+            is approved-member-only in RLS, same as photos - CommentThread's own
+            loadComments would just throw "Not authenticated" on mount for
+            anyone this page now lets through without an account. */}
         <div className="mt-5 border-t border-club-line pt-4">
-          <CommentThread key={hike.id} subjectKind="hike" subjectId={hike.id} />
+          {canEdit ? (
+            <CommentThread key={hike.id} subjectKind="hike" subjectId={hike.id} />
+          ) : (
+            <p className="text-sm text-club-muted">
+              댓글은 로그인해야 볼 수 있습니다. <Link href="/login" className="underline">로그인</Link>
+            </p>
+          )}
         </div>
       </div>
 

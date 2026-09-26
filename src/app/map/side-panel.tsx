@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { ClubCrest } from "@/components/club-crest";
 import { RecentAlbums } from "./recent-albums";
 import { KhuacAiCard } from "./khuac-ai-card";
 import { useRouter } from "next/navigation";
@@ -32,6 +34,20 @@ export const TYPE_LABEL: Record<LocationType, string> = {
   multi_pitch: "멀티피치",
   hard_free: "하드프리",
 };
+
+/** Stands in for 새 장소 추가/새 앨범 만들기 wherever canEdit is false, so a
+    stranger or a still-pending member sees why the control is missing instead
+    of just not seeing it - and gets the one thing that would fix it. */
+function LoginPrompt({ children }: { children: string }) {
+  return (
+    <Link
+      href="/login"
+      className="block w-full rounded-lg border border-dashed border-club-line py-2.5 text-center text-sm text-club-muted hover:border-club-muted md:py-2 md:text-xs"
+    >
+      {children}
+    </Link>
+  );
+}
 
 /** Same colour the marker uses, so a badge here reads as that dot out there. */
 function ActivityTag({ type }: { type: ActivityType }) {
@@ -166,6 +182,7 @@ export function SidePanel({
   onBackToRoot,
   onShowOnMap,
   isAdmin,
+  canEdit,
   picking,
   pickedPoint,
   onPickingChange,
@@ -202,6 +219,10 @@ export function SidePanel({
   // screen that puts something on the map needs a way to go and look at it.
   onShowOnMap: () => void;
   isAdmin: boolean;
+  /** An approved member. False for a stranger browsing the read-only map and
+      for a member still pending - both see the same album lists, neither
+      sees 새 장소 추가/새 앨범 만들기/수정/삭제, which would only throw. */
+  canEdit: boolean;
   picking: boolean;
   pickedPoint: PickedPoint | null;
   onPickingChange: (picking: boolean) => void;
@@ -340,6 +361,7 @@ export function SidePanel({
         onBackToLocation={() => onOpenLocation(activeLocation.id)}
         onShowOnMap={onShowOnMap}
         isAdmin={isAdmin}
+        canEdit={canEdit}
         focusedPhotoId={focusedPhotoId}
         onStartTrailPick={() => onStartTrailPick(activeHike, activeLocation.lat, activeLocation.lng)}
         onUseCourse={(course) => onUseCourse(activeHike, course)}
@@ -414,16 +436,18 @@ export function SidePanel({
               <>
                 <FolderDot location={activeLocation} />
                 <h1 className="min-w-0 truncate text-lg font-semibold">{activeLocation.name}</h1>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDraftName(activeLocation.name);
-                    setRenamingId(activeLocation.id);
-                  }}
-                  className="ml-auto shrink-0 rounded border border-club-line px-2 py-1 text-xs text-club-ink-soft hover:bg-club-paper md:py-0.5 md:text-xs"
-                >
-                  이름 수정
-                </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftName(activeLocation.name);
+                      setRenamingId(activeLocation.id);
+                    }}
+                    className="ml-auto shrink-0 rounded border border-club-line px-2 py-1 text-xs text-club-ink-soft hover:bg-club-paper md:py-0.5 md:text-xs"
+                  >
+                    이름 수정
+                  </button>
+                )}
                 {isAdmin && (
                   <button
                     type="button"
@@ -452,15 +476,19 @@ export function SidePanel({
             활동 기록 {activeLocation.hikes.length}건
           </p>
           <div className="mb-3">
-            <NewHikeForm
-              locationId={activeLocation.id}
-              locationType={activeLocation.type}
-              locationName={activeLocation.name}
-              locationRegion={activeLocation.region}
-              locationLat={activeLocation.lat}
-              locationLng={activeLocation.lng}
-              onPickCourse={(course, draft) => onPickCourse(course, activeLocation, draft)}
-            />
+            {canEdit ? (
+              <NewHikeForm
+                locationId={activeLocation.id}
+                locationType={activeLocation.type}
+                locationName={activeLocation.name}
+                locationRegion={activeLocation.region}
+                locationLat={activeLocation.lat}
+                locationLng={activeLocation.lng}
+                onPickCourse={(course, draft) => onPickCourse(course, activeLocation, draft)}
+              />
+            ) : (
+              <LoginPrompt>로그인하고 이 장소에 앨범 만들기</LoginPrompt>
+            )}
           </div>
           {activeLocation.hikes.length === 0 ? (
             <p className="py-8 text-center text-sm text-club-muted">
@@ -535,9 +563,25 @@ export function SidePanel({
       {/* Above the tabs, not inside one: asking a question is not a way of
           browsing albums, and living under 최근 앨범 meant it vanished the
           moment someone switched to 장소별 앨범. */}
-      {showAi && (
-      <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} albumsByCourse={albumsByCourse} onOpenAlbum={onOpenHike} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
-      )}
+      {showAi && (canEdit ? (
+        <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} albumsByCourse={albumsByCourse} onOpenAlbum={onOpenHike} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
+      ) : (
+        // askAssistant requires an approved member - opening the panel's
+        // question box for a stranger or a pending member would only throw
+        // "Not authenticated" the moment they pressed submit. Whether to let
+        // anyone outside the club ask it at all is still an open question
+        // (cost, abuse - see CLAUDE.md's 비용 section), not something to
+        // decide by accident here.
+        <div className="club-ai-card">
+          <div className="club-ai-heading">
+            <span aria-hidden="true" className="club-ai-symbol"><ClubCrest /></span>
+            <div><strong>KHUAC AI</strong><p>날씨 · 루트 · 장비 · 코스</p></div>
+          </div>
+          <div className="px-3 pb-4">
+            <LoginPrompt>로그인하고 KHUAC AI에게 물어보기</LoginPrompt>
+          </div>
+        </div>
+      ))}
       {/* The album lists belong to the 앨범 screen. Beside the map they were a
           second copy of it, pushing the one thing this screen is for - asking
           about what is on the map - up against the top edge. */}
@@ -578,14 +622,18 @@ export function SidePanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         <div className="mb-3">
-          <NewLocationForm
-            picking={picking}
-            pickedPoint={pickedPoint}
-            onPickingChange={onPickingChange}
-            onPickPoint={onPickPoint}
-            onCreated={onOpenLocation}
-            existingNames={allLocationNames}
-          />
+          {canEdit ? (
+            <NewLocationForm
+              picking={picking}
+              pickedPoint={pickedPoint}
+              onPickingChange={onPickingChange}
+              onPickPoint={onPickPoint}
+              onCreated={onOpenLocation}
+              existingNames={allLocationNames}
+            />
+          ) : (
+            <LoginPrompt>로그인하고 새 장소 추가하기</LoginPrompt>
+          )}
         </div>
 
         <div className="mb-2 flex items-baseline justify-between">
@@ -630,7 +678,7 @@ export function SidePanel({
                     </span>
                   ) : (
                     <span className="mt-1 block text-xs text-club-faint">
-                      아직 활동이 없습니다 · 눌러서 첫 활동을 등록하세요
+                      {canEdit ? "아직 활동이 없습니다 · 눌러서 첫 활동을 등록하세요" : "아직 활동이 없습니다"}
                     </span>
                   )}
                 </button>
