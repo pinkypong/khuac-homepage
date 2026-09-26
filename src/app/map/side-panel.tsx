@@ -586,7 +586,23 @@ export function SidePanel({
           second copy of it, pushing the one thing this screen is for - asking
           about what is on the map - up against the top edge. */}
       {showAlbums && (
-      <div className="recent-tabs"><button aria-pressed={rootView === "recent"} onClick={()=>setRootView("recent")}>최근 앨범</button><button aria-pressed={rootView === "places"} onClick={()=>setRootView("places")}>장소별 앨범</button></div>
+      <div className="flex items-center justify-between border-b border-club-line pr-3">
+        <div className="recent-tabs border-b-0"><button aria-pressed={rootView === "recent"} onClick={()=>setRootView("recent")}>최근 앨범</button><button aria-pressed={rootView === "places"} onClick={()=>setRootView("places")}>장소별 앨범</button></div>
+        {/* 새 앨범 만들기 only ever lived inside 장소별 앨범 - a member landing
+            on 최근 앨범 (the default) had no visible way to it at all, and had
+            to already know to switch tabs first. This is reachable from
+            either tab, and does the switching itself rather than asking the
+            member to find the right one. */}
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setRootView("places")}
+            className="shrink-0 rounded-full bg-club-ink px-3 py-1.5 text-xs font-medium text-white hover:bg-club-ink-soft"
+          >
+            + 새 앨범
+          </button>
+        )}
+      </div>
       )}
       {showAlbums && (rootView === "recent" ? <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><RecentAlbums locations={locations} onOpenHike={onOpenHike}/></div> : <>
       <div className="border-b border-club-line px-4 py-3">
