@@ -37,6 +37,16 @@ it("lets a stranger and a pending member both view the read-only map", async () 
   session("pending");
   expect((await middleware(new NextRequest("http://localhost:3100/map"))).headers.get("location")).toBeNull();
 });
+it("lets both of them reach / too, not only /map directly", async () => {
+  // The actual bug that shipped: /map was exempted but / was not, and /
+  // is what a visitor's browser and app/page.tsx's own redirect("/map")
+  // both actually request first - root sent everyone straight to /login
+  // in production, and redirect("/map") never got the chance to run.
+  session(null, false);
+  expect((await middleware(new NextRequest("http://localhost:3100/"))).headers.get("location")).toBeNull();
+  session("pending");
+  expect((await middleware(new NextRequest("http://localhost:3100/"))).headers.get("location")).toBeNull();
+});
 it("still blocks a stranger and a pending member from members, and a member from admin", async () => {
   session(null, false);
   expect((await middleware(new NextRequest("http://localhost:3100/members"))).headers.get("location")).toBe("http://localhost:3100/login");

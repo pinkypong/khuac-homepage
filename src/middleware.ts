@@ -19,6 +19,22 @@ const PUBLIC_PATHS = [LOGIN_PATH, "/auth/callback", RESET_PASSWORD_PATH, "/priva
 // hikes_select were opened for this in RLS, photos_select was not.
 const PUBLIC_READ_PATHS = ["/map"];
 
+/**
+ * Whether this request should pass with no account, or a pending one.
+ *
+ * "/" needs its own check rather than living in PUBLIC_READ_PATHS: every
+ * path starts with "/", so putting it in that prefix-matched array would
+ * have made the whole site public. It has to be let through anyway - app/
+ * page.tsx's own `redirect("/map")` is what sends a visitor on to the map,
+ * and that redirect never runs if this middleware sends them to /login
+ * first. Root shipped straight to the login page in production for exactly
+ * this reason: /map was exempted, but nothing ever reached it because /
+ * itself was not.
+ */
+function isPublicRead(pathname: string): boolean {
+  return pathname === "/" || PUBLIC_READ_PATHS.some((p) => pathname.startsWith(p));
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const { supabase, getResponse } = createMiddlewareClient(request);
@@ -39,7 +55,7 @@ export async function middleware(request: NextRequest) {
   };
 
   if (!user) {
-    if ([...PUBLIC_PATHS, ...PUBLIC_READ_PATHS].some((p) => pathname.startsWith(p))) {
+    if (isPublicRead(pathname) || PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
       return getResponse();
     }
     return redirectTo(LOGIN_PATH);
@@ -76,7 +92,7 @@ export async function middleware(request: NextRequest) {
   if (!isApproved) {
     // A pending member gets at least what a stranger gets - waiting for
     // approval should not mean seeing less of the club's own site.
-    if (PUBLIC_READ_PATHS.some((p) => pathname.startsWith(p))) return getResponse();
+    if (isPublicRead(pathname)) return getResponse();
     return redirectTo(PENDING_APPROVAL_PATH);
   }
 
