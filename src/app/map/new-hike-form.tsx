@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
 import { createHike } from "./actions";
 import {
-  ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, CLIMBING_STYLES, CLIMBING_STYLE_LABEL,
+  ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, CLIMBING_STYLES, CLIMBING_STYLE_LABEL,
   DEFAULT_ACTIVITY_FOR_LOCATION, activityForCourse, needsOwnSpot,
 } from "./activity";
 import { PlaceSearch, type PlaceResult } from "./place-search";
@@ -198,6 +198,15 @@ export function NewHikeForm({
 
       <div className="mt-3">
         <span className={stepLabel}>1. 무엇을 했나요?</span>
+        {/* Coloured by ACTIVITY_COLOR rather than a flat selected-black, to
+            match how 활동 종류 is picked everywhere else this app asks for it
+            (hike-detail.tsx's own rename form). Two forms drawing the same
+            choice two different ways - one plain black, one colour-coded -
+            was its own small piece of the clutter: a picker that looks
+            different depending on which screen you're on reads as more UI to
+            learn, not less. The colour also does real work here, keeping this
+            a form control that happens to use colour, not a black tab bar
+            that could be mistaken for navigation. */}
         <div className="grid grid-cols-2 gap-1.5">
           {ACTIVITY_TYPES.map((t) => (
             <button
@@ -206,11 +215,12 @@ export function NewHikeForm({
               onClick={() => { setActivityType(t); if (t !== "climbing") setClimbingStyle(null); }}
               aria-pressed={activityType === t}
               className={
-                "rounded border px-2 py-2 text-sm md:py-1.5 md:text-xs " +
+                "rounded border px-2 py-2 text-sm transition-colors md:py-1.5 md:text-xs " +
                 (activityType === t
-                  ? "border-club-ink bg-club-ink text-white"
+                  ? "border-transparent font-medium text-white"
                   : "border-club-line text-club-ink-soft hover:border-club-muted")
               }
+              style={activityType === t ? { backgroundColor: ACTIVITY_COLOR[t] } : undefined}
             >
               {ACTIVITY_LABEL[t]}
             </button>
