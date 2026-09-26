@@ -672,6 +672,26 @@ export function SidePanel({
                   <span className="flex items-center gap-2">
                     <FolderDot location={location} />
                     <span className="min-w-0 truncate text-sm font-semibold">{location.name}</span>
+                    {/* Without a hike yet, the row below already spells out
+                        "눌러서 첫 활동을 등록하세요" - but 북한산·관악산 등
+                        activity가 이미 있는 장소는 최근 앨범 미리보기만 보이고
+                        여기서도 새 앨범을 더 만들 수 있다는 신호가 전혀 없었다.
+                        A member had to already know 장소를 열면 새 앨범
+                        버튼이 있다는 것을 알아야 눌러볼 수 있었던 것이 바로
+                        그 피드백. 활동 유무와 무관하게 같은 자리에 같은
+                        마크를 두면, 빈 장소든 채워진 장소든 "여기서 앨범을
+                        추가할 수 있다"는 뜻이 늘 같은 곳에서 읽힌다. */}
+                    {canEdit && (
+                      <span
+                        title="새 앨범 만들기"
+                        className="ml-auto flex shrink-0 items-center gap-1 text-club-faint"
+                      >
+                        <span aria-hidden="true" className="text-sm font-semibold leading-none">
+                          +
+                        </span>
+                        <span className="sr-only">새 앨범 만들기 가능</span>
+                      </span>
+                    )}
                   </span>
                   <span className="mt-1 block text-xs text-club-muted">
                     {[
