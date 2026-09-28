@@ -16,6 +16,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { ViewerName } from "@/app/account/name-form";
 import { PendingBadge } from "@/components/pending-badge";
 import { SidePanel } from "./side-panel";
+import { KhuacAiCard } from "./khuac-ai-card";
 import { RecentActivityStrip } from "./recent-activity-strip";
 import { ClubCrest } from "@/components/club-crest";
 import { loadTrails, saveTrailRoute } from "./route-actions";
@@ -25,6 +26,7 @@ import { MapErrorBoundary, MapUnavailable } from "./map-error-boundary";
 import { PoiForm } from "./poi-form";
 import { loadCourseElevation, type CourseElevation } from "./elevation-actions";
 import { ElevationProfile } from "./elevation-profile";
+import { Route3D } from "./route-3d";
 import { attachCourseToHike, createAlbumFromRoute, type KnownCourse, type RouteWaypoint } from "./route-album-actions";
 import type { RouteSuggestion } from "@/lib/assistant/routes";
 import { withWaypoint, type CourseDraft } from "./course-draft";
@@ -298,6 +300,7 @@ export function MapShell({
   const [mapWidth, setMapWidth] = useState<number | null>(null);
   const [mapOpen, setMapOpen] = useState(true);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [view3D, setView3D] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("map");
 
@@ -459,6 +462,49 @@ export function MapShell({
     return byCourse;
   }, [allHikes]);
   const pinnedHike = allHikes.find((h) => h.id === pinnedHikeId) ?? null;
+  // Both saved albums and assistant previews already have a real track. The
+  // 3D viewer reads those same points; it never constructs a line from names.
+  const hike3D = pinnedHike?.track && pinnedHike.track.length >= 2
+    ? { key: `hike:${pinnedHike.id}`, title: pinnedHike.title, track: pinnedHike.track,
+        source: pinnedHike.trackSource === "gpx" ? "gpx" as const : "other" as const }
+    : null;
+  const suggested3D = suggestedRoute?.track && suggestedRoute.track.length >= 2
+    ? { key: `suggested:${suggestedRoute.route.name}`, title: suggestedRoute.route.name,
+        track: suggestedRoute.track, source: "other" as const }
+    : null;
+  // An open album outranks a suggestion still sitting on the map. Both get
+  // drawn at once, so taking the suggestion first meant that opening a saved
+  // album left 3D showing - and titled with - the other route entirely.
+  const route3D = (activeHikeId ? hike3D : null) ?? suggested3D ?? hike3D;
+
+  useEffect(() => { setView3D(false); }, [route3D?.key]);
+
+  /**
+   * Whether the map pane is actually on screen.
+   *
+   * The pane is hidden rather than unmounted while a phone shows another tab -
+   * that is what keeps Google Maps loaded across a tab switch - so a member
+   * leaving 지도 does not stop a Map3DElement. It keeps streaming
+   * photorealistic tiles and holding its WebGL context behind the panel, which
+   * is both billed and felt in the battery for a screen nobody is looking at.
+   *
+   * The tab alone cannot answer this: on md and up both columns are on screen
+   * at once, and openHike sets mobileTab to "album" there too, so closing on
+   * the tab would shut 3D on a desktop whose map never moved.
+   */
+  const [phoneLayout, setPhoneLayout] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const read = () => setPhoneLayout(query.matches);
+    read();
+    query.addEventListener("change", read);
+    return () => query.removeEventListener("change", read);
+  }, []);
+  const map3DOnScreen = mapOpen && (!phoneLayout || mobileTab === "map");
+
+  useEffect(() => {
+    if (picking || trailPick || !map3DOnScreen) setView3D(false);
+  }, [picking, trailPick, map3DOnScreen]);
 
   function showMap() {
     setMobileTab("map");
@@ -749,9 +795,9 @@ export function MapShell({
       setActiveLocationId(result.value.locationId);
       setActiveHikeId(result.value.hikeId);
       setPinnedHikeId(result.value.hikeId);
-      // From the form the member's next step is the album itself - adding
-      // photos - and on a phone that is the other tab, behind the map.
-      if (fromForm) setMobileTab("album");
+      // Both an AI suggestion and a course picked in the form end at the
+      // album, where the member can add photos and check the saved route.
+      setMobileTab("album");
       router.refresh();
     } catch {
       // Only a fault reaches here: every refusal comes back as a value above,
@@ -986,6 +1032,8 @@ export function MapShell({
             {mapFailed ? <MapUnavailable onShowAlbum={() => {setMapOpen(false); setMobileTab("album");}} /> : apiKey ? (
               <MapErrorBoundary onShowAlbum={() => {setMapOpen(false); setMobileTab("album");}}><MapView
                 mapId={mapId}
+                has3D={!!route3D && !picking && !trailPick}
+                onShow3D={() => setView3D(true)}
                 locations={visibleLocations}
                 activeLocationId={activeLocationId}
                 selectedHike={pinnedHike}
@@ -1020,6 +1068,10 @@ export function MapShell({
                   <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>가 설정되지 않았습니다.
                 </p>
               </div>
+            )}
+            {apiKey && !mapFailed && route3D && view3D && (
+              <Route3D key={route3D.key} track={route3D.track} title={route3D.title}
+                source={route3D.source} onClose={() => setView3D(false)} />
             )}
             {/* New-location picking, shown wherever the map actually is - which
                 on a phone is a different tab from the album panel's own
@@ -1247,6 +1299,30 @@ export function MapShell({
             </button>
           </div>
         )}
+        {/* Keep the assistant mounted while the member switches between the
+            map, an album and AI. Its answer and route buttons live in its own
+            state; remounting it on every switch used to erase them. */}
+        <div className={
+          "min-h-0 flex-1 flex-col " +
+          (mobileTab === "ai" || (mobileTab === "map" && !activeLocationId && !activeHikeId)
+            ? "flex" : "hidden")
+        }>
+          {canEdit ? (
+            <KhuacAiCard onPreviewRoute={previewRoute} onCreateAlbum={createAlbum}
+              albumsByCourse={albumsByCourse} onOpenAlbum={openHike}
+              activeRouteName={suggestedRoute?.route.name ?? null} creatingAlbum={creatingAlbum} />
+          ) : (
+            <div className="club-ai-card">
+              <div className="club-ai-heading"><span aria-hidden="true" className="club-ai-symbol"><ClubCrest /></span><div><strong>KHUAC AI</strong><p>날씨 · 루트 · 장비 · 코스</p></div></div>
+              <div className="px-3 pb-4"><Link href="/login" className="block w-full rounded-lg border border-dashed border-club-line py-2.5 text-center text-sm text-club-muted hover:border-club-muted">로그인하고 KHUAC AI에게 물어보기</Link></div>
+            </div>
+          )}
+        </div>
+        <div className={
+          "min-h-0 flex-1 flex-col " +
+          (mobileTab === "album" || (mobileTab === "map" && (activeLocationId || activeHikeId))
+            ? "flex" : "hidden")
+        }>
         <SidePanel
           locations={visibleLocations}
           activeLocation={activeLocation}
@@ -1266,17 +1342,7 @@ export function MapShell({
           onFocusedPhotoConsumed={() => setFocusedPhotoId(null)}
           onBackToRoot={goToRoot}
           onShowOnMap={showMap}
-          onPreviewRoute={previewRoute}
-          onCreateAlbum={createAlbum}
-          albumsByCourse={albumsByCourse}
-          activeRouteName={suggestedRoute?.route.name ?? null}
-          creatingAlbum={creatingAlbum}
-          // Desktop keeps both in one column; a phone shows whichever tab is
-          // open, which is what stops the answer and the album list from
-          // fighting over the fold.
           showAlbums={mobileTab === "album"}
-          showAi={mobileTab !== "album"}
-          aiSelected={mobileTab === "ai"}
           onPickCourse={previewCourseForNewAlbum}
           allLocationNames={locations.map((location) => location.name)}
           picking={picking}
@@ -1288,6 +1354,7 @@ export function MapShell({
             if (next && !mapOpen) setMapOpen(true);
           }}
         />
+        </div>
       </div>
       {mobileTab === "map" && mapOpen && activeLocation && <button className="club-map-sheet" onClick={()=>setMobileTab("album")}><span className="club-grabber"/>{albumCover(activeLocation.hikes[0]?.photos ?? []) && <Image unoptimized src={getThumbnailUrl(albumCover(activeLocation.hikes[0].photos)!.storageKey)} width={88} height={68} alt=""/>}<span><strong>{activeLocation.name}</strong><small>활동 {activeLocation.hikes.length} · 사진 {activeLocation.photoCount}</small></span><span aria-hidden="true">→</span></button>}
       </div>

@@ -6,12 +6,25 @@ import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database
 import { createHike } from "./actions";
 import {
   ACTIVITY_COLOR, ACTIVITY_HINT, ACTIVITY_LABEL, ACTIVITY_TYPES, CLIMBING_STYLES, CLIMBING_STYLE_LABEL,
-  DEFAULT_ACTIVITY_FOR_LOCATION, activityForCourse, needsOwnSpot,
+  DEFAULT_ACTIVITY_FOR_LOCATION, needsOwnSpot,
 } from "./activity";
+import { rankAlbumCourses } from "./course-ranking";
 import { PlaceSearch, type PlaceResult } from "./place-search";
 import { coursesForLocation, searchCoursesForLocation, type KnownCourse } from "./route-album-actions";
 import { originLabel } from "./course-origin";
 import { parseExif } from "@/lib/gps/exif";
+
+/**
+ * The place-and-activity pairs an automatic course search has already been
+ * spent on.
+ *
+ * Module scope rather than a ref on the form, because side-panel gives this
+ * form a `key` on the location: moving between two places remounts it and
+ * emptied a ref, so coming back to the first place spent a second billed
+ * search on the answer it already had. One call per pair per page load is what
+ * the guard is for - see CLAUDE.md's 비용 section.
+ */
+const automaticSearches = new Set<string>();
 
 /** Today on the member's own clock. toISOString is UTC, which before 9am in
     Korea is still yesterday - the morning of a climb is exactly when an album
@@ -67,6 +80,7 @@ export function NewHikeForm({
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(localToday);
   const [activityType, setActivityType] = useState<ActivityType>(defaultActivity);
+  const [activityChosen, setActivityChosen] = useState(false);
   // A refinement on 암벽등반 only, and optional even then - see
   // CLIMBING_STYLE_LABEL in activity.ts for why this is a tag on the climb
   // rather than its own activity or its own place.
@@ -96,25 +110,30 @@ export function NewHikeForm({
     return () => { cancelled = true; };
   }, [open, courses, locationName, locationRegion]);
 
-  // A mountain holds its walks and its climbs together now, so the list is
-  // ordered by what the member said they did: 숨은암장's approach ahead of
-  // 삼성산's ridge walks for a climb, and the other way round for a walk.
-  // Ordered, not filtered - a course's own name is only a guess at which it
-  // is, and hiding the right one on a wrong guess would be worse than
-  // listing it second.
-  const term = courseQuery.trim().toLowerCase();
-  const matching = (courses ?? [])
-    .filter((course) =>
-      !term
-      || course.name.toLowerCase().includes(term)
-      || course.waypoints.some((point) => point.toLowerCase().includes(term)))
-    .map((course, index) => ({
-      course,
-      index,
-      fits: activityForCourse(course.name, course.waypoints.join(" ")) === activityType,
-    }))
-    .sort((a, b) => Number(b.fits) - Number(a.fits) || a.index - b.index)
-    .map(({ course }) => course);
+  // A blank library triggers one background search after the member chooses
+  // the activity. A mountain can mean a walk or a climb; searching on open
+  // would often spend a web call on the wrong kind of course.
+  useEffect(() => {
+    if (!open || !activityChosen || courses?.length !== 0) return;
+    if (!["mountain", "multi_pitch", "hard_free"].includes(locationType)) return;
+    const key = `${locationId}:${activityType}`;
+    if (automaticSearches.has(key)) return;
+    automaticSearches.add(key);
+    let cancelled = false;
+    setAsking(true);
+    setCourseError(null);
+    searchCoursesForLocation(locationName, locationRegion, locationType, activityType)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.ok) setCourses(result.value);
+        else setCourseError(result.reason);
+      })
+      .catch(() => { if (!cancelled) setCourseError("코스를 찾지 못했습니다. 다시 검색해 주세요."); })
+      .finally(() => { if (!cancelled) setAsking(false); });
+    return () => { cancelled = true; };
+  }, [open, activityChosen, courses, locationId, locationName, locationRegion, locationType, activityType]);
+
+  const matching = rankAlbumCourses(courses ?? [], { locationName, locationType, activityType, query: courseQuery });
 
   // The server enforces this too; catching it here saves a round trip and can
   // point at the field that is missing. Every location a member can navigate
@@ -134,6 +153,7 @@ export function NewHikeForm({
     setError(null);
     setCourseError(null);
     setCourseQuery("");
+    setActivityChosen(false);
     setPhotoSpotError(null);
   }
 
@@ -240,7 +260,7 @@ export function NewHikeForm({
             <button
               key={t}
               type="button"
-              onClick={() => { setActivityType(t); if (t !== "climbing") setClimbingStyle(null); }}
+              onClick={() => { setActivityType(t); setActivityChosen(true); if (t !== "climbing") setClimbingStyle(null); }}
               aria-pressed={activityType === t}
               className={
                 "rounded border px-2 py-2 text-sm transition-colors md:py-1.5 md:text-xs " +
@@ -321,6 +341,7 @@ export function NewHikeForm({
                 className="mb-1.5 w-full rounded border border-club-line px-2 py-1.5 text-base md:py-1 md:text-xs"
               />
             )}
+            <p className="mb-1 text-[11px] text-club-muted">목적지·활동·어프로치 관련 코스부터 표시합니다. 출발지별 교통시간은 아직 반영하지 않습니다.</p>
             <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto overscroll-contain">
               {matching.map((course) => {
                 const origin = originLabel(course.origin);
@@ -375,9 +396,14 @@ export function NewHikeForm({
         {courses !== null && (
           <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2">
             <p className="text-xs text-amber-900">
+              {/* The default activity's chip already draws as chosen, so
+                  "활동을 선택하면" named a step the member had apparently
+                  taken and left the screen looking stuck. The button below is
+                  the one that always works; the automatic search is the
+                  shortcut, not the only way in. */}
               {courses.length === 0
-                ? `${locationName}에 등록된 코스가 아직 없습니다. KHUAC AI가 웹에서 찾아 저장해둡니다.`
-                : "찾는 코스가 목록에 없나요? KHUAC AI가 웹에서 더 찾아 목록에 더합니다."}
+                ? asking ? "선택한 활동에 맞는 코스를 웹에서 찾고 있습니다." : "등록된 코스가 없습니다. 활동을 바꾸면 자동으로 찾고, 아래 버튼으로 바로 찾을 수도 있습니다."
+                : "찾는 코스가 목록에 없다면 웹에서 더 찾아볼 수 있습니다."}
             </p>
             <button
               type="button"
@@ -399,7 +425,7 @@ export function NewHikeForm({
             >
               {asking
                 ? "찾는 중… 30초쯤 걸립니다"
-                : `KHUAC AI로 ${ACTIVITY_LABEL[activityType]} 코스 찾기`}
+                : `${ACTIVITY_LABEL[activityType]} 코스 더 찾기`}
             </button>
           </div>
         )}

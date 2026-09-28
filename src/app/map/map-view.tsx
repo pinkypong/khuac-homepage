@@ -19,7 +19,7 @@ import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import type { MapHike, MapLocation, PickedPoint } from "./map-shell";
 import type { TrailSegment } from "@/lib/routes/trails";
-import { availableTileLayers, type TileLayer, type TileLayerId } from "./tile-layers";
+import { availableTileLayers, type TileLayer } from "./tile-layers";
 import { SuggestedRoute } from "./suggested-route";
 import { SatelliteTrails } from "./satellite-trails";
 import type { RouteWaypoint } from "./route-album-actions";
@@ -249,32 +249,6 @@ function PhotoPin({ storageKey, alt }: { storageKey: string; alt: string }) {
   );
 }
 
-type MapTypeChoice = "roadmap" | "terrain" | "hybrid" | TileLayerId;
-
-const GOOGLE_MAP_TYPES: { id: MapTypeChoice; label: string }[] = [
-  { id: "roadmap", label: "지도" },
-  { id: "terrain", label: "지형" },
-  { id: "hybrid", label: "위성" },
-];
-
-/**
- * How far each mode can be zoomed before it stops showing anything real.
- *
- * Google's aerial imagery over Korean mountains runs out around zoom 19, and
- * past that the map keeps going with nothing to draw: not a blurrier picture
- * but a flat grey field with the labels still floating on it.
- *
- * Asking MaxZoomService what this spot supports was tried and was worse. It
- * answered 20 over 북한산 and the imagery was already gone - so the map both
- * showed the empty grey and announced in a box that twenty levels were
- * available. A fixed ceiling that is sometimes one level conservative beats a
- * measured one that is confidently wrong.
- */
-const MAX_ZOOM: Partial<Record<MapTypeChoice, number>> = {
-  hybrid: 19,
-  terrain: 17,
-};
-
 /**
  * The base map a raster overlay is drawn on top of.
  *
@@ -282,51 +256,35 @@ const MAX_ZOOM: Partial<Record<MapTypeChoice, number>> = {
  * layer that is not fully opaque, and two maps disagreeing about where a ridge
  * is reads as a rendering fault. Roadmap is the quietest of the three.
  */
-const OVERLAY_BASE: MapTypeChoice = "roadmap";
+const OVERLAY_BASE = "roadmap";
 
-/** Stands in for the stock 지도/위성 switcher. "hybrid" rather than "satellite"
-    so place names stay on the imagery - finding mountains by name is the point.
-
-    Third-party layers join the same row, but they are drawn as overlays rather
-    than registered as map types. `map.mapTypes.set` is refused outright when
-    the map has a mapId - "A Map's custom map types cannot be set when a mapId
-    is present" - and the mapId is not optional: AdvancedMarker, which every
-    photo and folder pin on this map is, requires one. Registering the layer
-    silently did nothing and then setMapTypeId was called with an id that was
-    never added, which is why the trail map opened blank.
-
-    overlayMapTypes carries no such restriction. The tiles are opaque, so an
-    overlay covers the base map as completely as a base layer would, and
-    markers keep drawing above it. */
-function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | null) => void }) {
+/** One trail map, with 3D as the only alternative view. The satellite fallback
+ * keeps the public trail lines when the configured outdoors layer is absent. */
+function MapTypeToggle({
+  onLayerChange,
+  has3D,
+  onShow3D,
+}: {
+  onLayerChange: (layer: TileLayer | null) => void;
+  has3D: boolean;
+  onShow3D: () => void;
+}) {
   const map = useMap();
-  const layers = useMemo(() => availableTileLayers(), []);
-  // Opens on the trail layer: this is a climbing club's map and the paths are
-  // what it is read for. Google's aerial imagery led before, which shows the
-  // terrain but draws none of the trails over it - the one thing the member
-  // came to see. Falls back to aerial when no trail layer is configured, so a
-  // deployment without the tile key still opens on something rather than on a
-  // mode that is not in the switcher.
-  const [mapType, setMapType] = useState<MapTypeChoice>(
-    () => availableTileLayers()[0]?.id ?? "hybrid",
-  );
-  const active = layers.find((layer) => layer.id === mapType) ?? null;
+  // The configured trail layer, in the precedence availableTileLayers already
+  // lists them in - not a hard-coded "outdoors", which left 국토지리 dead in a
+  // deployment holding a VWorld key and no Thunderforest proxy.
+  const active = useMemo(() => availableTileLayers()[0] ?? null, []);
 
-  // Applied whenever the mode changes rather than only on the click that
-  // changed it: the cap has to hold while someone keeps zooming, and setting
-  // it once in the handler left the zoom free the moment they pinched again.
   useEffect(() => {
     if (!map) return;
-    const cap = MAX_ZOOM[mapType] ?? layers.find((layer) => layer.id === mapType)?.maxZoom ?? 22;
+    const cap = active?.maxZoom ?? 19;
     map.setOptions({ maxZoom: cap, tilt: 0 });
     if (cap !== null && (map.getZoom() ?? 0) > cap) map.setZoom(cap);
-  }, [map, mapType, layers]);
+  }, [map, active]);
 
-  // One effect owns both halves of the switch - the base type and the overlay -
-  // so they can never disagree about which mode is showing.
   useEffect(() => {
     if (!map) return;
-    map.setMapTypeId(active ? OVERLAY_BASE : mapType);
+    map.setMapTypeId(active ? OVERLAY_BASE : "hybrid");
     // Cleared before adding rather than diffed: there is only ever one of
     // these, and clear() is the one operation that cannot leave a stale layer
     // underneath a new one.
@@ -345,28 +303,21 @@ function MapTypeToggle({ onLayerChange }: { onLayerChange: (layer: TileLayer | n
     return () => {
       map.overlayMapTypes.clear();
     };
-  }, [map, mapType, active, onLayerChange]);
-
-  // Trail layers first: the leftmost button is the one reached for most.
-  const choices = [...layers.map(({ id, label }) => ({ id, label })), ...GOOGLE_MAP_TYPES];
+  }, [map, active, onLayerChange]);
 
   return (
     <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
-      {choices.map(({ id, label }) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => setMapType(id)}
-          className={
-            "border-l border-neutral-300 px-3 py-1.5 first:border-l-0 md:px-2.5 md:py-1 " +
-            (mapType === id
-              ? "bg-neutral-900 text-white"
-              : "text-neutral-700 hover:bg-neutral-50")
-          }
-        >
-          {label}
-        </button>
-      ))}
+      {/* The layer's own label, not a fixed 등산로: with no trail layer
+          configured this map is Google's aerial imagery, and calling that
+          등산로 told the member the paths were drawn when they were not. */}
+      <span className="bg-neutral-900 px-3 py-1.5 font-medium text-white md:py-1" aria-current="page">
+        {active?.label ?? "위성"}
+      </span>
+      <button type="button" onClick={onShow3D} disabled={!has3D}
+        title={has3D ? "경로를 입체 지형에서 보기" : "경로를 선택하면 3D로 볼 수 있습니다"}
+        className="border-l border-neutral-300 px-3 py-1.5 text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400 md:py-1">
+        3D
+      </button>
     </div>
   );
 }
@@ -407,6 +358,8 @@ function ActivityLegend() {
 
 export function MapView({
   mapId,
+  has3D,
+  onShow3D,
   locations,
   activeLocationId,
   selectedHike,
@@ -430,6 +383,8 @@ export function MapView({
   draftWaypoints,
 }: {
   mapId: string;
+  has3D: boolean;
+  onShow3D: () => void;
   locations: MapLocation[];
   activeLocationId: string | null;
   selectedHike: MapHike | null;
@@ -549,7 +504,7 @@ export function MapView({
       {/* Top-left is where the stock switcher sat, and it stays clear of the
           fullscreen (top-right) and 지도 접기 (left-bottom) controls. */}
       <MapControl position={ControlPosition.TOP_LEFT}>
-        <MapTypeToggle onLayerChange={setTileLayer} />
+        <MapTypeToggle onLayerChange={setTileLayer} has3D={has3D} onShow3D={onShow3D} />
       </MapControl>
 
       <MapControl position={ControlPosition.RIGHT_BOTTOM}>

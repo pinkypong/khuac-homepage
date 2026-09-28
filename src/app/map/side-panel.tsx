@@ -1,9 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ClubCrest } from "@/components/club-crest";
 import { RecentAlbums } from "./recent-albums";
-import { KhuacAiCard } from "./khuac-ai-card";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ActivityType, ClimbingStyle, LocationType } from "@/types/database";
@@ -20,7 +18,6 @@ import { getThumbnailUrl } from "@/lib/images/url";
 import { isValidGps } from "@/lib/gps/validate";
 import { deleteLocation } from "./admin-actions";
 import { renameLocation } from "./actions";
-import type { RouteSuggestion } from "@/lib/assistant/routes";
 
 export const TYPE_LABEL: Record<LocationType, string> = {
   // A place's kind, not an outing's - that is ActivityType. A mountain holds
@@ -187,14 +184,7 @@ export function SidePanel({
   pickedPoint,
   onPickingChange,
   onPickPoint,
-  onPreviewRoute,
-  onCreateAlbum,
-  albumsByCourse,
-  activeRouteName,
-  creatingAlbum,
   showAlbums,
-  showAi,
-  aiSelected,
   onPickCourse,
   allLocationNames,
 }: {
@@ -227,21 +217,8 @@ export function SidePanel({
   pickedPoint: PickedPoint | null;
   onPickingChange: (picking: boolean) => void;
   onPickPoint: (point: PickedPoint) => void;
-  onPreviewRoute: (
-    route: RouteSuggestion,
-    place: { name: string | null; center: { lat: number; lng: number } | null },
-  ) => void;
-  onCreateAlbum: (route: RouteSuggestion, asked: string) => void;
-  /** Albums already walked on each library course, keyed by course id. */
-  albumsByCourse: Map<string, MapHike[]>;
-  activeRouteName: string | null;
-  creatingAlbum: boolean;
   /** False beside the map, where the 앨범 screen already carries these lists. */
   showAlbums: boolean;
-  /** False on the phone's 앨범 tab, which is the album list on its own. */
-  showAi: boolean;
-  /** The KHUAC AI tab is the one selected, so it outranks an open album. */
-  aiSelected: boolean;
   /** A library course chosen while making a new album - drawn for confirmation. */
   onPickCourse: (
     course: KnownCourse,
@@ -376,13 +353,7 @@ export function SidePanel({
 
   const activeHike = activeLocation?.hikes.find((h) => h.id === activeHikeId) ?? null;
 
-  // Not while the member is asking KHUAC AI something. This returned an open
-  // album before looking at the tabs at all, so on a phone the AI tab did
-  // nothing once an album was open: the tab changed, this did not, and the
-  // screen sat there. Only the AI tab overrides it - 지도 also leaves
-  // mobileTab elsewhere while an album is open, and that must still come back
-  // to the album rather than to the assistant.
-  if (activeHike && activeLocation && !aiSelected) {
+  if (activeHike && activeLocation) {
     return (
       <HikeDetail
         location={activeLocation}
@@ -508,6 +479,7 @@ export function SidePanel({
           <div className="mb-3">
             {canEdit ? (
               <NewHikeForm
+                key={activeLocation.id}
                 locationId={activeLocation.id}
                 locationType={activeLocation.type}
                 locationName={activeLocation.name}
@@ -590,28 +562,6 @@ export function SidePanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Above the tabs, not inside one: asking a question is not a way of
-          browsing albums, and living under 최근 앨범 meant it vanished the
-          moment someone switched to 장소별 앨범. */}
-      {showAi && (canEdit ? (
-        <KhuacAiCard onPreviewRoute={onPreviewRoute} onCreateAlbum={onCreateAlbum} albumsByCourse={albumsByCourse} onOpenAlbum={onOpenHike} activeRouteName={activeRouteName} creatingAlbum={creatingAlbum} />
-      ) : (
-        // askAssistant requires an approved member - opening the panel's
-        // question box for a stranger or a pending member would only throw
-        // "Not authenticated" the moment they pressed submit. Whether to let
-        // anyone outside the club ask it at all is still an open question
-        // (cost, abuse - see CLAUDE.md's 비용 section), not something to
-        // decide by accident here.
-        <div className="club-ai-card">
-          <div className="club-ai-heading">
-            <span aria-hidden="true" className="club-ai-symbol"><ClubCrest /></span>
-            <div><strong>KHUAC AI</strong><p>날씨 · 루트 · 장비 · 코스</p></div>
-          </div>
-          <div className="px-3 pb-4">
-            <LoginPrompt>로그인하고 KHUAC AI에게 물어보기</LoginPrompt>
-          </div>
-        </div>
-      ))}
       {/* The album lists belong to the 앨범 screen. Beside the map they were a
           second copy of it, pushing the one thing this screen is for - asking
           about what is on the map - up against the top edge. */}
