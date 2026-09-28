@@ -373,10 +373,20 @@ export async function attachCourseToHike(input: {
   return { ok: true, value: { pointCount: track.length } };
 }
 
-/** Places whose courses are climbs, so the search asks about rock rather than
-    trails. 외벽 is an artificial wall and 실내클라이밍짐 is indoors - neither
-    has an approach worth searching for - so only real rock is listed. */
-const CLIMBS: LocationType[] = ["multi_pitch", "hard_free"];
+/**
+ * Places whose courses are climbs, so the search asks about rock rather than
+ * trails.
+ *
+ * Empty, and kept as the name of a question rather than deleted, because the
+ * question is still real - it is just no longer the place that answers it.
+ * multi_pitch and hard_free were listed here while a climb lived at its own
+ * crag location; since that distinction became a tag on the climb
+ * (20260926082200_climbing_style) every climb happens at a mountain, and only
+ * the caller's activityType can tell a climb from a walk there. Listing
+ * "mountain" here would be worse than listing nothing: it would ask about rock
+ * for every hike on every mountain.
+ */
+const CLIMBS: LocationType[] = [];
 
 /**
  * Asks KHUAC AI for this place's courses, files them, and hands back the list.

@@ -80,7 +80,6 @@ export function NewHikeForm({
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(localToday);
   const [activityType, setActivityType] = useState<ActivityType>(defaultActivity);
-  const [activityChosen, setActivityChosen] = useState(false);
   // A refinement on 암벽등반 only, and optional even then - see
   // CLIMBING_STYLE_LABEL in activity.ts for why this is a tag on the climb
   // rather than its own activity or its own place.
@@ -110,12 +109,25 @@ export function NewHikeForm({
     return () => { cancelled = true; };
   }, [open, courses, locationName, locationRegion]);
 
-  // A blank library triggers one background search after the member chooses
-  // the activity. A mountain can mean a walk or a climb; searching on open
-  // would often spend a web call on the wrong kind of course.
+  /**
+   * A blank library searches the web once, for whatever activity is showing.
+   *
+   * It used to wait for a tap on an activity chip, which meant it almost never
+   * ran: the default chip already draws as chosen, so a member whose outing
+   * matches it never taps anything. 등산 on a mountain is the common case and
+   * was exactly the one that never fired.
+   *
+   * Mountains only, and that is the whole gate now. The old one also listed
+   * multi_pitch and hard_free, which no location row has had since those
+   * stopped being a place's type and became a tag on the climb
+   * (20260926082200_climbing_style) - natural rock is filed under its mountain.
+   * A climbing_gym or a crag is the real exclusion: a gym has no route on the
+   * web to find, so "더클라임 강남 등산 코스" is a billed call with nothing to
+   * return. Which question gets asked is activityType's job, not the place's -
+   * see searchCoursesForLocation.
+   */
   useEffect(() => {
-    if (!open || !activityChosen || courses?.length !== 0) return;
-    if (!["mountain", "multi_pitch", "hard_free"].includes(locationType)) return;
+    if (!open || courses?.length !== 0 || locationType !== "mountain") return;
     const key = `${locationId}:${activityType}`;
     if (automaticSearches.has(key)) return;
     automaticSearches.add(key);
@@ -131,7 +143,7 @@ export function NewHikeForm({
       .catch(() => { if (!cancelled) setCourseError("코스를 찾지 못했습니다. 다시 검색해 주세요."); })
       .finally(() => { if (!cancelled) setAsking(false); });
     return () => { cancelled = true; };
-  }, [open, activityChosen, courses, locationId, locationName, locationRegion, locationType, activityType]);
+  }, [open, courses, locationId, locationName, locationRegion, locationType, activityType]);
 
   const matching = rankAlbumCourses(courses ?? [], { locationName, locationType, activityType, query: courseQuery });
 
@@ -153,7 +165,6 @@ export function NewHikeForm({
     setError(null);
     setCourseError(null);
     setCourseQuery("");
-    setActivityChosen(false);
     setPhotoSpotError(null);
   }
 
@@ -260,7 +271,7 @@ export function NewHikeForm({
             <button
               key={t}
               type="button"
-              onClick={() => { setActivityType(t); setActivityChosen(true); if (t !== "climbing") setClimbingStyle(null); }}
+              onClick={() => { setActivityType(t); if (t !== "climbing") setClimbingStyle(null); }}
               aria-pressed={activityType === t}
               className={
                 "rounded border px-2 py-2 text-sm transition-colors md:py-1.5 md:text-xs " +
@@ -396,13 +407,13 @@ export function NewHikeForm({
         {courses !== null && (
           <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2">
             <p className="text-xs text-amber-900">
-              {/* The default activity's chip already draws as chosen, so
-                  "활동을 선택하면" named a step the member had apparently
-                  taken and left the screen looking stuck. The button below is
-                  the one that always works; the automatic search is the
-                  shortcut, not the only way in. */}
+              {/* Says which of the three states this is - searching, searched
+                  and found nothing, or has some - rather than naming a step
+                  for the member to take. "활동을 선택하면" used to name one
+                  they had apparently taken already: the default activity's
+                  chip draws as chosen from the moment the form opens. */}
               {courses.length === 0
-                ? asking ? "선택한 활동에 맞는 코스를 웹에서 찾고 있습니다." : "등록된 코스가 없습니다. 활동을 바꾸면 자동으로 찾고, 아래 버튼으로 바로 찾을 수도 있습니다."
+                ? asking ? "선택한 활동에 맞는 코스를 웹에서 찾고 있습니다." : "등록된 코스를 찾지 못했습니다. 활동을 바꾸면 다시 찾고, 아래 버튼으로도 찾을 수 있습니다."
                 : "찾는 코스가 목록에 없다면 웹에서 더 찾아볼 수 있습니다."}
             </p>
             <button

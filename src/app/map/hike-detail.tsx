@@ -950,8 +950,15 @@ export function HikeDetail({
                   disabled={searching}
                   onClick={async () => {
                     setSearching(true);
+                    // This album's own activity, which is the only thing left
+                    // that can say whether to ask for 등산 코스 or for
+                    // 어프로치. The place's type used to answer it - a climb
+                    // lived at a multi_pitch/hard_free location - but since
+                    // that became a tag on the climb (20260926082200) every
+                    // climb happens at a mountain, so leaving this out asked
+                    // "등산 코스" for a climb and filed walks.
                     const result = await searchCoursesForLocation(
-                      location.name, location.region, location.type,
+                      location.name, location.region, location.type, hike.activityType,
                     );
                     setSearching(false);
                     if (!result.ok) { window.alert(result.reason); return; }
