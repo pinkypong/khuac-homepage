@@ -40,6 +40,29 @@ describe("isRouteQuestion", () => {
   it("is false for a question that never mentions a route", () => {
     expect(isRouteQuestion("관악산이랑 북한산 중에 어디가 나아")).toBe(false);
   });
+
+  it("takes 산 on its own as naming the walk", () => {
+    // Asked on the map and answered with prose and no cards, because the
+    // member named the walk rather than the walking.
+    expect(isRouteQuestion("널널하게 이번주 토요일에 갈만한 산 추천")).toBe(true);
+    expect(isRouteQuestion("초보도 갈 만한 산 알려줘")).toBe(true);
+  });
+
+  it("does not read 산 out of a longer word", () => {
+    // Gear, a club, and three cities ending in the same syllable. Each of
+    // these would otherwise buy a 27-second grounded search for nothing.
+    expect(isRouteQuestion("등산화 추천")).toBe(false);
+    expect(isRouteQuestion("산악부 신입 추천")).toBe(false);
+    expect(isRouteQuestion("부산 맛집 추천")).toBe(false);
+    expect(isRouteQuestion("울산 근처 숙소 추천")).toBe(false);
+    expect(isRouteQuestion("아산 가볼 만한 곳 추천")).toBe(false);
+  });
+
+  it("still needs the member to be asking for somewhere", () => {
+    // 산 on its own is a subject, not a request: "산 높이가 얼마야" is a fact
+    // question, and cards of named courses would have nothing to do with it.
+    expect(isRouteQuestion("산 높이가 얼마야")).toBe(false);
+  });
 });
 
 describe("extractTimeframe", () => {

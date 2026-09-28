@@ -91,7 +91,19 @@ export function isRouteQuestion(query: string): boolean {
   // stands on its own: anything that carries straight on into another syllable
   // - 등산화, 등산복, 등산스틱, 산행기 - is a different noun. Compounds that
   // really are routes (등산로, 등산길, 산행길) are on the list above already.
-  const walking = /(등산|산행)(?![가-힣])/.test(query);
+  //
+  // 산 standing alone counts for the same reason, and its absence was the gap
+  // that sent "널널하게 이번주 토요일에 갈만한 산 추천" to prose with nothing
+  // to tap onto the map: a member asking where to go names the walk as often
+  // as the walking. It needs the guard on both sides rather than just the
+  // right - 등산화 and 산악부 are caught by one each, and 부산·울산·아산 are
+  // cities that happen to end in it.
+  //
+  // A named mountain is still missed: "북한산 추천" reads as one compound and
+  // nothing in its shape tells it from 부산. That wants the gazetteer this
+  // file does not have, not a longer regex guessing at it.
+  const walking = /(등산|산행)(?![가-힣])/.test(query)
+    || /(?<![가-힣])산(?![가-힣])/.test(query);
   return walking && containsAny(query, ["추천", "초보", "시간", "갈 만", "갈만"]);
 }
 

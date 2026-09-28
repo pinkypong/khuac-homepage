@@ -123,6 +123,31 @@ export interface AlbumRef {
   date: string;
 }
 
+/**
+ * The one turning thing on this panel, shown wherever an answer is being
+ * waited on.
+ *
+ * A gap in the ring rather than a full circle, because a circle that is
+ * turning and a circle that is not look the same. It stops turning under
+ * prefers-reduced-motion and the sentence beside it carries the meaning, so
+ * nothing here is the only sign that something is happening.
+ */
+function Spinner({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      className={`shrink-0 animate-spin motion-reduce:animate-none ${className}`}
+    >
+      <circle cx="12" cy="12" r="9" className="opacity-25" />
+      <path d="M21 12a9 9 0 0 0-9-9" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function AssistantPanel<A extends AlbumRef = AlbumRef>({
   onPreviewRoute,
   onCreateAlbum,
@@ -159,6 +184,8 @@ export function AssistantPanel<A extends AlbumRef = AlbumRef>({
   const [recent, setRecent] = useState<RecentQuestion[]>([]);
   /** The second half is still coming: the answer is readable, the cards are not. */
   const [filling, setFilling] = useState(false);
+  // The card phase failed after the prose landed - see the catch in ask().
+  const [fillFailed, setFillFailed] = useState(false);
   /**
    * What the panel is doing while it waits.
    *
@@ -187,6 +214,7 @@ export function AssistantPanel<A extends AlbumRef = AlbumRef>({
     const isCurrent = () => requestVersion.current === version;
     setPending(true);
     setFilling(false);
+    setFillFailed(false);
     setError(null);
     setAnswer(null);
     setAsked(trimmed);
@@ -212,7 +240,11 @@ export function AssistantPanel<A extends AlbumRef = AlbumRef>({
           const whole = await finishRouteAnswer(trimmed);
           if (whole && isCurrent()) setAnswer(whole);
         } catch {
-          // The prose is already on screen and says what the cards would.
+          // The prose is already on screen and says what the cards would, so
+          // this is not an error - but it is not silence either. The member
+          // watched "정리하는 중…" and is owed a reason the cards never came,
+          // rather than a spinner that simply stops.
+          if (isCurrent()) setFillFailed(true);
         } finally {
           if (isCurrent()) setFilling(false);
         }
@@ -265,7 +297,7 @@ export function AssistantPanel<A extends AlbumRef = AlbumRef>({
               <path d="M5 12h13M13 6l6 6-6 6" />
             </svg>
           ) : (
-            <span aria-hidden="true">···</span>
+            <Spinner className="mx-auto h-4 w-4" />
           )}
         </button>
       </form>
@@ -330,6 +362,20 @@ export function AssistantPanel<A extends AlbumRef = AlbumRef>({
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {/* A grounded search takes about half a minute, and until it came back
+          the only sign of life was "···" inside the send button - small, easy
+          to miss on a phone, and indistinguishable from a question that never
+          left. This says the wait is expected and roughly how long. */}
+      {pending && (
+        <div role="status" aria-live="polite"
+          className="flex items-center gap-2.5 rounded-lg border border-club-line bg-white px-3 py-3">
+          <Spinner />
+          <span className="text-[13px] text-club-ink-soft">
+            {searching ? "DB에 없으니 웹 검색 중입니다 · 30초쯤 걸립니다" : "저장된 코스를 확인하는 중"}
+          </span>
+        </div>
+      )}
 
       {answer && (
         <div className="club-ai-answer border border-club-line bg-white">
@@ -407,8 +453,16 @@ export function AssistantPanel<A extends AlbumRef = AlbumRef>({
           {/* Said plainly, because the answer above is complete prose and a
               reader has no other way to know more is coming. */}
           {filling && (
-            <p className="mt-3 border-t border-club-sunken pt-3 text-xs text-club-muted" role="status">
+            <p className="mt-3 flex items-center gap-2 border-t border-club-sunken pt-3 text-xs text-club-muted" role="status">
+              <Spinner className="h-3.5 w-3.5" />
               코스를 지도에 올릴 수 있게 정리하는 중…
+            </p>
+          )}
+
+          {fillFailed && !hasRoutes && (
+            <p className="mt-3 border-t border-club-sunken pt-3 text-xs text-club-muted" role="status">
+              코스를 지도에 올릴 수 있게 정리하지 못했습니다. 위 답변은 그대로 읽을 수 있고,
+              다시 물어보면 카드까지 만들어 봅니다.
             </p>
           )}
 
