@@ -274,6 +274,18 @@ function MapTypeToggle({
   // lists them in - not a hard-coded "outdoors", which left 국토지리 dead in a
   // deployment holding a VWorld key and no Thunderforest proxy.
   const active = useMemo(() => availableTileLayers()[0] ?? null, []);
+  // Why 3D is not available yet, shown only because the member asked for it.
+  const [hint, setHint] = useState(false);
+
+  // Goes away on its own, and at once when a route arrives and makes it wrong.
+  // It sits over the map, so leaving it up would cost the member the corner of
+  // the thing they came to look at.
+  useEffect(() => {
+    if (!hint) return;
+    if (has3D) { setHint(false); return; }
+    const timer = setTimeout(() => setHint(false), 4000);
+    return () => clearTimeout(timer);
+  }, [hint, has3D]);
 
   useEffect(() => {
     if (!map) return;
@@ -305,19 +317,41 @@ function MapTypeToggle({
     };
   }, [map, active, onLayerChange]);
 
+  // Beside the chips rather than under them. Under them the hint landed on the
+  // tile attribution, which sits in its own LEFT_TOP control in this same
+  // corner and does not move to make room - and that line is a licence
+  // condition for both tile providers, not something a toast may cover.
+  // items-start so the pill keeps its own height next to a hint that wraps.
   return (
-    <div className="m-2 flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
-      {/* The layer's own label, not a fixed 등산로: with no trail layer
-          configured this map is Google's aerial imagery, and calling that
-          등산로 told the member the paths were drawn when they were not. */}
-      <span className="bg-neutral-900 px-3 py-1.5 font-medium text-white md:py-1" aria-current="page">
-        {active?.label ?? "위성"}
-      </span>
-      <button type="button" onClick={onShow3D} disabled={!has3D}
-        title={has3D ? "경로를 입체 지형에서 보기" : "경로를 선택하면 3D로 볼 수 있습니다"}
-        className="border-l border-neutral-300 px-3 py-1.5 text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400 md:py-1">
-        3D
-      </button>
+    <div className="m-2 flex max-w-[calc(100vw-1rem)] items-start gap-1">
+      <div className="flex overflow-hidden rounded border border-neutral-300 bg-white text-xs shadow-sm">
+        {/* The layer's own label, not a fixed 등산로: with no trail layer
+            configured this map is Google's aerial imagery, and calling that
+            등산로 told the member the paths were drawn when they were not. */}
+        <span className="bg-neutral-900 px-3 py-1.5 font-medium text-white md:py-1" aria-current="page">
+          {active?.label ?? "위성"}
+        </span>
+        {/* Never disabled, because a phone cannot read a disabled button.
+            3D needs a route and most of the time there is not one yet, and the
+            reason lived in `title` - which only a mouse can surface. On a
+            touch screen the member tapped 3D, nothing happened, and nothing
+            said why. It answers on tap instead. */}
+        <button type="button" onClick={() => (has3D ? onShow3D() : setHint(true))}
+          aria-describedby={hint ? "map-3d-hint" : undefined}
+          className="border-l border-neutral-300 px-3 py-1.5 text-neutral-700 hover:bg-neutral-50 md:py-1">
+          3D
+        </button>
+      </div>
+      {/* One line, and kept that way: the tile attribution sits 8px below this
+          row in its own control, so a second line lands on a notice both
+          providers' terms require to stay readable. The button it answers
+          already says 3D, so the sentence does not have to. */}
+      {hint && !has3D && (
+        <p id="map-3d-hint" role="status"
+          className="min-w-0 whitespace-nowrap rounded bg-neutral-900/85 px-2 py-1.5 text-[11px] leading-snug text-white shadow-sm">
+          앨범이나 추천 코스를 먼저 선택하세요
+        </p>
+      )}
     </div>
   );
 }
