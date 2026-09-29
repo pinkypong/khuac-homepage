@@ -27,8 +27,11 @@ export const CACHE_TTL_DAYS = 14;
  * v4: waypoints are listed in the order they are walked, and one place is not
  * named twice. The map joins consecutive waypoints, so an order that reads
  * fine in a sentence drew a climb, a descent and a second climb.
+ * v5: a question naming a mountain the library holds - "북한산 추천" - is a
+ * route question. Until now it was stored as prose with no cards, and would
+ * have been replayed as that for two weeks.
  */
-export const PROMPT_VERSION = "v4";
+export const PROMPT_VERSION = "v5";
 
 /**
  * Collapses the differences that should not cost a second search: spacing,

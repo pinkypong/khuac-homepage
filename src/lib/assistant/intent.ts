@@ -99,12 +99,68 @@ export function isRouteQuestion(query: string): boolean {
   // right - 등산화 and 산악부 are caught by one each, and 부산·울산·아산 are
   // cities that happen to end in it.
   //
-  // A named mountain is still missed: "북한산 추천" reads as one compound and
-  // nothing in its shape tells it from 부산. That wants the gazetteer this
-  // file does not have, not a longer regex guessing at it.
+  // A named mountain is not read from its shape - 북한산 and 부산 have the
+  // same one. That is isNamedMountainRouteQuestion's job, against the names the
+  // library holds.
   const walking = /(등산|산행)(?![가-힣])/.test(query)
     || /(?<![가-힣])산(?![가-힣])/.test(query);
-  return walking && containsAny(query, ["추천", "초보", "시간", "갈 만", "갈만"]);
+  return walking && containsAny(query, ASKING);
+}
+
+// What a member says when they want somewhere to go rather than a fact about it.
+const ASKING = ["추천", "초보", "시간", "갈 만", "갈만"];
+
+// A question that names a mountain and asks for a recommendation is still not
+// asking for a walk when it is also about something else: 북한산 맛집 추천 and
+// 관악산 등산화 추천 each name a mountain and want no course.
+const ABOUT_SOMETHING_ELSE = [
+  "맛집", "식당", "카페", "숙소", "숙박", "펜션", "민박", "주차", "장비",
+  "등산화", "등산복", "스틱", "배낭", "가격", "영업", "근처", "주변",
+];
+
+// Library names that are also a town: 안산 and 오산 are cities, 금산 a county,
+// 경주 the city its national park is named for. "안산 맛집" is caught above, but
+// "안산 추천" is not, and buying a course search for a town is the mistake this
+// list exists to avoid. Members who mean the mountain say 등산, 코스 or 산 too,
+// and those already count.
+const ALSO_A_TOWN = new Set(["경주", "안산", "오산", "금산"]);
+
+// What may follow a name and still be that name: nothing, or a particle. 남산타워
+// and 북한산성 carry straight on into another noun.
+const PARTICLES = "이가은는을를에의도로과와만쪽";
+
+function standsAlone(query: string, name: string): boolean {
+  for (let at = query.indexOf(name); at !== -1; at = query.indexOf(name, at + 1)) {
+    const before = query[at - 1];
+    const after = query[at + name.length];
+    if (before && /[가-힣]/.test(before)) continue;
+    if (after && /[가-힣]/.test(after) && !PARTICLES.includes(after)) continue;
+    return true;
+  }
+  return false;
+}
+
+/** Whether the member is asking for somewhere to go, whatever they name. */
+export function asksForSomewhere(query: string): boolean {
+  return containsAny(query, ASKING) && !containsAny(query, ABOUT_SOMETHING_ELSE);
+}
+
+/**
+ * "북한산 추천": a route question, told from "부산 맛집 추천" by whether the
+ * name is one the library holds - which is knowledge no pattern has.
+ *
+ * Exactly one mountain. Two names is a comparison, and cards for whichever the
+ * library happened to pick would answer half of it and hide that a choice was
+ * made. A name inside a longer matched one (북한산 in 북한산 원효봉) is the same
+ * mountain, not a second.
+ */
+export function isNamedMountainRouteQuestion(query: string, mountains: readonly string[]): boolean {
+  if (!asksForSomewhere(query)) return false;
+  const named = mountains.filter(
+    (name) => name.length >= 2 && !ALSO_A_TOWN.has(name) && standsAlone(query, name),
+  );
+  const distinct = named.filter((name) => !named.some((other) => other !== name && other.includes(name)));
+  return new Set(distinct).size === 1;
 }
 
 // Everything a weather question is built from apart from the place itself.

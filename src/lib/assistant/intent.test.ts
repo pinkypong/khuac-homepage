@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { classifyQuery, extractTimeframe, isRouteQuestion, weatherSubject } from "./intent";
+import {
+  asksForSomewhere,
+  classifyQuery,
+  extractTimeframe,
+  isNamedMountainRouteQuestion,
+  isRouteQuestion,
+  weatherSubject,
+} from "./intent";
 
 describe("classifyQuery", () => {
   it("routes a bare location question without calling anything", () => {
@@ -143,5 +150,86 @@ describe("등산 as a word, not as a syllable", () => {
     expect(isRouteQuestion("북한산 등산 추천해줘")).toBe(true);
     expect(isRouteQuestion("초보 산행 추천")).toBe(true);
     expect(isRouteQuestion("관악산 등산로")).toBe(true);
+  });
+});
+
+describe("isNamedMountainRouteQuestion", () => {
+  // A slice of what course_library holds, with the awkward ones kept in: a name
+  // inside a longer one, and four that are also a town.
+  const held = ["북한산", "북한산 원효봉", "관악산", "도봉산", "남산", "설악산", "안산", "오산", "경주", "금산", "가리산"];
+
+  it("reads a named mountain plus a request as a route question", () => {
+    expect(isNamedMountainRouteQuestion("북한산 추천", held)).toBe(true);
+    expect(isNamedMountainRouteQuestion("관악산 갈만한 곳", held)).toBe(true);
+    expect(isNamedMountainRouteQuestion("초보가 가기 좋은 도봉산", held)).toBe(true);
+    expect(isNamedMountainRouteQuestion("설악산 몇 시간 걸려?", held)).toBe(true);
+  });
+
+  it("accepts a particle after the name", () => {
+    expect(isNamedMountainRouteQuestion("북한산이 초보한테 괜찮아? 추천 부탁", held)).toBe(true);
+    expect(isNamedMountainRouteQuestion("가리산에서 추천할 만한 곳", held)).toBe(true);
+  });
+
+  it("does not take a city for a mountain", () => {
+    // None of these is a library name; 부산 is why a pattern could not do this.
+    expect(isNamedMountainRouteQuestion("부산 맛집 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("부산 가볼 만한 곳 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("울산 근처 숙소 추천", held)).toBe(false);
+  });
+
+  it("does not take a town that shares a name with a mountain", () => {
+    expect(isNamedMountainRouteQuestion("안산 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("오산 갈만한 곳", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("경주 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("금산 초보 추천", held)).toBe(false);
+  });
+
+  it("does not read a name out of a longer word", () => {
+    expect(isNamedMountainRouteQuestion("남산타워 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("서울남산 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("북한산성 추천", held)).toBe(false);
+  });
+
+  it("needs the member to be asking for somewhere", () => {
+    expect(isNamedMountainRouteQuestion("북한산 높이", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("북한산 위치", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("북한산 오늘 날씨", held)).toBe(false);
+  });
+
+  it("leaves a mountain question that is about something else", () => {
+    expect(isNamedMountainRouteQuestion("북한산 맛집 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("관악산 근처 카페 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("북한산 갈 때 등산화 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("도봉산 주차 어디가 좋아 추천 부탁", held)).toBe(false);
+  });
+
+  it("leaves a comparison alone, because cards can only be for one", () => {
+    expect(isNamedMountainRouteQuestion("관악산이랑 북한산 중에 추천", held)).toBe(false);
+    expect(isNamedMountainRouteQuestion("관악산 도봉산 초보 추천", held)).toBe(false);
+  });
+
+  it("counts a name inside a longer one as the same mountain", () => {
+    expect(isNamedMountainRouteQuestion("북한산 원효봉 추천", held)).toBe(true);
+  });
+
+  it("is false with nothing to look up", () => {
+    expect(isNamedMountainRouteQuestion("북한산 추천", [])).toBe(false);
+  });
+
+  it("does not change the shape-only check", () => {
+    expect(isRouteQuestion("북한산 추천")).toBe(false);
+  });
+});
+
+describe("asksForSomewhere", () => {
+  it("is only a guard: it lets 부산 through and leaves the library to say no", () => {
+    expect(asksForSomewhere("북한산 추천")).toBe(true);
+    expect(asksForSomewhere("부산 추천")).toBe(true);
+  });
+
+  it("keeps gear and packing questions off the library read", () => {
+    expect(asksForSomewhere("등산 배낭 추천")).toBe(false);
+    expect(asksForSomewhere("배낭에 넣을 짐")).toBe(false);
+    expect(asksForSomewhere("북한산 맛집 추천")).toBe(false);
   });
 });

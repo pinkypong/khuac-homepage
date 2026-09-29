@@ -6,6 +6,8 @@ import {
   classifyQuery,
   extractTimeframe,
   isClimbingQuestion,
+  asksForSomewhere,
+  isNamedMountainRouteQuestion,
   isRouteQuestion,
   weatherSubject,
   type QueryIntent,
@@ -168,7 +170,6 @@ async function produceAnswer(
   const intent = classifyQuery(trimmed);
   const clubQuestion = /동아리|산악부|우리.{0,6}(기록|활동|산행|방문)|지난.{0,6}(산행|활동)/.test(trimmed);
   const venueQuestion = /인공암벽|암벽장|클라이밍장|실내.{0,4}(암벽|등반|클라이밍)|더클라임/.test(trimmed);
-  const directQuestion = !clubQuestion && (venueQuestion || (intent === "complex" && !isRouteQuestion(trimmed)));
   const key = cacheKey(trimmed);
   if (!refresh && intent === "complex") {
     const { data: hit } = await supabase
@@ -179,6 +180,23 @@ async function produceAnswer(
     const row = hit as { answer: AssistantAnswer; created_at: string } | null;
     if (row && isFresh(row.created_at)) return { ...row.answer, cachedAge: ageLabel(row.created_at) };
   }
+
+  // Decided after the cache read on purpose: a stored answer is free, and the
+  // library read below is not worth doing to find that out.
+  //
+  // A named mountain is a route question, but only the library can say whether
+  // a name is one - 북한산 and 부산 look alike. The names are read only for a
+  // question that is asking for somewhere and would otherwise be answered in
+  // prose, so gear and packing questions never pay for it.
+  let routeAsked = isRouteQuestion(trimmed);
+  if (!routeAsked && !clubQuestion && !venueQuestion && intent === "complex" && asksForSomewhere(trimmed)) {
+    const { data: names } = await supabase.from("course_library").select("mountain");
+    routeAsked = isNamedMountainRouteQuestion(
+      trimmed,
+      ((names ?? []) as { mountain: string }[]).map((row) => row.mountain),
+    );
+  }
+  const directQuestion = !clubQuestion && (venueQuestion || (intent === "complex" && !routeAsked));
 
   if (directQuestion) {
     const climbing = isClimbingQuestion(trimmed);
@@ -304,7 +322,7 @@ async function produceAnswer(
   // whether the club has been there. "동아리 기록이 없습니다" and stopping
   // there was the wrong instinct: not having gone somewhere is not a reason to
   // withhold what is knowable about it.
-  if (isRouteQuestion(trimmed)) {
+  if (routeAsked) {
     // What we already hold, read against the question instead of searched for.
     // A grounded search costs 27 seconds and is spent again on every
     // rephrasing; the courses themselves barely change, so only the reading is
