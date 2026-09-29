@@ -148,6 +148,43 @@ describe("mapped approaches and topology", () => {
   });
 });
 
+describe("official surveys joining OSM at their own dead ends", () => {
+  // 8m and 12m north of where the official way stops, at 37.6N: past the 2m
+  // junction tolerance either way, so only the official-to-OSM join (10m) can
+  // account for the difference between these two.
+  const official = { ...seg(1, [[37.600, 127.0], [37.6010, 127.0]]), source: "official" as const };
+
+  it("joins an official survey's dead end to OSM within ten metres", () => {
+    const osm = seg(2, [[37.601072, 127.0], [37.603, 127.0]]);
+    const leg = snapRouteToTrails(
+      [{ lat: 37.600, lng: 127.0 }, { lat: 37.603, lng: 127.0 }],
+      [official, osm],
+    )[0];
+    expect(leg.onTrail).toBe(true);
+  });
+
+  it("does not join past ten metres", () => {
+    const osm = seg(2, [[37.601108, 127.0], [37.603, 127.0]]);
+    const leg = snapRouteToTrails(
+      [{ lat: 37.600, lng: 127.0 }, { lat: 37.603, lng: 127.0 }],
+      [official, osm],
+    )[0];
+    expect(leg.onTrail).toBe(false);
+  });
+
+  it("does not join two official surveys to each other", () => {
+    // Same 8m gap as the successful case above, but the far side is another
+    // official way rather than OSM - this join is for crossing into OSM, not
+    // for stitching one agency's own islands together.
+    const otherOfficial = { ...seg(3, [[37.601072, 127.0], [37.603, 127.0]]), source: "official" as const };
+    const leg = snapRouteToTrails(
+      [{ lat: 37.600, lng: 127.0 }, { lat: 37.603, lng: 127.0 }],
+      [official, otherOfficial],
+    )[0];
+    expect(leg.onTrail).toBe(false);
+  });
+});
+
 describe("dropOutlierWaypoints", () => {
   // 숨은벽: 밤골 → 해골바위 → 백운대, with 해골바위 mislooked-up far to the east.
   const course = [

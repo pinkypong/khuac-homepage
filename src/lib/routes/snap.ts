@@ -219,6 +219,42 @@ export function buildTrailGraph(segments: TrailSegment[]): Graph {
     }
   }
 
+  /**
+   * Ties an official survey's own dead ends into OSM.
+   *
+   * 국립공원공단 and OSM never share a coordinate - two independent surveys of
+   * the same mountain - so each agency's lines sit beside OSM as their own
+   * disconnected pieces rather than joining it, and a route crossing between
+   * them detours around whichever piece it landed on. Around 정릉 this measured
+   * as 94 park-agency islands, the largest holding 6.5% of its nodes: the graph
+   * carries the geometry but a course cannot cross from one piece to another,
+   * or onto OSM, except where they happen to end at the same spot.
+   *
+   * An official way's endpoint - where its own survey stopped, not a
+   * mid-segment vertex - is joined to the nearest OSM node within ten metres.
+   * Ten held on Bukhansan and Dobongsan against 20m and 30m: the same legs
+   * moved, by the same amount, so the smaller radius is kept as the one less
+   * likely to wire two paths that only run near each other. Traced lines
+   * (`isTraced`) already have their own, wider join above and are skipped here
+   * so the two passes do not double an edge between the same two points.
+   */
+  const OFFICIAL_JOIN_TOLERANCE_M = 10;
+  const officialIds = new Set(segments.filter((s) => s.source === "official").map((s) => s.id));
+  if (officialIds.size > 0) {
+    for (const segment of segments) {
+      if (!officialIds.has(segment.id) || isTraced(segment.id)) continue;
+      for (const end of [segment.points[0], segment.points[segment.points.length - 1]]) {
+        const from = nearestNodeWithin(graph, end, 0.5, () => true);
+        if (from === null) continue;
+        const to = nearestNodeWithin(graph, end, OFFICIAL_JOIN_TOLERANCE_M, (id) => {
+          const theirs = graph.ways.get(id);
+          return !!theirs && [...theirs].some((way) => !officialIds.has(way));
+        });
+        if (to !== null) addEdge(graph, from, to, metres(graph.nodes[from], graph.nodes[to]));
+      }
+    }
+  }
+
   return graph;
 }
 

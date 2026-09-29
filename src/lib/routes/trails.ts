@@ -15,6 +15,10 @@ export interface TrailSegment {
   /** The OSM highway value: path, footway, track, steps. */
   kind: string;
   points: TrackPoint[];
+  /** Which survey this came from. Undefined for older cached rows written
+      before this field existed - callers that care treat that as OSM, the
+      larger and older of the two tables. */
+  source?: "osm" | "official";
 }
 
 /** Imported survey rows sometimes concatenate disconnected pieces. Never

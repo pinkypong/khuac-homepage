@@ -305,12 +305,13 @@ async function trailsForBounds(
     // Official surveyed geometry did not suffer OSM's downsampling bug.
     supabase.from("official_trails").select("segments").in("tile_key", [...keys, ...keys.map((key) => key.replace(/^v3:/, "v2:"))]),
   ]);
+  const tagOsm = (segments: TrailSegment[]) => segments.map((s) => ({ ...s, source: "osm" as const }));
   for (const row of (osm.data ?? []) as unknown as { tile_key: string; segments: TrailSegment[] }[]) {
-    if (row.tile_key.startsWith("v3:")) cached.set(row.tile_key, row.segments ?? []);
-    else legacy.set(row.tile_key.replace(/^v2:/, "v3:"), row.segments ?? []);
+    if (row.tile_key.startsWith("v3:")) cached.set(row.tile_key, tagOsm(row.segments ?? []));
+    else legacy.set(row.tile_key.replace(/^v2:/, "v3:"), tagOsm(row.segments ?? []));
   }
   const officialSegments = splitSurveyGaps(mergeTileSegments(((official.data ?? []) as unknown as { segments: TrailSegment[] }[])
-    .map((row) => row.segments ?? [])));
+    .map((row) => (row.segments ?? []).map((s) => ({ ...s, source: "official" as const })))));
 
   const missing = keys.filter((key) => !cached.has(key));
   if (missing.length === 0) return mergeTileSegments([...cached.values(), officialSegments]);
@@ -343,7 +344,7 @@ async function trailsForBounds(
       const { error } = await supabase.from("trail_tiles").upsert(rows, { onConflict: "tile_key" });
       if (error) console.error("[route-actions] trail tile write failed", error.message);
     }
-    return mergeTileSegments([[...fetched], ...cached.values(), officialSegments]);
+    return mergeTileSegments([tagOsm(fetched), ...cached.values(), officialSegments]);
   } catch {
     console.error("[route-actions] Overpass unavailable; drawing from what we hold");
     // Retain the previous geometry during an outage, without labelling it as
