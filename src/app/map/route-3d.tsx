@@ -7,9 +7,39 @@ import { bandPathsFor } from "@/lib/routes/band-paths";
 import { flattenTrack } from "@/lib/gps/track";
 import type { CourseProfile } from "@/lib/routes/elevation";
 import { TIER_LABEL, TIER_LINE, TIER_ORDER } from "@/lib/routes/grade-style";
+import {
+  HAZARD_LABEL,
+  hazardsNearRoute,
+  isDanger,
+  mergeHazards,
+  type Hazard,
+  type HazardKind,
+  type HazardRow,
+} from "@/lib/routes/hazards";
+import { MARKER_GLYPH, medianElevation, routeEnds, summitOf, type MarkerKind } from "@/lib/routes/route-markers";
 import { loadCourseElevation } from "./elevation-actions";
 
 const PLAIN_LINE = "#D23B2E";
+const DANGER_PIN = "#DC2626";
+const AID_PIN = "#7C3AED";
+const START_PIN = "#16A34A";
+const END_PIN = "#171717";
+const SUMMIT_PIN = "#B45309";
+
+/** How high above the ground each pin floats, with a pole down to the ground. */
+const POLE_M = { landmark: 45, danger: 30, aid: 18 } as const;
+
+interface Pin {
+  lat: number;
+  lng: number;
+  kind: MarkerKind;
+  background: string;
+  scale: number;
+  altitude: number;
+  /** Required pins are always drawn; the rest give way when they collide. */
+  required: boolean;
+  zIndex: number;
+}
 
 /** A separate, on-demand view of the same coordinates used by the 2D map. */
 export function Route3D({
@@ -67,6 +97,48 @@ export function Route3D({
     };
   }, [colourByDifficulty, points]);
   const bands = useMemo(() => bandPathsFor(points, profile), [points, profile]);
+  // Park-service records of danger spots and fixed ropes / railings that lie on
+  // this route. Public data and a local file, so it is shown to every viewer,
+  // and read only once the 3D view is opened so it never weighs on the 2D map.
+  const [hazards, setHazards] = useState<Hazard[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    import("@/lib/routes/hazard-points.json")
+      .then((module) => {
+        if (!cancelled) setHazards(hazardsNearRoute(points, module.default as unknown as HazardRow[]));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [points]);
+  const spots = useMemo(() => mergeHazards(hazards), [hazards]);
+  const summit = useMemo(() => summitOf(points, profile), [points, profile]);
+  const pins = useMemo<Pin[]>(() => {
+    const out: Pin[] = [];
+    const landmark = (kind: MarkerKind, at: readonly [number, number], background: string, zIndex: number) =>
+      out.push({ lat: at[0], lng: at[1], kind, background, scale: 1.1, altitude: POLE_M.landmark, required: true, zIndex });
+    const ends = routeEnds(points);
+    if (ends) {
+      landmark("start", ends.start, START_PIN, 3);
+      if (ends.end) landmark("end", ends.end, END_PIN, 3);
+    }
+    if (summit) landmark("summit", [summit.lat, summit.lng], SUMMIT_PIN, 4);
+    for (const spot of spots) {
+      const danger = isDanger(spot.kind);
+      out.push({
+        lat: spot.lat,
+        lng: spot.lng,
+        kind: spot.kind,
+        background: danger ? DANGER_PIN : AID_PIN,
+        scale: danger ? 1 : 0.8,
+        altitude: danger ? POLE_M.danger : POLE_M.aid,
+        required: danger,
+        zIndex: danger ? 2 : 1,
+      });
+    }
+    return out;
+  }, [points, summit, spots]);
   const [built, setBuilt] = useState(false);
   const scene = useRef<{ map: google.maps.maps3d.Map3DElement; Polyline3D: typeof google.maps.maps3d.Polyline3DElement } | null>(null);
 
@@ -160,6 +232,8 @@ export function Route3D({
       outerColor: "#ffffff",
       outerWidth: 0.35,
       altitudeMode: "CLAMP_TO_GROUND",
+      // A ridge between the camera and the line would otherwise cut it out.
+      drawsOccludedSegments: true,
     }));
     map.append(...lines);
     return () => {
@@ -167,6 +241,78 @@ export function Route3D({
     };
   }, [built, bands, points]);
 
+  // The camera aims at a point at sea level until the heights arrive, which on a
+  // mountain is underground. When they do, only the altitude of that point
+  // moves - flown to, not rebuilt: rebuilding the element is a billed load.
+  const flownTo = useRef<google.maps.maps3d.Map3DElement | null>(null);
+  useEffect(() => {
+    const current = scene.current;
+    const altitude = medianElevation(profile);
+    if (!built || !current || altitude === null) return;
+    const { map } = current;
+    if (flownTo.current === map) return;
+    flownTo.current = map;
+    const centre = map.center;
+    map.flyCameraTo({
+      durationMillis: 1500,
+      endCamera: {
+        center: { lat: centre?.lat ?? camera.center.lat, lng: centre?.lng ?? camera.center.lng, altitude },
+        altitudeMode: "ABSOLUTE",
+        heading: map.heading ?? 0,
+        tilt: map.tilt ?? 55,
+        range: map.range ?? camera.range,
+      },
+    });
+  }, [built, profile, camera]);
+
+  // Markers are drawn apart from the line for the same reason the line is drawn
+  // apart from the map: the records can arrive after the scene is up.
+  useEffect(() => {
+    const current = scene.current;
+    if (!built || !current || pins.length === 0) return;
+    let disposed = false;
+    const added: HTMLElement[] = [];
+    void (async () => {
+      try {
+        const { Marker3DElement } = await google.maps.importLibrary("maps3d") as google.maps.MapsLibrary & typeof google.maps.maps3d;
+        const { PinElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
+        if (disposed || scene.current !== current) return;
+        for (const pin of pins) {
+          // No text on the map: the glyph says what it is and the legend says
+          // it once. Floating above the ground on a pole (extruded needs a
+          // ground-relative or absolute altitude) is what makes the pin read
+          // as standing in the terrain and not stuck to the screen.
+          const marker = new Marker3DElement({
+            position: { lat: pin.lat, lng: pin.lng, altitude: pin.altitude },
+            altitudeMode: "RELATIVE_TO_GROUND",
+            extruded: true,
+            drawsWhenOccluded: true,
+            sizePreserved: true,
+            collisionBehavior: pin.required ? "REQUIRED" : "OPTIONAL_AND_HIDES_LOWER_PRIORITY",
+            zIndex: pin.zIndex,
+          });
+          marker.append(new PinElement({
+            background: pin.background,
+            borderColor: "#ffffff",
+            glyphText: MARKER_GLYPH[pin.kind],
+            scale: pin.scale,
+          }));
+          current.map.append(marker);
+          added.push(marker);
+        }
+      } catch (cause) {
+        console.error("[route-3d] markers failed", cause);
+      }
+    })();
+    return () => {
+      disposed = true;
+      for (const marker of added) marker.remove();
+    };
+  }, [built, pins]);
+
+  const hazardKinds = (Object.keys(HAZARD_LABEL) as HazardKind[])
+    .map((kind) => ({ kind, count: spots.filter((spot) => spot.kind === kind).length }))
+    .filter((entry) => entry.count > 0);
   const used = bands ? TIER_ORDER.filter((tier) => bands.some((band) => band.tier === tier)) : [];
 
   return (
@@ -183,13 +329,19 @@ export function Route3D({
           </div>
           <strong className="block truncate">{title}</strong>
           <span>{source === "gpx" ? "GPX 기록" : "지도 경로 · 현장 확인 필요"}</span>
-          {used.length > 0 && (
+          {(used.length > 0 || pins.length > 0) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 border-t border-neutral-200 pt-1.5 text-[11px] text-neutral-700">
               {used.map((tier) => (
                 <span key={tier} className="inline-flex items-center gap-1">
                   <span aria-hidden="true" className="inline-block h-1 w-3.5 rounded-full" style={{ backgroundColor: TIER_LINE[tier] }} />
                   {TIER_LABEL[tier]}
                 </span>
+              ))}
+              {pins.some((pin) => pin.kind === "start") && <span>{MARKER_GLYPH.start} 출발</span>}
+              {pins.some((pin) => pin.kind === "end") && <span>{MARKER_GLYPH.end} 도착</span>}
+              {summit && <span>{MARKER_GLYPH.summit} 최고점 {Math.round(summit.elevation).toLocaleString("ko-KR")}m</span>}
+              {hazardKinds.map(({ kind, count }) => (
+                <span key={kind}>{MARKER_GLYPH[kind]} {HAZARD_LABEL[kind]} {count}</span>
               ))}
             </div>
           )}

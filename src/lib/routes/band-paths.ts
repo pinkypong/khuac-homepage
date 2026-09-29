@@ -12,8 +12,15 @@ export interface BandPath {
 const metres = (a: TrackPoint, b: TrackPoint) =>
   haversineDistanceMeters({ lat: a[0], lng: a[1] }, { lat: b[0], lng: b[1] });
 
+/** Metres walked from the start to each vertex of the line. */
+export function cumulativeMetres(line: TrackPoint[]): number[] {
+  const cumulative = [0];
+  for (let i = 1; i < line.length; i++) cumulative.push(cumulative[i - 1] + metres(line[i - 1], line[i]));
+  return cumulative;
+}
+
 /** The point `along` metres in, interpolated inside the segment it falls on. */
-function pointAt(line: TrackPoint[], cumulative: number[], along: number): TrackPoint {
+export function pointAt(line: TrackPoint[], cumulative: number[], along: number): TrackPoint {
   if (along <= 0) return line[0];
   const last = line.length - 1;
   if (along >= cumulative[last]) return line[last];
@@ -39,8 +46,7 @@ function pointAt(line: TrackPoint[], cumulative: number[], along: number): Track
  */
 export function pathsByBand(line: TrackPoint[], bands: GradientBand[]): BandPath[] {
   if (line.length < 2 || bands.length === 0) return [];
-  const cumulative = [0];
-  for (let i = 1; i < line.length; i++) cumulative.push(cumulative[i - 1] + metres(line[i - 1], line[i]));
+  const cumulative = cumulativeMetres(line);
 
   const out: BandPath[] = [];
   bands.forEach((band, index) => {
