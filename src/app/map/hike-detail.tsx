@@ -677,7 +677,7 @@ export function HikeDetail({
 
             {/* Time and difficulty are what the answer knew and the geometry
                 cannot say. Distance only when there is no line: a drawn one is
-                measured, the profile under the map shows it, and two numbers
+                measured, the 3D view shows its length, and two numbers
                 claiming to be the same thing is worse than one. */}
             {(hike.courseInfo?.durationText || hike.courseInfo?.difficulty
               || (!hike.track && hike.courseInfo?.distanceText)) && (

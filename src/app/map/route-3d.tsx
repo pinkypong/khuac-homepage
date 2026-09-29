@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TrackPoint } from "@/lib/gps/track";
 import { haversineDistanceMeters } from "@/lib/gps/haversine";
 import { bandPathsFor } from "@/lib/routes/band-paths";
-import { flattenTrack } from "@/lib/gps/track";
+import { flattenTrack, formatDistance } from "@/lib/gps/track";
 import type { CourseProfile } from "@/lib/routes/elevation";
 import { TIER_LABEL, TIER_LINE, TIER_ORDER } from "@/lib/routes/grade-style";
 import {
@@ -329,6 +329,14 @@ export function Route3D({
           </div>
           <strong className="block truncate">{title}</strong>
           <span>{source === "gpx" ? "GPX 기록" : "지도 경로 · 현장 확인 필요"}</span>
+          {/* The surface length, not the flat one: a trail climbs, and the
+              distance walked is the hypotenuse of each step, not its shadow on
+              the map. */}
+          {profile && (
+            <span className="block text-neutral-700">
+              {formatDistance(profile.surfaceM)} (경사 포함) · 상승 {Math.round(profile.ascentM).toLocaleString("ko-KR")}m
+            </span>
+          )}
           {(used.length > 0 || pins.length > 0) && (
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 border-t border-neutral-200 pt-1.5 text-[11px] text-neutral-700">
               {used.map((tier) => (
