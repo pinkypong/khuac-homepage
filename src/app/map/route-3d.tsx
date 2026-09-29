@@ -3,17 +3,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TrackPoint } from "@/lib/gps/track";
 import { haversineDistanceMeters } from "@/lib/gps/haversine";
+import { bandPathsFor } from "@/lib/routes/band-paths";
+import { flattenTrack } from "@/lib/gps/track";
+import type { CourseProfile } from "@/lib/routes/elevation";
+import { TIER_LABEL, TIER_LINE, TIER_ORDER } from "@/lib/routes/grade-style";
+import { loadCourseElevation } from "./elevation-actions";
+
+const PLAIN_LINE = "#D23B2E";
 
 /** A separate, on-demand view of the same coordinates used by the 2D map. */
 export function Route3D({
   track,
   title,
   source,
+  colourByDifficulty,
   onClose,
 }: {
   track: TrackPoint[];
   title: string;
   source: "gpx" | "other";
+  /** Whether this viewer may have the line coloured by difficulty. The heights
+      come from a member-only action, so anyone else keeps the plain line. */
+  colourByDifficulty: boolean;
   onClose: () => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -38,6 +49,26 @@ export function Route3D({
    */
   const opened = useRef(track);
   const points = opened.current;
+
+  // The line is drawn at once in one colour; the heights follow, and the
+  // colours arrive when they do. A failed lookup leaves the plain line, which
+  // is a complete picture, so it is not an error state.
+  const [profile, setProfile] = useState<CourseProfile | null>(null);
+  useEffect(() => {
+    if (!colourByDifficulty) return;
+    let cancelled = false;
+    loadCourseElevation(flattenTrack(points))
+      .then((found) => {
+        if (!cancelled) setProfile(found);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [colourByDifficulty, points]);
+  const bands = useMemo(() => bandPathsFor(points, profile), [points, profile]);
+  const [built, setBuilt] = useState(false);
+  const scene = useRef<{ map: google.maps.maps3d.Map3DElement; Polyline3D: typeof google.maps.maps3d.Polyline3DElement } | null>(null);
 
   const camera = useMemo(() => {
     const lats = points.map((point) => point[0]);
@@ -94,18 +125,9 @@ export function Route3D({
         map.style.width = "100%";
         map.style.height = "100%";
 
-        // Ground-relative coordinates let the renderer supply terrain height.
-        // The existing track stores lat/lng, so no approximate elevation needs
-        // to be written back to the database or interpreted as GPS altitude.
-        map.append(new Polyline3DElement({
-          path: points.map(([lat, lng]) => ({ lat, lng })),
-          strokeColor: "#D23B2E",
-          strokeWidth: 7,
-          outerColor: "#ffffff",
-          outerWidth: 0.35,
-          altitudeMode: "CLAMP_TO_GROUND",
-        }));
         host.append(map);
+        scene.current = { map, Polyline3D: Polyline3DElement };
+        setBuilt(true);
       } catch (cause) {
         console.error("[route-3d] map load failed", cause);
         if (!disposed) setError(true);
@@ -115,9 +137,37 @@ export function Route3D({
     void open();
     return () => {
       disposed = true;
+      scene.current = null;
+      setBuilt(false);
       host.replaceChildren();
     };
-  }, [camera, points]);
+  }, [camera]);
+
+  // Drawn apart from the map so a profile that arrives late recolours the line
+  // in place rather than rebuilding the scene - which is a billed load, a flash
+  // and the camera back at its start.
+  useEffect(() => {
+    const current = scene.current;
+    if (!built || !current) return;
+    const { map, Polyline3D } = current;
+    // Ground-relative coordinates let the renderer supply terrain height.
+    // The existing track stores lat/lng, so no approximate elevation needs
+    // to be written back to the database or interpreted as GPS altitude.
+    const lines = (bands ?? [{ tier: null, path: points }]).map((band) => new Polyline3D({
+      path: band.path.map(([lat, lng]) => ({ lat, lng })),
+      strokeColor: band.tier ? TIER_LINE[band.tier] : PLAIN_LINE,
+      strokeWidth: 7,
+      outerColor: "#ffffff",
+      outerWidth: 0.35,
+      altitudeMode: "CLAMP_TO_GROUND",
+    }));
+    map.append(...lines);
+    return () => {
+      for (const line of lines) line.remove();
+    };
+  }, [built, bands, points]);
+
+  const used = bands ? TIER_ORDER.filter((tier) => bands.some((band) => band.tier === tier)) : [];
 
   return (
     <section className="absolute inset-0 z-20 bg-neutral-100" aria-label={`${title} 3D 경로`}>
@@ -133,6 +183,16 @@ export function Route3D({
           </div>
           <strong className="block truncate">{title}</strong>
           <span>{source === "gpx" ? "GPX 기록" : "지도 경로 · 현장 확인 필요"}</span>
+          {used.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 border-t border-neutral-200 pt-1.5 text-[11px] text-neutral-700">
+              {used.map((tier) => (
+                <span key={tier} className="inline-flex items-center gap-1">
+                  <span aria-hidden="true" className="inline-block h-1 w-3.5 rounded-full" style={{ backgroundColor: TIER_LINE[tier] }} />
+                  {TIER_LABEL[tier]}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       {/* Below the controls rather than over them: the way out of a slow load

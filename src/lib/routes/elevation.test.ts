@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildProfile, cellCentre, cellKey, gradientBands, sampleAlongTrack, sectionsOf, stackLabels, steepestRun, steepnessOf, waypointsAlong,
+  buildProfile, cellCentre, cellKey, gradientBands, sampleAlongTrack, steepnessOf,
 } from "./elevation";
 import type { TrackPoint } from "../gps/track";
 
@@ -83,45 +83,6 @@ describe("steepnessOf", () => {
   });
 });
 
-describe("steepestRun", () => {
-  it("ignores a single sample, however steep", () => {
-    // 90m steps, flat but for one 40m spike - the shape of model noise.
-    const points = Array.from({ length: 10 }, (_, i) => ({
-      along: i * 90, elevation: i === 4 ? 240 : 200,
-    }));
-    // Over any 200m window the spike averages out well under 20%.
-    expect(steepestRun(points)!).toBeLessThan(0.2);
-  });
-
-  it("finds a real sustained climb", () => {
-    const points = Array.from({ length: 10 }, (_, i) => ({ along: i * 90, elevation: 200 + i * 27 }));
-    expect(steepestRun(points)!).toBeCloseTo(0.3, 1);
-  });
-
-  it("has no answer for a stretch shorter than the window", () => {
-    expect(steepestRun([{ along: 0, elevation: 100 }, { along: 90, elevation: 140 }])).toBeNull();
-  });
-});
-
-describe("sectionsOf", () => {
-  it("names each stretch and says which way it goes", () => {
-    const line = north(40);
-    const sampled = sampleAlongTrack(line, 90);
-    // Up for the first half, back down for the second.
-    const middle = Math.floor(sampled.length / 2);
-    const heights = sampled.map((_, i) => (i <= middle ? 100 + i * 50 : 100 + (sampled.length - i) * 50));
-    const profile = buildProfile(line, sampled, heights)!;
-    const along = waypointsAlong(line, [line[0], line[middle * 9], line[line.length - 1]]
-      .map(([lat, lng]) => ({ lat, lng })));
-    const sections = sectionsOf(profile, ["들머리", "정상", "날머리"], along);
-
-    expect(sections).toHaveLength(2);
-    expect(sections[0]).toMatchObject({ from: "들머리", to: "정상", downhill: false });
-    expect(sections[1].downhill).toBe(true);
-    expect(sections[0].ascentM).toBeGreaterThan(0);
-  });
-});
-
 describe("gradientBands", () => {
   const profileOf = (heights: number[], spacing = 90) => ({
     points: heights.map((elevation, i) => ({ along: i * spacing, elevation })),
@@ -158,35 +119,6 @@ describe("gradientBands", () => {
     expect(bands[0].fromAlong).toBe(0);
     expect(bands[bands.length - 1].toAlong).toBe(profile.distanceM);
     for (let i = 1; i < bands.length; i++) expect(bands[i].fromAlong).toBe(bands[i - 1].toAlong);
-  });
-});
-
-describe("stackLabels", () => {
-  it("leaves well-spaced names on one row", () => {
-    expect(stackLabels([0, 0.25, 0.5, 0.75, 1])).toEqual([0, 0, 0, 0, 0]);
-  });
-
-  it("drops the crowded one to the next row instead of overlapping it", () => {
-    // 백운대 and 백운봉암문: 340m apart on 5.8km is 0.06 of the width.
-    const rows = stackLabels([0, 0.42, 0.48, 1]);
-    expect(rows[1]).not.toBe(rows[2]);
-    expect(rows.every((row) => row !== null)).toBe(true);
-  });
-
-  it("keeps going down the rows as names pile up", () => {
-    const rows = stackLabels([0.5, 0.52, 0.54]);
-    expect(new Set(rows)).toEqual(new Set([0, 1, 2]));
-  });
-
-  it("drops a name it cannot place rather than hiding it under another", () => {
-    const rows = stackLabels([0.5, 0.51, 0.52, 0.53]);
-    expect(rows.filter((row) => row === null)).toHaveLength(1);
-  });
-
-  it("assigns rows by position, not by order in the list", () => {
-    // Given out of order, the leftmost still gets the top row.
-    const rows = stackLabels([0.9, 0.1, 0.5]);
-    expect(rows).toEqual([0, 0, 0]);
   });
 });
 

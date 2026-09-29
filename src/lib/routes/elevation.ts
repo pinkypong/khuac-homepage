@@ -1,10 +1,7 @@
 /**
- * Turning a drawn line into the picture the national park draws.
- *
- * Height against distance, with the named points along the bottom and the
- * steep stretches marked, so a reader can see where the work is before
- * committing to it. A card saying "약 7.1km, 약 4시간" does not say whether that
- * is a walk or a ladder; this does.
+ * Turning a drawn line into heights and stretches of one difficulty each, so
+ * the 3D view can colour where the work is. A card saying "약 7.1km, 약 4시간"
+ * does not say whether that is a walk or a ladder; the colours do.
  *
  * Kept free of any Supabase or network import so the arithmetic can be tested.
  * Where the heights come from is elevation-actions.ts's problem.
@@ -73,28 +70,6 @@ export function sampleAlongTrack(points: TrackPoint[], spacing = SAMPLE_SPACING_
   const last = points[points.length - 1];
   if (out[out.length - 1].point !== last) out.push({ point: last, along });
   return out;
-}
-
-/** Where along the line each waypoint stands, so the profile can be labelled. */
-export function waypointsAlong(
-  points: TrackPoint[],
-  waypoints: { lat: number; lng: number }[],
-): number[] {
-  if (points.length === 0) return waypoints.map(() => 0);
-  const along: number[] = [0];
-  for (let i = 1; i < points.length; i++) along.push(along[i - 1] + metres(points[i - 1], points[i]));
-  return waypoints.map((waypoint) => {
-    let best = 0;
-    let closest = Infinity;
-    for (let i = 0; i < points.length; i++) {
-      const away = metres(points[i], [waypoint.lat, waypoint.lng]);
-      if (away < closest) {
-        closest = away;
-        best = i;
-      }
-    }
-    return along[best];
-  });
 }
 
 export interface CourseProfile {
@@ -171,28 +146,6 @@ export function buildProfile(
  */
 export type Steepness = "flat" | "gentle" | "moderate" | "steep" | "severe";
 
-export interface CourseSection {
-  /** The two named points this runs between. */
-  from: string;
-  to: string;
-  /** Where it begins and ends along the line. Carried rather than left to the
-      caller to look up: a pair too short to measure is skipped, so the sections
-      are not index-aligned with the waypoints they came from, and reading the
-      positions back by index drew the steep bands over the wrong stretch. */
-  fromAlong: number;
-  toAlong: number;
-  distanceM: number;
-  /** Height at the end less height at the start; negative is a descent. */
-  riseM: number;
-  ascentM: number;
-  /** Average gradient, as a fraction. Negative downhill. */
-  gradient: number;
-  /** The steepest 200m inside it, or null when it is shorter than that. */
-  worstGradient: number | null;
-  steepness: Steepness;
-  downhill: boolean;
-}
-
 /**
  * How hard a stretch is, from its average gradient.
  *
@@ -215,60 +168,8 @@ export function steepnessOf(gradient: number): Steepness {
   return "severe";
 }
 
-/** The steepest run of at least `window` metres, or null if there is none. */
-export function steepestRun(within: ProfilePoint[], window = 200): number | null {
-  let worst: number | null = null;
-  for (let i = 0; i < within.length; i++) {
-    for (let j = i + 1; j < within.length; j++) {
-      const run = within[j].along - within[i].along;
-      if (run < window) continue;
-      const slope = Math.abs(within[j].elevation - within[i].elevation) / run;
-      worst = worst === null ? slope : Math.max(worst, slope);
-      break;
-    }
-  }
-  return worst;
-}
-
-/** The stretch between each pair of named points, and what it asks of a walker. */
-export function sectionsOf(
-  profile: CourseProfile,
-  names: string[],
-  waypointAlong: number[],
-): CourseSection[] {
-  const out: CourseSection[] = [];
-  for (let i = 1; i < waypointAlong.length; i++) {
-    const from = waypointAlong[i - 1];
-    const to = waypointAlong[i];
-    const within = profile.points.filter((point) => point.along >= from && point.along <= to);
-    if (within.length < 2 || to <= from) continue;
-
-    const riseM = within[within.length - 1].elevation - within[0].elevation;
-    let ascentM = 0;
-    for (let k = 1; k < within.length; k++) {
-      const step = within[k].elevation - within[k - 1].elevation;
-      if (step > 0) ascentM += step;
-    }
-    const gradient = riseM / (to - from);
-    out.push({
-      from: names[i - 1] ?? "",
-      to: names[i] ?? "",
-      fromAlong: from,
-      toAlong: to,
-      distanceM: to - from,
-      riseM,
-      ascentM,
-      gradient,
-      worstGradient: steepestRun(within),
-      steepness: steepnessOf(gradient),
-      downhill: riseM < 0,
-    });
-  }
-  return out;
-}
-
 /**
- * How long a stretch the colour of the chart is decided over.
+ * How long a stretch the colour of the line is decided over.
  *
  * The heights are a 90m model, so a shorter window colours its own noise: two
  * samples 90m apart can differ by a few metres of model error alone, which is
@@ -388,36 +289,4 @@ function absorb(keep: GradientBand, extra: GradientBand): void {
   const span = keep.toAlong - keep.fromAlong;
   keep.gradient = span > 0 ? rise / span : keep.gradient;
   keep.steepness = steepnessOf(keep.gradient);
-}
-
-/**
- * Which row each label goes on so that none sits on top of its neighbour.
- *
- * 백운대 and 백운봉암문 are 340m apart on a 5.8km course - a twentieth of the
- * width - and side by side on one line they overlapped and were cut off, which
- * left two names on the chart that could not be read.
- *
- * Positions are fractions of the width, and a label is assumed to take `width`
- * of it; a name needs that much clear space either side of its centre. Walking
- * left to right, each label takes the highest row that is free at its position.
- * Anything that would need a row past `rows` is dropped rather than stacked out
- * of sight - on a chart this size that means the names were too crowded to be
- * read anyway.
- */
-export function stackLabels(
-  positions: number[],
-  width = 0.13,
-  rows = 3,
-): (number | null)[] {
-  const lastEnd = new Array<number>(rows).fill(-Infinity);
-  const order = positions.map((at, index) => ({ at, index })).sort((a, b) => a.at - b.at);
-  const out = new Array<number | null>(positions.length).fill(null);
-  for (const { at, index } of order) {
-    const from = at - width / 2;
-    const row = lastEnd.findIndex((end) => end <= from);
-    if (row === -1) continue;
-    lastEnd[row] = at + width / 2;
-    out[index] = row;
-  }
-  return out;
 }

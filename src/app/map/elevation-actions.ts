@@ -1,26 +1,14 @@
 "use server";
 
 import { requireApprovedMember } from "@/lib/supabase/require-role";
-import { isValidGps } from "@/lib/gps/validate";
 import { sanitizeTrack, unflattenTrack } from "@/lib/gps/track";
 import {
   buildProfile,
   cellCentre,
   cellKey,
   sampleAlongTrack,
-  sectionsOf,
-  waypointsAlong,
   type CourseProfile,
-  type CourseSection,
 } from "@/lib/routes/elevation";
-
-export interface CourseElevation {
-  profile: CourseProfile;
-  sections: CourseSection[];
-  /** Where each named point stands along the line, for the labels under it. */
-  waypointAlong: number[];
-  names: string[];
-}
 
 /** Copernicus DEM GLO-90, free and without a key. 100 points to a request. */
 const BATCH = 100;
@@ -32,7 +20,7 @@ const MAX_SAMPLES = 500;
  *
  * Asked for separately rather than returned with the line, because the line is
  * what the member is waiting to see and this is a second of somebody else's
- * network. The picture fills in underneath a map that is already drawn.
+ * network. The colours fill in on a line that is already drawn.
  *
  * Heights are cached on the model's own 90m grid, so the second person to look
  * at a course - or the first to look at any course crossing the same ridge -
@@ -41,8 +29,7 @@ const MAX_SAMPLES = 500;
 export async function loadCourseElevation(
   /** Flattened to [lat, lng, lat, lng, ...] - see flattenTrack for why. */
   track: number[],
-  waypoints: { name: string; lat: number; lng: number }[],
-): Promise<CourseElevation | null> {
+): Promise<CourseProfile | null> {
   const { supabase } = await requireApprovedMember();
 
   const line = sanitizeTrack(unflattenTrack(track));
@@ -84,17 +71,7 @@ export async function loadCourseElevation(
   const heights = sampled.map(({ point }) => known.get(cellKey(point[0], point[1])));
   if (heights.some((height) => height === undefined)) return null;
 
-  const profile = buildProfile(line, sampled, heights as number[]);
-  if (!profile) return null;
-
-  const placed = waypoints.filter((waypoint) => isValidGps(waypoint.lat, waypoint.lng));
-  const along = waypointsAlong(line, placed);
-  return {
-    profile,
-    sections: sectionsOf(profile, placed.map((waypoint) => waypoint.name), along),
-    waypointAlong: along,
-    names: placed.map((waypoint) => waypoint.name),
-  };
+  return buildProfile(line, sampled, heights as number[]);
 }
 
 /**
